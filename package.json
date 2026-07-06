@@ -1,0 +1,49 @@
+{
+  "name": "mugen",
+  "private": true,
+  "type": "module",
+  "description": "Mugen — a persistent 3D tower on Vercel WebSockets. An authoritative Nitro game loop simulating a shared daily tower, rendered with TresJS, over one realtime connection per player.",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benjamincanac/mugen.git"
+  },
+  "author": {
+    "name": "Benjamin Canac",
+    "email": "canacb1@gmail.com",
+    "url": "https://github.com/benjamincanac"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.112",
+    "@iconify-json/simple-icons": "^1.2.86",
+    "@nuxt/ui": "^4.9.0",
+    "@tresjs/core": "^5.8.3",
+    "@tresjs/nuxt": "^5.6.3",
+    "h3": "2.0.1-rc.22",
+    "nitro": "3.0.260610-beta",
+    "nuxt": "npm:nuxt-nightly@5.0.0-29689124.2f9ee7b5",
+    "tailwindcss": "^4.3.2",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "^1.16.0",
+    "@types/three": "^0.185.0",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.3.6"
+  }
+}

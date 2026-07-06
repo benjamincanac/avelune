@@ -1,0 +1,45 @@
+name: "Bug Report"
+description: Report a problem with the starter
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Include your environment and steps to reproduce when you can.
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and OS
+      placeholder: e.g. Node 22, pnpm 10, macOS 15
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - WebSocket connection / upgrade
+        - Presence / cursors / reactions
+        - Redis / cross-instance state
+        - Local dev (crossws)
+        - Deployment (Vercel)
+        - UI
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps to reproduce, or a link to a minimal repo.
+    validations:
+      required: true

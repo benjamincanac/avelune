@@ -1,0 +1,22 @@
+name: "Question"
+description: Ask a question about the starter
+title: "[question] "
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [README](https://github.com/vercel-labs/nuxt-websockets-starter#readme) and [Vercel WebSockets docs](https://vercel.com/docs/functions/websockets) first.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to build? What have you tried?
+    validations:
+      required: false

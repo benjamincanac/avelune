@@ -1,0 +1,19 @@
+name: "Feature Request"
+description: Suggest an improvement to the starter
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What would you like to see in this template?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you implement it? (optional)
+    validations:
+      required: false
