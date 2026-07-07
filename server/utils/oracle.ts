@@ -51,11 +51,6 @@ function transcript(recent: HubMessage[]): string {
   return recent.map(m => `${m.name}: ${m.text}`).join('\n')
 }
 
-/** Gateway auth present? If not, stay silent rather than throw on every line. */
-function hasCredentials(): boolean {
-  return !!(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN)
-}
-
 /**
  * Cheap gate: is the LAST line of the transcript addressed to the Oracle,
  * versus ordinary runner-to-runner chatter? Fails closed (silent) on error.
@@ -93,7 +88,7 @@ Reply with exactly "YES" or "NO" and nothing else.`,
  * throws — any failure resolves to null so the game loop just stays quiet.
  */
 export async function oracleReply(recent: HubMessage[], getState: TowerState): Promise<string | null> {
-  if (!hasCredentials() || recent.length === 0) return null
+  if (recent.length === 0) return null
   if (!(await isAddressed(recent))) return null
   try {
     const { text } = await generateText({
