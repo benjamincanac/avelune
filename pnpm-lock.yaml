@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  nitro: 3.0.260522-beta
+  nitro: 3.0.260610-beta
 
 importers:
 
@@ -33,8 +33,8 @@ importers:
         specifier: 2.0.1-rc.22
         version: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.21))
       nitro:
-        specifier: 3.0.260522-beta
-        version: 3.0.260522-beta(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.0)(vite@8.1.3)
+        specifier: 3.0.260610-beta
+        version: 3.0.260610-beta(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.0)(vite@8.1.3)
       nuxt:
         specifier: npm:nuxt-nightly@5.0.0-29718546.252d77ed
         version: nuxt-nightly@5.0.0-29718546.252d77ed(@babel/plugin-syntax-jsx@7.29.7(@babel/core@7.29.7))(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7))(@parcel/watcher@2.5.6)(@types/node@24.13.2)(@vercel/functions@3.7.1(ws@8.21.0))(@vitejs/devtools@0.3.3)(@vitejs/plugin-vue-jsx@5.1.5(vite@8.1.3)(vue@3.5.38(typescript@6.0.3)))(@vue/compiler-sfc@3.5.38)(autoprefixer@10.5.0(postcss@8.5.16))(cac@6.7.14)(crossws@0.4.6(srvx@0.11.21))(cssnano@8.0.2(postcss@8.5.16))(db0@0.3.4)(dotenv@17.4.2)(esbuild@0.28.1)(eslint@10.5.0(jiti@2.7.0))(giget@3.3.0)(ioredis@5.11.1)(lightningcss@1.32.0)(magicast@0.5.3)(nuxt-nightly@5.0.0-29718546.252d77ed)(optionator@0.9.4)(oxc-parser@0.137.0)(rollup-plugin-visualizer@7.0.1(rolldown@1.1.4)(rollup@4.62.0))(rollup@4.62.0)(terser@5.48.0)(typescript@6.0.3)(vite@8.1.3)(vue-tsc@3.3.6(typescript@6.0.3))(yaml@2.9.0)
@@ -3514,16 +3514,16 @@ packages:
   nf3@0.3.17:
     resolution: {integrity: sha512-N9zEWySuJFw+gR0lhS5863YsvNeudOdqRyFvNb+jMXbeTJOdrjDqkCpDginIZfUm0LzT1t1nCRiDeqQm/8kirQ==}
 
-  nitro@3.0.260522-beta:
-    resolution: {integrity: sha512-L/z2eOWgkiQHc65kv+SEMgau505afSRF7NJlbooaaZEZscFrNSD7rXZzeVubQlgIzPbhOG8o73bk9soIiGTHRA==}
+  nitro@3.0.260610-beta:
+    resolution: {integrity: sha512-KPb4L5yaF/Rx/xoGMpgHRJvZhbhGiqbRKOwwPLCH9jKTKTsEUHLjnJas85AeCzaswqa8Wi52eQBtRsODC4PS0Q==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
-      '@vercel/queue': ^0.2.0
+      '@vercel/queue': ^0.3.0
       dotenv: '*'
       giget: '*'
-      jiti: ^2.6.1
-      rollup: ^4.60.3
+      jiti: ^2.7.0
+      rollup: ^4.61.1
       vite: ^7 || ^8
       xml2js: ^0.6.2
       zephyr-agent: ^0.2.0
@@ -5865,7 +5865,7 @@ snapshots:
       lru-cache: 11.5.1
       mlly: 1.8.2
       mocked-exports: 0.1.1
-      nitro: 3.0.260522-beta(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.0)(vite@8.1.3)
+      nitro: 3.0.260610-beta(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.0)(vite@8.1.3)
       nuxt: nuxt-nightly@5.0.0-29718546.252d77ed(@babel/plugin-syntax-jsx@7.29.7(@babel/core@7.29.7))(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7))(@parcel/watcher@2.5.6)(@types/node@24.13.2)(@vercel/functions@3.7.1(ws@8.21.0))(@vitejs/devtools@0.3.3)(@vitejs/plugin-vue-jsx@5.1.5(vite@8.1.3)(vue@3.5.38(typescript@6.0.3)))(@vue/compiler-sfc@3.5.38)(autoprefixer@10.5.0(postcss@8.5.16))(cac@6.7.14)(crossws@0.4.6(srvx@0.11.21))(cssnano@8.0.2(postcss@8.5.16))(db0@0.3.4)(dotenv@17.4.2)(esbuild@0.28.1)(eslint@10.5.0(jiti@2.7.0))(giget@3.3.0)(ioredis@5.11.1)(lightningcss@1.32.0)(magicast@0.5.3)(nuxt-nightly@5.0.0-29718546.252d77ed)(optionator@0.9.4)(oxc-parser@0.137.0)(rollup-plugin-visualizer@7.0.1(rolldown@1.1.4)(rollup@4.62.0))(rollup@4.62.0)(terser@5.48.0)(typescript@6.0.3)(vite@8.1.3)(vue-tsc@3.3.6(typescript@6.0.3))(yaml@2.9.0)
       ohash: 2.0.11
       pathe: 2.0.3
@@ -8779,7 +8779,7 @@ snapshots:
 
   nf3@0.3.17: {}
 
-  nitro@3.0.260522-beta(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.0)(vite@8.1.3):
+  nitro@3.0.260610-beta(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.0)(vite@8.1.3):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.6(srvx@0.11.21)
