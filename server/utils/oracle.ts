@@ -52,6 +52,42 @@ function transcript(recent: HubMessage[]): string {
 }
 
 /**
+ * Pull the load-bearing bits out of an AI-SDK / gateway error for logging.
+ * The gateway wraps the real HTTP failure in `.cause` (an `APICallError`) whose
+ * `url` / `responseBody` / `responseHeaders` reveal *who* actually answered —
+ * the gateway itself, Vercel's edge, or an interceptor. That's the smoking gun.
+ */
+function describeError(error: unknown): Record<string, unknown> {
+  const e = error as {
+    name?: string
+    message?: string
+    statusCode?: number
+    validationError?: unknown
+    cause?: {
+      name?: string
+      message?: string
+      statusCode?: number
+      url?: string
+      responseBody?: string
+      responseHeaders?: Record<string, string>
+    }
+  }
+  const c = e.cause
+  return {
+    name: e.name,
+    message: e.message,
+    status: e.statusCode,
+    causeName: c?.name,
+    causeMessage: c?.message,
+    causeStatus: c?.statusCode,
+    url: c?.url,
+    body: c?.responseBody?.slice?.(0, 300),
+    headers: c?.responseHeaders,
+    validationError: e.validationError ? String(e.validationError).slice(0, 200) : undefined,
+  }
+}
+
+/**
  * Cheap gate: is the LAST line of the transcript addressed to the Oracle,
  * versus ordinary runner-to-runner chatter? Fails closed (silent) on error.
  */
@@ -76,8 +112,7 @@ Reply with exactly "YES" or "NO" and nothing else.`,
     return /^\s*yes/i.test(text)
   }
   catch (error) {
-    const e = error as { name?: string, message?: string, statusCode?: number, cause?: unknown, responseBody?: string }
-    console.log('[oracle] classify error', e.name, '|', e.message, '| status:', e.statusCode, '| cause:', (e.cause as Error)?.message ?? e.cause, '| body:', e.responseBody?.slice?.(0, 300))
+    console.log('[oracle] classify error', JSON.stringify(describeError(error)))
     return false
   }
 }
@@ -109,7 +144,7 @@ export async function oracleReply(recent: HubMessage[], getState: TowerState): P
     return reply || null
   }
   catch (error) {
-    console.log('[oracle] respond error', (error as Error).message)
+    console.log('[oracle] respond error', JSON.stringify(describeError(error)))
     return null
   }
 }
