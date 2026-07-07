@@ -12,6 +12,8 @@ defineProps<{
   /** The saved character, or null for a visitor who hasn't created one yet. */
   identity: Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> | null
   records: FloorRecord[]
+  /** Runners connected right now, or null while the probe is in flight. */
+  online: number | null
 }>()
 
 const emit = defineEmits<{ play: [], create: [], spectate: [] }>()
@@ -33,18 +35,12 @@ const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(47,107,255,0.
     <!-- Vignette for depth (transparent center keeps the character crisp). -->
     <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_42%,transparent_38%,#05070daa_92%)]" />
 
-    <!-- Brand. -->
-    <div class="absolute left-6 top-5 z-10 flex items-center gap-2.5">
-      <img
-        src="/logo.svg"
-        alt="Mugen"
-        class="size-9 rounded-md"
-      >
-      <div class="flex flex-col leading-tight">
-        <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">MUGEN</span>
-        <span class="text-[11px] text-muted">The tower awaits</span>
-      </div>
-    </div>
+    <!-- Brand + live population (dot lit while anyone's climbing). -->
+    <BrandMark
+      :count="online"
+      :dot-class="online && online > 0 ? 'bg-primary' : 'bg-neutral-600'"
+      class="absolute left-6 top-5 z-10"
+    />
 
     <!-- Right: today's fastest clears. -->
     <aside class="absolute right-6 top-6 z-10 hidden w-72 flex-col gap-12 lg:flex items-end">

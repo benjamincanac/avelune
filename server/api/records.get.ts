@@ -1,11 +1,11 @@
 import { defineEventHandler } from 'h3'
-import { currentRecords } from '../utils/game'
+import { currentOnline, currentRecords } from '../utils/game'
 
 /**
- * `GET /api/records` — today's fastest clears, for the login gate which shows
- * the board before opening a socket. In-game/spectator clients get this data
- * live over the WebSocket instead.
+ * `GET /api/records` — today's fastest clears plus the live runner count, for
+ * the main menu which shows both before opening a socket. In-game/spectator
+ * clients get this data live over the WebSocket instead.
  */
 export default defineEventHandler(() => {
-  return { records: currentRecords() }
+  return { records: currentRecords(), online: currentOnline() }
 })

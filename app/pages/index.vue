@@ -27,6 +27,8 @@ type View = 'checking' | 'menu' | 'creating' | 'playing' | 'spectating'
 const view = ref<View>('checking')
 const identity = ref<Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> | null>(null)
 const records = ref<FloorRecord[]>([])
+/** Runners connected right now, shown on the menu; null until the first probe. */
+const online = ref<number | null>(null)
 
 onMounted(async () => {
   try {
@@ -41,6 +43,7 @@ onMounted(async () => {
   try {
     const data = await $fetch('/api/records')
     records.value = data.records
+    online.value = data.online
   }
   catch {
     // No board is fine — the menu still works without it.
@@ -164,6 +167,24 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
 })
 
+// People idle on the menu — keep its tower count (and board) fresh with a
+// cheap poll. In-game and spectator views get live data over the socket.
+let menuPoll: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  menuPoll = setInterval(async () => {
+    if (view.value !== 'menu') return
+    try {
+      const data = await $fetch('/api/records')
+      records.value = data.records
+      online.value = data.online
+    }
+    catch {
+      // Transient failure — keep showing the last known values.
+    }
+  }, 10_000)
+})
+onBeforeUnmount(() => clearInterval(menuPoll))
+
 // Floor timer, ticking once a second.
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | undefined
@@ -246,6 +267,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       v-if="view === 'menu'"
       :identity="identity"
       :records="records"
+      :online="online"
       @play="play"
       @create="create"
       @spectate="spectate"
@@ -281,23 +303,12 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
 
       <!-- Top-left: identity + run status. -->
       <header class="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-2">
-        <div class="pointer-events-auto flex items-center gap-2.5 rounded-lg bg-black/45 px-3 py-2 backdrop-blur">
-          <img
-            src="/logo.svg"
-            alt="Mugen"
-            class="size-8 rounded-md"
-          >
-          <div class="flex flex-col leading-tight">
-            <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">MUGEN</span>
-            <span class="flex items-center gap-1 text-[11px] text-muted">
-              <span
-                class="size-1.5 rounded-full"
-                :class="statusColor"
-              />
-              {{ game.count.value }} in the tower
-            </span>
-          </div>
-        </div>
+        <BrandMark
+          :count="game.count.value"
+          :dot-class="statusColor"
+          size="size-8"
+          class="pointer-events-auto rounded-lg bg-black/45 px-3 py-2 backdrop-blur"
+        />
 
         <div class="pointer-events-auto flex w-fit flex-col gap-0.5 rounded-lg bg-black/45 px-3 py-2 backdrop-blur">
           <span class="text-sm font-medium text-highlighted">{{ floorLabel }}</span>

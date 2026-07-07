@@ -1,22 +1,18 @@
 import {
   AdditiveBlending, BufferAttribute, BufferGeometry, CircleGeometry, Color, ConeGeometry,
-  DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, PointLight,
-  Points, PointsMaterial, RingGeometry, SphereGeometry, TorusGeometry,
+  DoubleSide, Group, Mesh, MeshBasicMaterial, PlaneGeometry, PointLight, Points,
+  PointsMaterial, RingGeometry, SphereGeometry, TorusGeometry,
 } from 'three'
-import type { Object3D } from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { makePortalTexture, makeRuneCircleTexture } from './textures'
 
 /**
  * The hub's teleport gate, built once and shared by the in-world hub
  * (MazeScene) and the main-menu hero (MenuPortal) so the two never drift.
  *
- * A ruined stone rune-gate (modeled by scripts/make_portal.py) frames a
- * Solo-Leveling-style energy rift with genuine depth: a receding cone whose
+ * A Solo-Leveling-style energy rift with genuine depth: a receding cone whose
  * inner wall carries the swirl (the tunnel), swirl discs stacked at different Z
  * so they parallax, a bright pulsing core deep inside, a glowing rim at the
- * mouth, two counter-spinning rune circles over the dais, and motes drawn up
+ * mouth, two counter-spinning rune circles on the ground, and motes drawn up
  * into it. The caller positions `root`; `update(elapsed, dt)` drives every
  * moving part from whatever render loop owns it.
  */
@@ -36,31 +32,8 @@ export interface Portal {
   update: (elapsed: number, dt: number) => void
 }
 
-let gateLoader: GLTFLoader | null = null
-
 export function buildPortal({ light = true }: { light?: boolean } = {}): Portal {
   const root = new Group()
-
-  // The stone structure: a broken rune ring on a stepped dais with twin
-  // obelisks, loaded async so the energy effect carries the first frames alone.
-  // Model contract (scripts/make_portal.py): objects named "Shard_*" float
-  // freely (bobbed/spun below) and material "Rune" is emissive (pulsed below).
-  const shards: { obj: Object3D, baseY: number }[] = []
-  const runeMats: MeshStandardMaterial[] = []
-  gateLoader ??= new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-  gateLoader.loadAsync('/models/portal_gate.glb').then((gltf) => {
-    gltf.scene.traverse((o) => {
-      if (o.name.startsWith('Shard_')) shards.push({ obj: o, baseY: o.position.y })
-      if (o instanceof Mesh) {
-        // The floor builder's shadow pass has already run by the time the gate
-        // lands, so tag its opaque meshes here.
-        o.castShadow = o.receiveShadow = true
-        const mat = o.material
-        if (mat instanceof MeshStandardMaterial && mat.name === 'Rune' && !runeMats.includes(mat)) runeMats.push(mat)
-      }
-    })
-    root.add(gltf.scene)
-  })
 
   // The vertical rift; +Z is toward the viewer, depth recedes into -Z.
   const gate = new Group()
@@ -127,11 +100,10 @@ export function buildPortal({ light = true }: { light?: boolean } = {}): Portal 
   rim.position.z = 0.06
   gate.add(rim)
 
-  // Two rune circles spinning flat over the dais at the gate's foot (the
-  // dais top sits at 0.18, so they hover just above the stone).
+  // Two rune circles spinning flat on the ground at the gate's foot.
   const runeTex = makeRuneCircleTexture(77)
   const runeOuter = new Group()
-  runeOuter.position.y = 0.21
+  runeOuter.position.y = 0.06
   const runeOuterMesh = new Mesh(
     new PlaneGeometry(5.6, 5.6),
     new MeshBasicMaterial({ map: runeTex, color: new Color(BRIGHT), transparent: true, opacity: 0.5, blending: AdditiveBlending, side: DoubleSide, depthWrite: false }),
@@ -141,7 +113,7 @@ export function buildPortal({ light = true }: { light?: boolean } = {}): Portal 
   root.add(runeOuter)
 
   const runeInner = new Group()
-  runeInner.position.y = 0.24
+  runeInner.position.y = 0.08
   const runeInnerMesh = new Mesh(
     new PlaneGeometry(3.4, 3.4),
     new MeshBasicMaterial({ map: runeTex, color: new Color(RIM), transparent: true, opacity: 0.6, blending: AdditiveBlending, side: DoubleSide, depthWrite: false }),
@@ -199,14 +171,6 @@ export function buildPortal({ light = true }: { light?: boolean } = {}): Portal 
 
     runeOuter.rotation.y = elapsed * 0.22
     runeInner.rotation.y = -elapsed * 0.34
-
-    // Gate dressing (once the model lands): shards drift, rune inlays pulse.
-    shards.forEach((s, i) => {
-      s.obj.position.y = s.baseY + Math.sin(elapsed * (0.8 + (i % 4) * 0.22) + i * 1.7) * 0.09
-      s.obj.rotation.y += dt * (0.3 + (i % 3) * 0.18)
-    })
-    const runeGlow = 2.4 + pulse * 2.4
-    for (const m of runeMats) m.emissiveIntensity = runeGlow
 
     // Motes rise and are drawn inward (toward root's origin), then recycle down.
     const mp = moteGeo.attributes.position as BufferAttribute

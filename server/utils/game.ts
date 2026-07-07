@@ -311,6 +311,15 @@ export function currentRecords(): FloorRecord[] {
 }
 
 /**
+ * How many runners are connected right now (spectators excluded — they never
+ * enter `sessions`). Read by `GET /api/records` so the main menu can show the
+ * tower's population before any socket is open.
+ */
+export function currentOnline(): number {
+  return sessions.size
+}
+
+/**
  * A read-only snapshot of the living tower, for the hub Oracle's `tower_state`
  * tool. Because this runs in the same process as the authoritative game loop,
  * it reads the real in-memory roster and records directly — no HTTP hop, and

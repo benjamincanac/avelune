@@ -20,11 +20,6 @@ files the game loads, and the scripts that do it.
   + Death/Victory) retargeting.
 - `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`
   — batch conversion entry points.
-- `scripts/make_portal.py` — the hub teleport gate's stone structure
-  (`public/models/portal_gate.glb`). Engine contract (app/utils/portal.ts):
-  objects named `Shard_*` are animated, material `Rune` is emissive-pulsed —
-  keep both names. Compress with `gltf-transform optimize --join false
-  --flatten false --instance false` or the named nodes get merged away.
 - `scripts/make_og.py` — social OG image.
 - `public/models/**` — the shipped `.glb` output (characters, props, fantasy,
   monsters, nature) and `textures/`.
