@@ -100,6 +100,54 @@ export function makeCobbleTexture(seed: number, palette: StonePalette): CanvasTe
   })
 }
 
+/** Meadow grass: layered blades over soil, with dirt patches and clover flecks. */
+export function makeGrassTexture(seed: number, palette: StonePalette): CanvasTexture {
+  const rng = createRng(seed)
+  return canvasTexture(256, (ctx) => {
+    // Soil base.
+    ctx.fillStyle = palette.dark
+    ctx.fillRect(0, 0, 256, 256)
+
+    // A few bare-earth patches so the ground isn't a flat green.
+    ctx.fillStyle = palette.mortar
+    for (let i = 0; i < 7; i++) {
+      ctx.globalAlpha = 0.5 + rng() * 0.3
+      ctx.beginPath()
+      ctx.ellipse(rng() * 256, rng() * 256, 12 + rng() * 26, 10 + rng() * 20, rng() * Math.PI, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalAlpha = 1
+
+    // Dense blades: short strokes in green shades, brighter toward the tips.
+    ctx.lineCap = 'round'
+    const greens = [palette.base, palette.dark, palette.moss]
+    for (let i = 0; i < 2600; i++) {
+      const x = rng() * 256
+      const y = rng() * 256
+      const len = 3 + rng() * 6
+      const lean = (rng() - 0.5) * 4
+      ctx.strokeStyle = greens[(rng() * greens.length) | 0]!
+      ctx.globalAlpha = 0.5 + rng() * 0.5
+      ctx.lineWidth = 0.8 + rng() * 0.9
+      ctx.beginPath()
+      ctx.moveTo(x, y)
+      ctx.lineTo(x + lean, y - len)
+      ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+
+    // Occasional pale clover/flower flecks.
+    for (let i = 0; i < 60; i++) {
+      ctx.fillStyle = rng() < 0.5 ? palette.moss : '#c9d6a0'
+      ctx.globalAlpha = 0.5 + rng() * 0.4
+      ctx.beginPath()
+      ctx.arc(rng() * 256, rng() * 256, 0.8 + rng() * 1.6, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalAlpha = 1
+  })
+}
+
 /** Glowing cracks on black, used as an emissive map for the Magma Halls. */
 export function makeCrackTexture(seed: number): CanvasTexture {
   const rng = createRng(seed)
@@ -199,5 +247,53 @@ export function makeRuneCircleTexture(seed: number): CanvasTexture {
       ctx.arc(c + Math.cos(angle) * 34, c + Math.sin(angle) * 34, 26, 0, Math.PI * 2)
       ctx.stroke()
     }
+  })
+}
+
+/**
+ * Swirling portal energy: a dark centre that brightens toward the rim, overlaid
+ * with spiralling filaments. Drawn white on black so an additive material tints
+ * it; layer two of these counter-rotating to sell a turbulent Solo-Leveling rift.
+ */
+export function makePortalTexture(seed: number): CanvasTexture {
+  const rng = createRng(seed)
+  return canvasTexture(512, (ctx) => {
+    const c = 256
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, 0, 512, 512)
+
+    // Radial base: hollow dark core, a bright band, then fading to the edge.
+    const grad = ctx.createRadialGradient(c, c, 30, c, c, 252)
+    grad.addColorStop(0, 'rgba(255,255,255,0)')
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.06)')
+    grad.addColorStop(0.86, 'rgba(255,255,255,0.32)')
+    grad.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 512, 512)
+
+    // Spiral filaments streaming out from the centre, brighter near the rim.
+    ctx.lineCap = 'round'
+    ctx.globalCompositeOperation = 'lighter'
+    for (let i = 0; i < 140; i++) {
+      const a0 = rng() * Math.PI * 2
+      const r0 = 26 + rng() * 70
+      const r1 = 150 + rng() * 96
+      const curl = (0.5 + rng() * 1.5) * (rng() < 0.5 ? 1 : -1)
+      ctx.strokeStyle = `rgba(255,255,255,${(0.05 + rng() * 0.16).toFixed(3)})`
+      ctx.lineWidth = 0.5 + rng() * 1.7
+      ctx.beginPath()
+      const steps = 16
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps
+        const r = r0 + (r1 - r0) * t
+        const a = a0 + curl * t
+        const x = c + Math.cos(a) * r
+        const y = c + Math.sin(a) * r
+        if (s === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
+    ctx.globalCompositeOperation = 'source-over'
   })
 }

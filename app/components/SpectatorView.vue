@@ -11,7 +11,11 @@ import type { GamePlayer, UseGame } from '~/composables/useGame'
  * the only live data are the player markers already streaming in.
  */
 
-const props = defineProps<{ game: UseGame }>()
+const props = defineProps<{
+  game: UseGame
+  /** Reveal the whole tower (spectator broadcast), bypassing fog of war. */
+  revealAll?: boolean
+}>()
 
 defineEmits<{ close: [] }>()
 
@@ -76,7 +80,7 @@ function drawFloor(canvas: HTMLCanvasElement | null, entry: FloorEntry) {
   const ctx = canvas.getContext('2d')!
   const explored = props.game.exploredFor(entry.floor)
   const isExplored = (x: number, y: number) =>
-    explored?.[Math.floor(y) * plan.width + Math.floor(x)] === 1
+    props.revealAll || explored?.[Math.floor(y) * plan.width + Math.floor(x)] === 1
 
   ctx.fillStyle = '#0a0d13'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -120,11 +124,6 @@ const deepest = computed(() => Math.max(1, ...floors.value.map((entry: FloorEntr
 function canvasRef(entry: FloorEntry) {
   return (el: unknown) => drawFloor(el as HTMLCanvasElement | null, entry)
 }
-
-function formatMs(ms: number): string {
-  const seconds = ms / 1000
-  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
-}
 </script>
 
 <template>
@@ -139,15 +138,15 @@ function formatMs(ms: number): string {
         </p>
       </div>
       <UButton
-        label="Close"
+        label="Leave"
         color="neutral"
         variant="soft"
-        icon="i-lucide-x"
+        icon="i-lucide-log-out"
         @click="$emit('close')"
       />
     </div>
 
-    <div class="flex flex-1 gap-6 overflow-y-auto p-6">
+    <div class="flex flex-1 justify-end gap-6 overflow-y-auto p-6">
       <div class="flex flex-1 flex-wrap content-start items-start gap-6">
         <div
           v-for="entry in floors"
@@ -181,31 +180,8 @@ function formatMs(ms: number): string {
         </div>
       </div>
 
-      <aside class="w-64 shrink-0">
-        <h3 class="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-          <UIcon
-            name="i-lucide-timer"
-            class="size-3.5 text-[#ffd166]"
-          />
-          Fastest clears today
-        </h3>
-        <p
-          v-if="!game.records.value.length"
-          class="text-sm text-muted"
-        >
-          No floors cleared yet. Be the first.
-        </p>
-        <ol class="flex flex-col gap-1.5">
-          <li
-            v-for="record in game.records.value"
-            :key="record.floor"
-            class="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-1.5 text-sm"
-          >
-            <span class="text-toned">Floor {{ record.floor }}</span>
-            <span class="truncate text-xs text-muted">{{ record.name }}</span>
-            <span class="font-mono text-xs text-highlighted">{{ formatMs(record.ms) }}</span>
-          </li>
-        </ol>
+      <aside class="shrink-0">
+        <RecordsBoard :records="game.records.value" />
       </aside>
     </div>
   </div>

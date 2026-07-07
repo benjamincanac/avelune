@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { ClientMessage, FloorRecord, MoveInput, Player, ServerMessage } from '#shared/types/game'
-import { MAX_CHAT_LENGTH } from '#shared/types/game'
+import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import { dateSeed, generateFloor } from '#shared/utils/maze'
 
 export interface GamePlayer extends Player {
@@ -11,6 +11,8 @@ export interface GamePlayer extends Player {
   ra: number
   /** Mid-dash (drives the roll animation). */
   dashing?: boolean
+  /** Lying dead before the hub respawn (drives the death animation). */
+  dying?: boolean
   /** Active chat bubble, if any. */
   bubble?: { text: string, until: number }
 }
@@ -22,6 +24,10 @@ export interface ChatMessage {
   text: string
   floor: number
   at: number
+  /** System announcement (login, deaths, clears) — rendered without a sender. */
+  system?: boolean
+  /** The hub Oracle NPC, not a runner — the chat panel styles it apart. */
+  npc?: boolean
 }
 
 export interface DeathEvent {
@@ -35,6 +41,8 @@ export interface ClearEvent {
   id: string
   name: string
   floor: number
+  /** Destination floor: the next one down, or your deepest (resuming from the hub). */
+  to: number
   ms: number
   best: number
   record: boolean
@@ -68,10 +76,17 @@ export interface UseGame {
   /** Fog of war: explored-tile bitmaps per floor, and a version to watch. */
   exploredFor: (floor: number) => Uint8Array | null
   exploredVersion: Ref<number>
+  /**
+   * Open the socket. Called once onboarding has set the identity cookie, or
+   * with `spectate` to connect as a read-only watcher (no character, no cookie).
+   */
+  connect: (spectate?: boolean) => void
   setInput: (input: MoveInput) => void
   setLook: (angle: number) => void
   sendAction: (kind: 'jump' | 'dash') => void
   sendChat: (text: string) => void
+  /** Push a system announcement into the chat on your current floor. */
+  announce: (text: string) => void
 }
 
 /** Heartbeat cadence, and how long to wait for a pong before treating the socket as dead. */
@@ -98,6 +113,7 @@ const SNAP_DISTANCE = 5
  * (status, count, leaderboard, floor) are mirrored into refs instead.
  */
 export function useGame(): UseGame {
+  const oracle = useOracle()
   const status = ref<GameStatus>('connecting')
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
@@ -159,6 +175,14 @@ export function useGame(): UseGame {
     chatLog.value = [...chatLog.value.slice(-59), message]
   }
 
+  // System announcements (login, deaths, clears) land in the chat like any
+  // other message, but render without a sender. Scoped to your current floor.
+  let systemSeq = 0
+  let greeted = false
+  function announce(text: string) {
+    pushChat({ id: `system-${systemSeq++}`, name: 'System', color: 'inherit', text, floor: selfFloor.value, at: Date.now(), system: true })
+  }
+
   /* ------------------------------------------------------------------------ */
   /* Fog of war: remember which tiles you've been near, per floor.            */
   /* ------------------------------------------------------------------------ */
@@ -216,20 +240,28 @@ export function useGame(): UseGame {
   function handle(msg: ServerMessage) {
     switch (msg.t) {
       case 'welcome':
-        selfId.value = msg.self.id
         players.clear()
-        addPlayer(msg.self)
+        selfId.value = msg.self?.id ?? null
+        if (msg.self) addPlayer(msg.self)
         for (const player of msg.players) addPlayer(player)
         seed.value = msg.seed
         clockOffset = msg.now - Date.now()
         records.value = msg.records
-        selfFloor.value = msg.self.floor
-        selfBest.value = msg.self.best
-        floorEnteredAt.value = Date.now()
-        // Adopt the spawn heading so the first move doesn't overwrite it,
-        // then resume held keys across a reconnect.
-        lookAngle = msg.self.angle
-        sendMove()
+        // A spectator has no self — just adopt the world state and watch.
+        if (msg.self) {
+          selfFloor.value = msg.self.floor
+          selfBest.value = msg.self.best
+          floorEnteredAt.value = Date.now()
+          // Adopt the spawn heading so the first move doesn't overwrite it,
+          // then resume held keys across a reconnect.
+          lookAngle = msg.self.angle
+          sendMove()
+          // Greet once per session — reconnects re-send `welcome`, but silently.
+          if (!greeted) {
+            greeted = true
+            announce(`Welcome to the tower, ${msg.self.name}. Step onto the portal to begin your ascent. Press H for help.`)
+          }
+        }
         break
       case 'join':
         addPlayer(msg.player)
@@ -250,6 +282,7 @@ export function useGame(): UseGame {
           player.angle = state.a
           player.floor = state.f
           player.dashing = state.d === true
+          player.dying = state.dead === true
           // Teleports (floor changes, respawns) should not glide.
           if (floorChanged || Math.hypot(player.x - player.rx, player.y - player.ry) > SNAP_DISTANCE) {
             player.rx = player.x
@@ -261,6 +294,13 @@ export function useGame(): UseGame {
         }
         break
       case 'chat': {
+        // The Oracle speaks as a reserved id, not a roster player: render it
+        // with its own name/accent and float a bubble over the 3D NPC.
+        if (msg.id === ORACLE_ID) {
+          oracle.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
+          pushChat({ id: ORACLE_ID, name: ORACLE_NAME, color: ORACLE_COLOR, text: msg.text, floor: msg.f, at: Date.now(), npc: true })
+          break
+        }
         const player = players.get(msg.id)
         if (player) {
           player.bubble = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
@@ -272,7 +312,10 @@ export function useGame(): UseGame {
         const player = players.get(msg.id)
         if (player) {
           player.deaths++
-          player.floor = 0
+          // Start the death animation at once, but don't teleport: the player
+          // lies dead on the death floor until the respawn snapshot (with the
+          // hub floor and no `dead` flag) arrives after DEATH_DELAY.
+          player.dying = true
           trackSelf(player)
         }
         lastDeath.value = { id: msg.id, floor: msg.floor, cause: msg.cause, at: Date.now() }
@@ -283,7 +326,7 @@ export function useGame(): UseGame {
         const player = players.get(msg.id)
         if (player) {
           player.best = msg.best
-          player.floor = msg.floor + 1
+          player.floor = msg.to
           trackSelf(player)
         }
         if (msg.record) {
@@ -346,12 +389,17 @@ export function useGame(): UseGame {
     clearPong()
   }
 
-  function connect() {
+  // Set once, on the first connect(): reconnects keep the same mode.
+  // Set once by connect(); reconnects (via open()) preserve the chosen mode.
+  let spectating = false
+
+  function open() {
     if (closed) return
     status.value = 'connecting'
 
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    socket = new WebSocket(`${protocol}://${location.host}/api/ws`)
+    const query = spectating ? '?spectate=1' : ''
+    socket = new WebSocket(`${protocol}://${location.host}/api/ws${query}`)
 
     socket.addEventListener('open', () => {
       reconnectDelay = 1000
@@ -376,11 +424,16 @@ export function useGame(): UseGame {
       rosterVersion.value++
       stopHeartbeat()
       if (closed) return
-      reconnectTimer = setTimeout(connect, reconnectDelay)
+      reconnectTimer = setTimeout(open, reconnectDelay)
       reconnectDelay = Math.min(reconnectDelay * 2, 30000)
     })
 
     socket.addEventListener('error', () => socket?.close())
+  }
+
+  function connect(spectate = false) {
+    spectating = spectate
+    open()
   }
 
   /** Report which movement keys are held. Only sends when the set changes. */
@@ -415,7 +468,8 @@ export function useGame(): UseGame {
   }
 
   onMounted(() => {
-    connect()
+    // The socket is opened by the page once onboarding sets the identity cookie
+    // (see index.vue) — not automatically on mount.
     exploreTimer = setInterval(markExplored, 250)
   })
 
@@ -444,9 +498,11 @@ export function useGame(): UseGame {
     chatLog,
     exploredFor,
     exploredVersion,
+    connect,
     setInput,
     setLook,
     sendAction,
     sendChat,
+    announce,
   }
 }

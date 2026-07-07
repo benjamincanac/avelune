@@ -75,15 +75,7 @@ function draw() {
   const isExplored = (wx: number, wy: number) =>
     !explored || explored[Math.floor(wy) * plan.width + Math.floor(wx)] === 1
 
-  // Hazards and the exit, only once discovered.
-  for (const trap of plan.traps) {
-    if (!isExplored(trap.x, trap.y)) continue
-    const { x, y } = toScreen(trap.x, trap.y)
-    ctx.fillStyle = '#f43f5e'
-    ctx.beginPath()
-    ctx.arc(x, y, 2.5, 0, Math.PI * 2)
-    ctx.fill()
-  }
+  // The exit, only once discovered. Traps stay hidden.
   if (isExplored(plan.exit.x, plan.exit.y)) {
     const { x, y } = toScreen(plan.exit.x, plan.exit.y)
     ctx.fillStyle = floor === HUB_FLOOR ? '#8b7bff' : '#00dc82'

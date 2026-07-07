@@ -23,13 +23,13 @@ const ogImage = `${siteUrl}${site.ogImage}`
 export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@tresjs/nuxt'],
 
-  devtools: { enabled: true },
+  devtools: { enabled: false },
 
   app: {
     head: {
       htmlAttrs: { lang: 'en' },
       charset: 'utf-8',
-      viewport: 'width=device-width, initial-scale=1',
+      viewport: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no',
       title: site.title,
       meta: [
         { name: 'theme-color', content: '#00dc82' },
@@ -88,9 +88,9 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   runtimeConfig: {
-    public: {
-      siteUrl: '',
-    },
+    // Secret for signing the identity cookie (see server/utils/session.ts).
+    // Set NUXT_SESSION_PASSWORD in production; a dev fallback is used if empty.
+    sessionPassword: '',
   },
 
   experimental: {

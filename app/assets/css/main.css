@@ -26,3 +26,7 @@
   --ui-border: oklch(26.9% 0 0);
   --ui-border-muted: oklch(23% 0 0);
 }
+
+html {
+  overscroll-behavior: none;
+}

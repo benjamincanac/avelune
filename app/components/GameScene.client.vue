@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ACESFilmicToneMapping, PCFSoftShadowMap } from 'three'
 import { TresCanvas } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { UseGame } from '~/composables/useGame'
@@ -37,6 +38,14 @@ const view = {
 const root = ref<HTMLDivElement | null>(null)
 const pointerLocked = ref(false)
 
+/**
+ * Hold Alt to surface the OS cursor and freeze mouse-look, so the HUD buttons
+ * become clickable; releasing Alt hands control back to the camera. We only
+ * re-lock on release if Alt actually broke an existing pointer lock.
+ */
+const altHeld = ref(false)
+let relockOnAltUp = false
+
 // `event.code` is the *physical* key, so WASD works as ZQSD on AZERTY too.
 const MOVE_KEYS: Record<string, keyof MoveInput> = {
   KeyW: 'forward',
@@ -62,8 +71,25 @@ function releaseAll() {
   props.game.setInput(held)
 }
 
+/** Fire a dash: tell the server and queue instant client-side prediction. */
+function triggerDash() {
+  props.game.sendAction('dash')
+  view.dashQueued = true
+}
+
 function onKeyDown(event: KeyboardEvent) {
   if (isTyping()) return
+  if (event.code === 'AltLeft' || event.code === 'AltRight') {
+    // Prevent the OS menu-bar focus that a bare Alt tap triggers on some
+    // platforms, then free the cursor for the HUD.
+    event.preventDefault()
+    if (!altHeld.value) {
+      altHeld.value = true
+      relockOnAltUp = pointerLocked.value
+      document.exitPointerLock?.()
+    }
+    return
+  }
   if (event.code === 'Space') {
     event.preventDefault()
     if (!event.repeat) {
@@ -73,10 +99,7 @@ function onKeyDown(event: KeyboardEvent) {
     return
   }
   if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
-    if (!event.repeat) {
-      props.game.sendAction('dash')
-      view.dashQueued = true
-    }
+    if (!event.repeat) triggerDash()
     return
   }
   if (event.code === 'ArrowUp') {
@@ -105,6 +128,14 @@ function onKeyDown(event: KeyboardEvent) {
 }
 
 function onKeyUp(event: KeyboardEvent) {
+  if (event.code === 'AltLeft' || event.code === 'AltRight') {
+    if (altHeld.value) {
+      altHeld.value = false
+      if (relockOnAltUp) requestLock()
+      relockOnAltUp = false
+    }
+    return
+  }
   if (event.code === 'ArrowUp') {
     held.forward = false
     props.game.setInput(held)
@@ -132,7 +163,7 @@ function onKeyUp(event: KeyboardEvent) {
  * `pointer-lock` permission) — there, cursor-position steering takes over.
  */
 function onClick() {
-  if (pointerLocked.value) return
+  if (altHeld.value || pointerLocked.value) return
   try {
     const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
     request?.catch?.(() => {})
@@ -140,6 +171,17 @@ function onClick() {
   catch {
     // Pointer lock not available here; cursor steering still works.
   }
+}
+
+/** Right-click dashes; the context menu is suppressed below so it can. */
+function onMouseDown(event: MouseEvent) {
+  if (event.button !== 2 || isTyping()) return
+  event.preventDefault()
+  triggerDash()
+}
+
+function onContextMenu(event: MouseEvent) {
+  event.preventDefault()
 }
 
 function onPointerLockChange() {
@@ -152,6 +194,8 @@ function requestLock() {
 }
 
 function onMouseMove(event: MouseEvent) {
+  // Alt frees the cursor for the HUD — don't steer while it's held.
+  if (altHeld.value) return
   // Same raw-delta look in both modes; without pointer lock, only while the
   // pointer is over the world so the HUD stays usable.
   if (!pointerLocked.value) {
@@ -172,11 +216,22 @@ function onVisibilityChange() {
   if (document.hidden) releaseAll()
 }
 
+/**
+ * Alt+Tab and friends can swallow the Alt keyup — reset here so mouse-look
+ * isn't left frozen, and stop any held movement.
+ */
+function onWindowBlur() {
+  altHeld.value = false
+  relockOnAltUp = false
+  releaseAll()
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('focusin', onFocusIn)
+  window.addEventListener('blur', onWindowBlur)
   document.addEventListener('pointerlockchange', onPointerLockChange)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
@@ -186,6 +241,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('focusin', onFocusIn)
+  window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
@@ -196,12 +252,19 @@ defineExpose({ pointerLocked, requestLock })
 <template>
   <div
     ref="root"
-    class="size-full cursor-none select-none"
+    class="size-full select-none"
+    :class="altHeld ? 'cursor-default' : 'cursor-none'"
     @click="onClick"
+    @mousedown="onMouseDown"
+    @contextmenu="onContextMenu"
   >
     <TresCanvas
       clear-color="#05070d"
       :dpr="[1, 2]"
+      shadows
+      :shadow-map-type="PCFSoftShadowMap"
+      :tone-mapping="ACESFilmicToneMapping"
+      :tone-mapping-exposure="1.05"
     >
       <MazeScene
         :game="game"

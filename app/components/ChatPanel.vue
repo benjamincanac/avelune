@@ -10,8 +10,11 @@ import type { ChatMessage, UseGame } from '~/composables/useGame'
 const props = defineProps<{ game: UseGame }>()
 
 const text = ref('')
+const focused = ref(false)
 const input = useTemplateRef('input')
 const scrollback = useTemplateRef('scrollback')
+
+const placeholder = computed(() => focused.value ? 'Press Esc to play…' : 'Press Enter to chat…')
 
 const messages = computed<ChatMessage[]>(() =>
   props.game.chatLog.value
@@ -27,7 +30,9 @@ watch(messages, async () => {
 function submit() {
   props.game.sendChat(text.value)
   text.value = ''
-  input.value?.inputRef?.blur()
+  setTimeout(() => {
+    input.value?.inputRef?.blur()
+  }, 0)
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -46,32 +51,54 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>
-  <div class="pointer-events-auto flex w-80 flex-col gap-1.5">
+  <div class="pointer-events-auto flex w-92 flex-col bg-black/35 overflow-hidden min-h-0 ring ring-white/5 divide-y divide-white/5 rounded-lg">
     <div
       ref="scrollback"
-      class="flex max-h-44 flex-col justify-end gap-1 overflow-y-auto rounded-lg bg-black/35 p-2 text-[13px] leading-snug backdrop-blur-sm"
+      class="flex max-h-44 flex-col justify-end gap-1 overflow-y-auto p-2.5 text-[13px] leading-snug backdrop-blur-sm"
       :class="messages.length ? '' : 'opacity-0'"
     >
       <p
         v-for="message in messages"
         :key="`${message.id}-${message.at}`"
-        class="break-words"
+        class="wrap-break-word"
       >
-        <span
-          class="font-semibold"
-          :style="{ color: message.color }"
-        >{{ message.name }}:</span>
-        <span class="text-default/90"> {{ message.text }}</span>
+        <template v-if="message.system">
+          <span
+            class="font-semibold text-primary"
+          >System: </span>
+          <span class="text-primary italic">{{ message.text }}</span>
+        </template>
+        <template v-else-if="message.npc">
+          <span
+            class="font-semibold"
+            :style="{ color: message.color }"
+          >{{ message.name }}: </span>
+          <span
+            class="italic"
+            :style="{ color: message.color }"
+          >{{ message.text }}</span>
+        </template>
+        <template v-else>
+          <span
+            class="font-semibold"
+            :style="{ color: message.color }"
+          >{{ message.name }}: </span>
+          <span class="text-default/90">{{ message.text }}</span>
+        </template>
       </p>
     </div>
+
     <UInput
       ref="input"
       v-model="text"
-      placeholder="Press Enter to chat…"
+      :placeholder="placeholder"
       :maxlength="120"
       size="sm"
+      variant="none"
       class="w-full"
-      :ui="{ base: 'bg-black/45 backdrop-blur border-white/10' }"
+      :ui="{ base: 'backdrop-blur-sm' }"
+      @focus="focused = true"
+      @blur="focused = false"
       @keydown.enter.prevent="submit"
     />
   </div>
