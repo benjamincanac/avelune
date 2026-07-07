@@ -1,11 +1,12 @@
 import type { ClientMessage, FloorRecord, MoveInput, Player, PlayerState, ServerMessage } from '#shared/types/game'
-import { MAX_CHAT_LENGTH } from '#shared/types/game'
+import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import type { FloorPlan } from '#shared/utils/maze'
 import {
   BIOMES,
   DASH_COOLDOWN,
   DASH_DURATION,
   DASH_MULTIPLIER,
+  DEATH_DELAY,
   EXIT_RADIUS,
   HUB_FLOOR,
   JUMP_VELOCITY,
@@ -20,7 +21,10 @@ import {
   isTrapActive,
   stepBody,
 } from '#shared/utils/maze'
-import { createIdentity } from './identity'
+import type { Identity } from './session'
+import { newUserId } from './session'
+import type { HubMessage } from './oracle'
+import { oracleReply } from './oracle'
 
 /**
  * The authoritative tower.
@@ -56,6 +60,8 @@ interface Session {
   grounded: boolean
   dashUntil: number
   dashCooldownUntil: number
+  /** When set, the player is dead and lying where they fell; respawns at this time. */
+  dyingUntil: number
   /** Position, heading, or floor changed since the last snapshot. */
   moved: boolean
   /** When the player entered their current floor (for clear times). */
@@ -65,11 +71,24 @@ interface Session {
   close: () => void
 }
 
+/** A read-only watcher: receives every broadcast but is never simulated,
+ * counted, or part of the roster. Lives outside `sessions` entirely. */
+interface Spectator {
+  lastSeen: number
+  send: (data: string) => void
+  close: () => void
+}
+
 let daySeed = dateSeed()
 const floorCache = new Map<number, FloorPlan>()
 const sessions = new Map<string, Session>()
+const spectators = new Map<string, Spectator>()
 /** Best clear time per floor today. */
 const records = new Map<number, FloorRecord>()
+/** Deepest floor reached per player today, keyed by their stable identity id.
+ * Outlives a socket (a refresh drops the connection but not the climb) so the
+ * hub portal can resume you where you left off; cleared on the daily rollover. */
+const progress = new Map<string, number>()
 
 let loop: ReturnType<typeof setInterval> | undefined
 let tickCount = 0
@@ -100,6 +119,8 @@ function broadcast(msg: ServerMessage, exceptId?: string) {
     if (id === exceptId) continue
     session.send(data)
   }
+  // Spectators receive every frame (join/leave/state/chat/death/clear/maze).
+  for (const spectator of spectators.values()) spectator.send(data)
 }
 
 /** Midnight UTC passed: a fresh tower, everyone back to the hub. */
@@ -107,6 +128,7 @@ function rolloverTower() {
   daySeed = dateSeed()
   floorCache.clear()
   records.clear()
+  progress.clear()
   for (const session of sessions.values()) {
     Object.assign(session.player, spawnAt(HUB_FLOOR))
     session.player.best = 0
@@ -125,14 +147,32 @@ function tick() {
     const { player, input } = session
     const plan = getFloor(player.floor)
 
-    const drive = (input.forward ? 1 : 0) - (input.back ? 1 : 0)
+    // A dying player lies where they fell — no input, movement, hazards or
+    // exits — until the death delay elapses, then respawns in the hub.
+    if (session.dyingUntil) {
+      if (now >= session.dyingUntil) {
+        session.dyingUntil = 0
+        Object.assign(player, spawnAt(HUB_FLOOR))
+        session.vz = 0
+        session.grounded = true
+        session.floorEnteredAt = now
+        session.moved = true
+      }
+      continue
+    }
+
+    let drive = (input.forward ? 1 : 0) - (input.back ? 1 : 0)
     const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+    const dashing = now < session.dashUntil
+    // A dash from a standstill still launches you forward (facing direction),
+    // rather than burning the dash in place with no input to accelerate.
+    if (dashing && drive === 0 && strafe === 0) drive = 1
     let dx = 0
     let dy = 0
     if (drive !== 0 || strafe !== 0) {
       // Normalize so diagonals aren't faster; biomes and dashing modify speed.
       const len = Math.hypot(drive, strafe)
-      const dash = now < session.dashUntil ? DASH_MULTIPLIER : 1
+      const dash = dashing ? DASH_MULTIPLIER : 1
       const speed = PLAYER_SPEED * floorSpeed(player.floor) * dash * dt / len
       const cos = Math.cos(player.angle)
       const sin = Math.sin(player.angle)
@@ -159,13 +199,14 @@ function tick() {
       )
       if (trap) {
         const cause = BIOMES[biomeIndex(player.floor)]!.cause
-        const diedOn = player.floor
         player.deaths++
-        Object.assign(player, spawnAt(HUB_FLOOR))
+        // Fall dead on the spot; the hub respawn is deferred (see top of loop)
+        // so the death clip can play. `moved` pushes the death pose out at once.
+        session.dyingUntil = now + DEATH_DELAY * 1000
         session.vz = 0
         session.grounded = true
-        session.floorEnteredAt = now
-        broadcast({ t: 'death', id: player.id, floor: diedOn, cause })
+        session.moved = true
+        broadcast({ t: 'death', id: player.id, floor: player.floor, cause })
         continue
       }
     }
@@ -175,8 +216,12 @@ function tick() {
     if (Math.hypot(plan.exit.x - player.x, plan.exit.y - player.y) < trigger) {
       const cleared = player.floor
       const ms = now - session.floorEnteredAt
-      Object.assign(player, spawnAt(cleared + 1))
+      // From the hub, the portal resumes you at your deepest floor today (or
+      // floor 1 if you've yet to climb); a floor's exit drops to the next one.
+      const dest = cleared === HUB_FLOOR ? Math.max(HUB_FLOOR + 1, player.best) : cleared + 1
+      Object.assign(player, spawnAt(dest))
       player.best = Math.max(player.best, player.floor)
+      progress.set(player.id, player.best)
       session.floorEnteredAt = now
 
       let record = false
@@ -187,14 +232,17 @@ function tick() {
           record = true
         }
       }
-      broadcast({ t: 'clear', id: player.id, name: player.name, floor: cleared, ms, best: player.best, record })
+      broadcast({ t: 'clear', id: player.id, name: player.name, floor: cleared, to: player.floor, ms, best: player.best, record })
     }
   }
 
   if (tickCount % BROADCAST_EVERY === 0) {
     const players: PlayerState[] = []
     for (const session of sessions.values()) {
-      if (!session.moved) continue
+      // Dying players sit still, so `moved` is false — include them anyway so
+      // the death flag (and the frozen pose) keeps reaching clients.
+      const dying = session.dyingUntil > now
+      if (!session.moved && !dying) continue
       session.moved = false
       const { id, x, y, z, angle, floor } = session.player
       const state: PlayerState = {
@@ -206,6 +254,7 @@ function tick() {
         f: floor,
       }
       if (now < session.dashUntil) state.d = true
+      if (dying) state.dead = true
       players.push(state)
     }
     if (players.length) broadcast({ t: 'state', players })
@@ -219,6 +268,9 @@ function tick() {
       // Close the socket; its close handler runs the normal disconnect path.
       if (session.lastSeen < min) session.close()
     }
+    for (const spectator of spectators.values()) {
+      if (spectator.lastSeen < min) spectator.close()
+    }
   }
 }
 
@@ -227,7 +279,7 @@ function startLoop() {
 }
 
 function stopLoop() {
-  if (loop && sessions.size === 0) {
+  if (loop && sessions.size === 0 && spectators.size === 0) {
     clearInterval(loop)
     loop = undefined
   }
@@ -243,23 +295,95 @@ function toHeading(value: unknown): number | null {
 }
 
 export interface Connection {
-  player: Player
+  /** The spawned character, or undefined for a read-only spectator. */
+  player?: Player
   handleMessage: (raw: string) => void
   disconnect: () => void
 }
 
 /**
- * Register a new socket. Spawns a character in the hub plaza, sends the
- * welcome frame with the world state, and announces the join.
+ * Today's fastest clear per floor, sorted by floor. Read by `GET /api/records`
+ * so the login gate can show the board before any socket is open; in-game and
+ * spectator clients get the same data live in their `welcome` frame.
  */
-export function registerConnection(send: (data: string) => void, close: () => void): Connection {
+export function currentRecords(): FloorRecord[] {
+  return [...records.values()].sort((a, b) => a.floor - b.floor)
+}
+
+/**
+ * A read-only snapshot of the living tower, for the hub Oracle's `tower_state`
+ * tool. Because this runs in the same process as the authoritative game loop,
+ * it reads the real in-memory roster and records directly — no HTTP hop, and
+ * always the true state (unlike a separate service, which on serverless could
+ * miss the instance holding the sockets).
+ */
+export function snapshot() {
+  const players = [...sessions.values()].map(s => s.player)
+  return {
+    runnersInTower: players.length,
+    deepest: players
+      .filter(p => p.best > 0)
+      .sort((a, b) => b.best - a.best || a.deaths - b.deaths)
+      .slice(0, 5)
+      .map(p => ({ name: p.name, deepestFloor: p.best, onFloor: p.floor, deaths: p.deaths })),
+    records: [...records.values()]
+      .sort((a, b) => a.floor - b.floor)
+      .map(r => ({ floor: r.floor, holder: r.name, timeMs: r.ms })),
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Hub Oracle: listens to the shared plaza chat and answers only when a        */
+/* message is actually addressed to it (the classifier in ./oracle decides).   */
+/* -------------------------------------------------------------------------- */
+
+/** Recent hub chat as context for the Oracle (runners' lines and its own). */
+const hubChat: HubMessage[] = []
+const HUB_CHAT_CONTEXT = 12
+/** One reply in flight at a time, plus a cooldown after each — anti-flood. */
+let oracleBusy = false
+let oracleQuietUntil = 0
+const ORACLE_COOLDOWN = 4000
+
+function considerOracle(name: string, text: string) {
+  hubChat.push({ name, text })
+  if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
+  console.log('[oracle] consider', name, JSON.stringify(text), { busy: oracleBusy, cooling: Date.now() < oracleQuietUntil })
+  // Don't even classify while replying or cooling down: the classifier gates
+  // *what* it answers, these gate *how often* — together they prevent floods.
+  if (oracleBusy || Date.now() < oracleQuietUntil) return
+  oracleBusy = true
+  oracleReply([...hubChat], snapshot)
+    .then((reply) => {
+      console.log('[oracle] reply', JSON.stringify(reply))
+      if (!reply) return
+      oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
+      hubChat.push({ name: ORACLE_NAME, text: reply })
+      if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
+      broadcast({ t: 'chat', id: ORACLE_ID, text: reply, f: HUB_FLOOR })
+    })
+    .catch(() => {})
+    .finally(() => {
+      oracleBusy = false
+    })
+}
+
+/**
+ * Register a new socket. Spawns the authenticated identity's character in the
+ * hub plaza, sends the welcome frame with the world state, and announces the
+ * join. Identity (id/name/color/character) comes from the signed cookie the
+ * WS handler verified — see server/utils/session.ts.
+ */
+export function registerConnection(identity: Identity, send: (data: string) => void, close: () => void): Connection {
   if (dateSeed() !== daySeed) rolloverTower()
 
   const player: Player = {
-    ...createIdentity(),
+    ...identity,
     ...spawnAt(HUB_FLOOR),
     angle: -Math.PI / 2,
-    best: 0,
+    // Restore today's deepest floor so a refresh keeps your rank, and the hub
+    // portal sends you back down to where you left off rather than to floor 1.
+    best: progress.get(identity.id) ?? 0,
     deaths: 0,
   }
 
@@ -270,6 +394,7 @@ export function registerConnection(send: (data: string) => void, close: () => vo
     grounded: true,
     dashUntil: 0,
     dashCooldownUntil: 0,
+    dyingUntil: 0,
     moved: false,
     floorEnteredAt: Date.now(),
     lastSeen: Date.now(),
@@ -304,6 +429,8 @@ export function registerConnection(send: (data: string) => void, close: () => vo
 
       session.lastSeen = Date.now()
 
+      if (msg.t === 'chat') console.log('[game] chat msg from', player.name, 'floor', player.floor, JSON.stringify((msg as { text?: string }).text))
+
       // The wire is untrusted: validate every field before acting on it.
       switch (msg.t) {
         case 'move': {
@@ -332,6 +459,8 @@ export function registerConnection(send: (data: string) => void, close: () => vo
           const text = msg.text.trim().slice(0, MAX_CHAT_LENGTH)
           if (!text) return
           broadcast({ t: 'chat', id: player.id, text, f: player.floor }, player.id)
+          // The hub Oracle overhears the plaza and answers only when addressed.
+          if (player.floor === HUB_FLOOR) considerOracle(player.name, text)
           break
         }
         case 'ping':
@@ -343,6 +472,51 @@ export function registerConnection(send: (data: string) => void, close: () => vo
       sessions.delete(player.id)
       stopLoop()
       broadcast({ t: 'leave', id: player.id })
+    },
+  }
+}
+
+/**
+ * Register a read-only spectator. Unlike a player, a spectator spawns no
+ * character: it never enters `sessions`, isn't simulated, counted, or
+ * broadcast as a join/leave. It just receives the current world state (via a
+ * self-less `welcome`) and every subsequent broadcast. No identity cookie is
+ * required — spectating is anonymous.
+ */
+export function registerSpectator(send: (data: string) => void, close: () => void): Connection {
+  if (dateSeed() !== daySeed) rolloverTower()
+
+  const id = newUserId()
+  spectators.set(id, { lastSeen: Date.now(), send, close })
+  startLoop()
+
+  send(JSON.stringify({
+    t: 'welcome',
+    self: null,
+    players: [...sessions.values()].map(s => s.player),
+    seed: daySeed,
+    now: Date.now(),
+    records: [...records.values()],
+  } satisfies ServerMessage))
+
+  return {
+    handleMessage(raw) {
+      const spectator = spectators.get(id)
+      if (!spectator) return
+      spectator.lastSeen = Date.now()
+      // Read-only: the only frame a spectator sends is a heartbeat ping.
+      let msg: ClientMessage
+      try {
+        msg = JSON.parse(raw) as ClientMessage
+      }
+      catch {
+        return
+      }
+      if (msg.t === 'ping') send(JSON.stringify({ t: 'pong' } satisfies ServerMessage))
+    },
+    disconnect() {
+      spectators.delete(id)
+      stopLoop()
     },
   }
 }

@@ -12,8 +12,12 @@
 export interface Player {
   id: string
   name: string
-  /** A CSS color (hsl) used for the body, label, and leaderboard. */
+  /** A CSS color (hsl) used for the body accent, label, and leaderboard. */
   color: string
+  /** Chosen character model basename (see shared/utils/characters). */
+  character: string
+  /** Chosen outfit colorway index (resolved against the character's outfit). */
+  outfitColor: number
   x: number
   y: number
   /** Height above the floor plane (jumping, standing on props). */
@@ -48,6 +52,8 @@ export interface PlayerState {
   f: number
   /** Mid-dash right now (drives the roll animation remotely). */
   d?: boolean
+  /** Dying right now — lying dead before the hub respawn (drives the death clip). */
+  dead?: boolean
 }
 
 /** Best clear time for one floor today. */
@@ -67,7 +73,8 @@ export type ClientMessage
 
 /** Messages the server sends to the client. */
 export type ServerMessage
-  = | { t: 'welcome', self: Player, players: Player[], seed: number, now: number, records: FloorRecord[] }
+  // `self` is null for spectators — they watch the tower without a character.
+  = | { t: 'welcome', self: Player | null, players: Player[], seed: number, now: number, records: FloorRecord[] }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
@@ -76,10 +83,20 @@ export type ServerMessage
     | { t: 'chat', id: string, text: string, f: number }
     /** A hazard killed someone; they're back in the hub. */
     | { t: 'death', id: string, floor: number, cause: string }
-    /** Someone cleared a floor and dropped to the next one. */
-    | { t: 'clear', id: string, name: string, floor: number, ms: number, best: number, record: boolean }
+    /** Someone left `floor` for `to`: the next floor down, or — stepping onto
+     *  the hub portal — their deepest floor today, resuming their climb. */
+    | { t: 'clear', id: string, name: string, floor: number, to: number, ms: number, best: number, record: boolean }
     /** Midnight UTC rollover: a new tower, everyone back to the hub. */
     | { t: 'maze', seed: number, players: Player[] }
     | { t: 'pong' }
 
 export const MAX_CHAT_LENGTH = 120
+
+/**
+ * The hub Oracle speaks in the shared floor chat like any runner, but as a
+ * reserved sender id (never a real player). The client renders this id with the
+ * Oracle's name/accent instead of looking it up in the roster.
+ */
+export const ORACLE_ID = 'oracle'
+export const ORACLE_NAME = 'The Oracle'
+export const ORACLE_COLOR = '#7fd0ff'

@@ -1,6 +1,7 @@
 import { defineWebSocketHandler } from 'nitro'
 import type { Connection } from '../utils/game'
-import { registerConnection } from '../utils/game'
+import { registerConnection, registerSpectator } from '../utils/game'
+import { verifyCookieHeader } from '../utils/session'
 
 /**
  * The `/api/ws` endpoint.
@@ -18,7 +19,22 @@ const conns = new Map<string, Connection>()
 
 export default defineWebSocketHandler({
   open(peer) {
-    conns.set(peer.id, registerConnection(data => peer.send(data), () => peer.close()))
+    const url = peer.request?.url
+    // `?spectate=1` opens a read-only watcher — no character, no cookie needed.
+    const spectate = url ? new URL(url, 'http://localhost').searchParams.get('spectate') === '1' : false
+    if (spectate) {
+      conns.set(peer.id, registerSpectator(data => peer.send(data), () => peer.close()))
+      return
+    }
+
+    // Otherwise identity rides the signed cookie on the same-origin WS upgrade.
+    // No valid cookie means the client skipped onboarding — close the socket.
+    const identity = verifyCookieHeader(peer.request?.headers?.get('cookie'))
+    if (!identity) {
+      peer.close()
+      return
+    }
+    conns.set(peer.id, registerConnection(identity, data => peer.send(data), () => peer.close()))
   },
   message(peer, message) {
     conns.get(peer.id)?.handleMessage(message.text())

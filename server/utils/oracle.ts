@@ -1,0 +1,112 @@
+import { generateText, stepCountIs, tool } from 'ai'
+import { z } from 'zod'
+
+/**
+ * The hub Oracle's brain, run in-process by the game loop.
+ *
+ * Players share one floor chat and mostly talk to each other, so the Oracle
+ * must not answer everything. Each hub line first goes to a cheap classifier
+ * that decides whether it's actually addressed to the Oracle; only then does
+ * the (pricier) in-character responder run, with a `tower_state` tool that
+ * reads live game state. Both calls route through the Vercel AI Gateway
+ * (`AI_GATEWAY_API_KEY` locally, OIDC on Vercel).
+ */
+
+// Both calls run on Gemini Flash-Lite — Google's lowest-latency tier — with
+// reasoning turned down hard. Gemini 3.x thinks by default, which ADDS latency;
+// left on, Flash-Lite is slower than Haiku for a one-line chat reply. The
+// portable `reasoning` param (AI SDK v7) is what keeps it fast: `none` on the
+// gate, `minimal` on the reply (bare-minimum, still enough for one tool call).
+/** Cheap + fast — this runs on every hub message, so keep it small. */
+const CLASSIFIER_MODEL = 'google/gemini-3.1-flash-lite'
+/** The in-character reply — only runs when addressed. */
+const RESPONDER_MODEL = 'google/gemini-3.1-flash-lite'
+
+/** Chat replies must stay short; hard cap as a backstop to the prompt. */
+const MAX_REPLY = 220
+
+const PERSONA = `You are the Oracle, an ancient seer who has stood at the base of the endless tower called Mugen since before the first runner climbed it. Runners gather in the hub plaza before their ascent, and you speak to them there.
+
+Voice:
+- Cryptic but genuinely helpful. ONE or two short sentences — this is a live chat line, never a wall of text.
+- Ominous, patient, a little amused by mortal haste; you have watched countless runners fall.
+- Address runners by name when you know it. Never break character — you are not an AI or assistant, you are the Oracle. Never mention models, tools, or systems.
+- Plain prose only. No markdown, no lists, no emoji.
+
+Lore of the tower:
+- Mugen is one tower every runner shares. It rebuilds itself at midnight (UTC): a new maze, every runner cast back to the hub.
+- The glowing portal at the tower's base is the only way up. Floors deepen endlessly, cycling through four realms — Stone Dungeon, Sunken Depths, Verdant Maze, Magma Halls — each turn more punishing.
+- Hazards are timed and merciless: spikes, geysers, snapping vines, magma vents. Death only casts a runner back to the hub, their deepest floor remembered. Runners dash to slip past a closing hazard.
+
+When runners ask who climbs, who has gone deepest, how many walk the tower, or the day's records, consult the living tower with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the tower keeps that secret; never invent records, names, or floors.`
+
+export interface HubMessage {
+  name: string
+  text: string
+}
+
+/** Live-state getter injected by the game loop (avoids a circular import). */
+export type TowerState = () => unknown
+
+function transcript(recent: HubMessage[]): string {
+  return recent.map(m => `${m.name}: ${m.text}`).join('\n')
+}
+
+/** Gateway auth present? If not, stay silent rather than throw on every line. */
+function hasCredentials(): boolean {
+  return !!(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN)
+}
+
+/**
+ * Cheap gate: is the LAST line of the transcript addressed to the Oracle,
+ * versus ordinary runner-to-runner chatter? Fails closed (silent) on error.
+ */
+async function isAddressed(recent: HubMessage[]): Promise<boolean> {
+  try {
+    const { text } = await generateText({
+      model: CLASSIFIER_MODEL,
+      reasoning: 'none',
+      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's hub, whom players can talk to. The players in that hub ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle: a question or remark aimed at it (by name, or clearly seeking the seer's knowledge, guidance, or lore about the tower). It is NOT for the Oracle if it's runner-to-runner talk, greetings between players, coordination, or idle banter. When unsure, answer NO. Reply with exactly "YES" or "NO" and nothing else.`,
+      prompt: `Recent hub chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
+    })
+    console.log('[oracle] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
+    return /^\s*yes/i.test(text)
+  }
+  catch (error) {
+    const e = error as { name?: string, message?: string, statusCode?: number, cause?: unknown, responseBody?: string }
+    console.log('[oracle] classify error', e.name, '|', e.message, '| status:', e.statusCode, '| cause:', (e.cause as Error)?.message ?? e.cause, '| body:', e.responseBody?.slice?.(0, 300))
+    return false
+  }
+}
+
+/**
+ * If the latest hub line is addressed to the Oracle, return its in-character
+ * reply (with live tower data when relevant); otherwise return null. Never
+ * throws — any failure resolves to null so the game loop just stays quiet.
+ */
+export async function oracleReply(recent: HubMessage[], getState: TowerState): Promise<string | null> {
+  if (!hasCredentials() || recent.length === 0) return null
+  if (!(await isAddressed(recent))) return null
+  try {
+    const { text } = await generateText({
+      model: RESPONDER_MODEL,
+      reasoning: 'minimal',
+      instructions: PERSONA,
+      prompt: `The runners in the hub have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
+      tools: {
+        tower_state: tool({
+          description: 'Read the living tower right now: how many runners are climbing, the deepest climbers (name and deepest floor), and today\'s fastest floor-clear records. Call this whenever a runner asks about who is climbing, who has gone deepest, the crowd in the tower, or the day\'s records.',
+          inputSchema: z.object({}),
+          execute: async () => getState(),
+        }),
+      },
+      stopWhen: stepCountIs(4),
+    })
+    const reply = text.trim().replace(/\s+/g, ' ').slice(0, MAX_REPLY)
+    return reply || null
+  }
+  catch (error) {
+    console.log('[oracle] respond error', (error as Error).message)
+    return null
+  }
+}

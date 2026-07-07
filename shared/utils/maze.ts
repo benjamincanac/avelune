@@ -37,6 +37,8 @@ export const STEP_MAX = 0.5
 export const DASH_MULTIPLIER = 2.9
 export const DASH_DURATION = 0.22
 export const DASH_COOLDOWN = 1.1
+/** Seconds a killed player lies dead (playing the death clip) before respawning. */
+export const DEATH_DELAY = 1.2
 
 export interface Trap {
   x: number
@@ -80,12 +82,31 @@ export interface FloorPlan {
   biome: number
 }
 
-/** Per-kind walkable surface: [top height at scale 1, footprint radius at scale 1]. */
+/**
+ * Per-kind walkable surface: [top height at scale 1, footprint radius at scale 1].
+ * A tall `top` (above jump height) makes a prop an unjumpable blocker; a low one
+ * is a ledge you can hop onto. `r` is the circular collision footprint.
+ */
 const SOLID_PROPS: Record<string, [number, number]> = {
   Crate: [0.8, 0.5],
   Barrel: [1.05, 0.42],
   Chest: [0.88, 0.55],
   Bricks: [0.5, 0.75],
+  // Fantasy-kit furniture that doubles as a low platform to hop onto.
+  Crate_Wooden: [1.1, 0.55],
+  Chest_Wood: [0.68, 0.55],
+  // Hub nature/village obstacles: trees and boulders block like walls; the
+  // crate/wagon are lower so they read as clutter you can vault with a jump.
+  CommonTree_1: [3, 0.6],
+  CommonTree_2: [3, 0.6],
+  CommonTree_3: [3, 0.6],
+  Pine_1: [3, 0.6],
+  Pine_2: [3, 0.6],
+  Rock_Medium_1: [1.8, 0.9],
+  Rock_Medium_2: [1.8, 0.85],
+  Rock_Medium_3: [1.8, 0.95],
+  Prop_Crate: [0.9, 0.55],
+  Prop_Wagon: [1.2, 1.05],
 }
 
 function makeProp(kind: string, x: number, y: number, rot: number, scale: number): PropSpec {
@@ -143,40 +164,92 @@ export function createRng(seed: number): () => number {
 /* Hub                                                                        */
 /* -------------------------------------------------------------------------- */
 
-const HUB_SIZE = 24
+/** A house footprint, as an inclusive tile rectangle. */
+export interface HubHouse {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/**
+ * The nature-village hub layout, shared so `generateHub` (which fills the
+ * collision tiles) and the client renderer (which places the tower, houses,
+ * and portal meshes) never drift apart. World coords in tiles (1 tile = 1 unit).
+ *
+ * The plaza is an open grassy square: a gigantic solid tower at the back, a
+ * few houses framing the sides, the spawn at the south edge, and the vertical
+ * teleport portal at the tower's south base. All collision lives in the tiles.
+ */
+export const HUB_LAYOUT = {
+  size: 32,
+  /** Solid disc of wall tiles; players can't enter — the portal is the way up. */
+  tower: { x: 16, y: 10, radius: 3.5 },
+  /** Vertical portal + teleport trigger, just south of the tower base. */
+  exit: { x: 16, y: 15 },
+  /** Spawn, at the south edge of the plaza. */
+  start: { x: 16, y: 27 },
+  houses: [
+    { x0: 4, y0: 7, x1: 7, y1: 10 },
+    { x0: 24, y0: 7, x1: 27, y1: 10 },
+    { x0: 4, y0: 21, x1: 7, y1: 24 },
+    { x0: 24, y0: 21, x1: 27, y1: 24 },
+  ] as HubHouse[],
+}
 
 function generateHub(daySeed: number): FloorPlan {
-  const size = HUB_SIZE
+  const size = HUB_LAYOUT.size
   const tiles = new Uint8Array(size * size).fill(0)
 
+  // Border wall ring (hidden behind the tree line client-side).
   for (let i = 0; i < size; i++) {
     tiles[i] = 1
     tiles[(size - 1) * size + i] = 1
     tiles[i * size] = 1
     tiles[i * size + size - 1] = 1
   }
-  // Four 2x2 pillars framing the plaza.
-  for (const [px, py] of [[6, 6], [16, 6], [6, 16], [16, 16]] as const) {
-    for (let y = py; y < py + 2; y++) {
-      for (let x = px; x < px + 2; x++) tiles[y * size + x] = 1
+
+  // The gigantic central tower: a solid disc of wall tiles.
+  const { tower, houses } = HUB_LAYOUT
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (Math.hypot(x + 0.5 - tower.x, y + 0.5 - tower.y) <= tower.radius) {
+        tiles[y * size + x] = 1
+      }
     }
   }
 
-  // The adventurers' camp: statues flanking the circle, supplies by the walls.
-  const props: PropSpec[] = [
-    makeProp('Statue_Fox', 8.6, 12, Math.PI / 2, 0.8),
-    makeProp('Statue_Stag', 15.4, 12, -Math.PI / 2, 0.7),
-    makeProp('Cart', 11.5, 2.9, 0.4, 0.5),
-    makeProp('Crate', 4.6, 19.4, 0.3, 1),
-    makeProp('Crate', 5.5, 19.7, 1.2, 0.8),
-    makeProp('Crate', 4.9, 18.6, 2.1, 0.7),
-    makeProp('Barrel', 6.2, 19.2, 0, 1),
-    makeProp('Barrel', 18.6, 18.9, 0, 1),
-    makeProp('Chest', 17.2, 5, 2.6, 1),
-    makeProp('Candles_1', 6.6, 5.4, 0, 1),
-    makeProp('Flag_Wall', 9.5, 1.35, Math.PI, 1),
-    makeProp('Flag_Wall', 14.5, 1.35, Math.PI, 1),
-  ]
+  // A few houses framing the plaza — each a solid rectangular footprint.
+  for (const h of houses) {
+    for (let y = h.y0; y <= h.y1; y++) {
+      for (let x = h.x0; x <= h.x1; x++) tiles[y * size + x] = 1
+    }
+  }
+
+  // Solid clutter: trees, boulders, and crates the player actually bumps into.
+  // These live in the shared plan (so the server simulates their collision the
+  // same way the client predicts it); small greenery stays client-side cosmetic.
+  const props: PropSpec[] = []
+  const rng = createRng((daySeed ^ 0x5f3a29c1) >>> 0)
+  const onOpenTile = (x: number, y: number) => tiles[Math.floor(y) * size + Math.floor(x)] === 0
+  // Keep the spawn→portal lane down the middle clear.
+  const inLane = (x: number, y: number) => x > 13 && x < 19 && y > HUB_LAYOUT.exit.y - 2
+  const clear = (x: number, y: number, dist: number) => props.every(p => Math.hypot(p.x - x, p.y - y) >= dist)
+  const scatter = (kinds: string[], count: number, sMin: number, sMax: number, minDist: number) => {
+    for (let placed = 0, tries = 0; placed < count && tries < count * 60; tries++) {
+      const x = 2.5 + rng() * (size - 5)
+      const y = 2.5 + rng() * (size - 5)
+      if (!onOpenTile(x, y) || inLane(x, y) || !clear(x, y, minDist)) continue
+      props.push(makeProp(kinds[Math.floor(rng() * kinds.length)]!, x, y, rng() * Math.PI * 2, sMin + rng() * (sMax - sMin)))
+      placed++
+    }
+  }
+  scatter(['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2'], 12, 0.6, 0.95, 3)
+  scatter(['Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3'], 8, 0.6, 1, 2.4)
+  // A little market corner near the front-right house.
+  props.push(makeProp('Prop_Wagon', 11, 21.5, 0.5, 1))
+  props.push(makeProp('Prop_Crate', 20.4, 20, 0.3, 1))
+  props.push(makeProp('Prop_Crate', 21, 20.7, 1.1, 0.85))
 
   return {
     floor: HUB_FLOOR,
@@ -184,9 +257,10 @@ function generateHub(daySeed: number): FloorPlan {
     width: size,
     height: size,
     tiles,
-    start: { x: size / 2, y: size - 4 },
-    exit: { x: size / 2, y: size / 2 },
+    start: { ...HUB_LAYOUT.start },
+    exit: { ...HUB_LAYOUT.exit },
     traps: [],
+    // Solid clutter is shared (above); small greenery is client-side cosmetic.
     props,
     biome: -1,
   }
@@ -196,15 +270,26 @@ function generateHub(daySeed: number): FloorPlan {
 /* Labyrinth floors                                                           */
 /* -------------------------------------------------------------------------- */
 
-/** Maze size in cells; grows with depth. */
+/**
+ * Corridor/room width in tiles, and the cell-to-cell stride. Cells are
+ * `CELL_TILES × CELL_TILES` blocks separated by 1-tile walls, so every corridor
+ * and room is `CELL_TILES` wide. Exported so the client renderer lays its
+ * modular walls, arches, and furniture on exactly the same grid the server carves.
+ */
+export const CELL_TILES = 3
+export const CELL_STRIDE = CELL_TILES + 1
+/** Tile offset of a cell's centre from its origin (for spawn/exit placement). */
+const CELL_CENTER = Math.floor(CELL_TILES / 2) + 1
+
+/** Maze size in cells; grows with depth, up to a grand tower-hall footprint. */
 function floorCells(floor: number): number {
-  return Math.min(9 + floor * 2, 21)
+  return Math.min(9 + floor * 2, 19)
 }
 
 /**
- * Generate one labyrinth floor: a recursive-backtracker maze with 2-tile-wide
- * corridors (cells are 2x2 tile blocks separated by 1-tile walls), a few dead
- * ends opened into loops, and timed hazards scaled to the floor's depth.
+ * Generate one labyrinth floor: a recursive-backtracker maze with
+ * `CELL_TILES`-wide corridors (cells are square tile blocks separated by 1-tile
+ * walls), a few dead ends opened into loops, and timed hazards scaled to depth.
  */
 export function generateFloor(floor: number, daySeed: number): FloorPlan {
   if (floor === HUB_FLOOR) return generateHub(daySeed)
@@ -212,24 +297,26 @@ export function generateFloor(floor: number, daySeed: number): FloorPlan {
   const seed = (daySeed ^ Math.imul(floor + 1, 0x9E3779B1)) >>> 0
   const rng = createRng(seed)
   const cells = floorCells(floor)
-  const size = cells * 3 + 1
+  const S = CELL_STRIDE
+  const C = CELL_TILES
+  const size = cells * S + 1
   const tiles = new Uint8Array(size * size).fill(1)
 
-  // Carve a 2x2 tile block for a cell.
+  // Carve a C×C tile block for a cell.
   const carveCell = (cx: number, cy: number) => {
-    for (let y = cy * 3 + 1; y <= cy * 3 + 2; y++) {
-      for (let x = cx * 3 + 1; x <= cx * 3 + 2; x++) tiles[y * size + x] = 0
+    for (let y = cy * S + 1; y <= cy * S + C; y++) {
+      for (let x = cx * S + 1; x <= cx * S + C; x++) tiles[y * size + x] = 0
     }
   }
-  // Carve the 2-tile-wide passage between two adjacent cells.
+  // Carve the C-tile-wide passage between two adjacent cells.
   const carvePassage = (cx: number, cy: number, dx: number, dy: number) => {
     if (dx !== 0) {
-      const x = dx > 0 ? cx * 3 + 3 : cx * 3
-      for (let y = cy * 3 + 1; y <= cy * 3 + 2; y++) tiles[y * size + x] = 0
+      const x = dx > 0 ? cx * S + S : cx * S
+      for (let y = cy * S + 1; y <= cy * S + C; y++) tiles[y * size + x] = 0
     }
     else {
-      const y = dy > 0 ? cy * 3 + 3 : cy * 3
-      for (let x = cx * 3 + 1; x <= cx * 3 + 2; x++) tiles[y * size + x] = 0
+      const y = dy > 0 ? cy * S + S : cy * S
+      for (let x = cx * S + 1; x <= cx * S + C; x++) tiles[y * size + x] = 0
     }
   }
 
@@ -265,8 +352,8 @@ export function generateFloor(floor: number, daySeed: number): FloorPlan {
   for (let cy = 0; cy < cells; cy++) {
     for (let cx = 0; cx < cells; cx++) {
       const openings = DIRS.filter(([dx, dy]) => {
-        const wx = dx !== 0 ? (dx > 0 ? cx * 3 + 3 : cx * 3) : cx * 3 + 1
-        const wy = dy !== 0 ? (dy > 0 ? cy * 3 + 3 : cy * 3) : cy * 3 + 1
+        const wx = dx !== 0 ? (dx > 0 ? cx * S + S : cx * S) : cx * S + 1
+        const wy = dy !== 0 ? (dy > 0 ? cy * S + S : cy * S) : cy * S + 1
         return tiles[wy * size + wx] === 0
       })
       if (openings.length !== 1 || rng() >= 0.3) continue
@@ -281,8 +368,8 @@ export function generateFloor(floor: number, daySeed: number): FloorPlan {
     }
   }
 
-  const start = { x: 2, y: 2 }
-  const exit = { x: (cells - 1) * 3 + 2, y: (cells - 1) * 3 + 2 }
+  const start = { x: CELL_CENTER, y: CELL_CENTER }
+  const exit = { x: (cells - 1) * S + CELL_CENTER, y: (cells - 1) * S + CELL_CENTER }
 
   // Timed hazards: denser and tighter with depth, never near start or exit.
   const traps: Trap[] = []
@@ -302,14 +389,16 @@ export function generateFloor(floor: number, daySeed: number): FloorPlan {
   // Biome-flavored clutter; solid pieces double as platforms to jump onto.
   const biome = biomeIndex(floor)
   const SCATTER: string[][] = [
-    ['Bricks', 'Skull', 'Pot1_Broken', 'Column_Round_Short', 'Candles_1', 'Crate'],
-    ['Pot2_Broken', 'Barrel', 'Skull', 'Pot1_Broken', 'Crate'],
+    ['Bricks', 'Skull', 'Pot1_Broken', 'Column_Round_Short', 'Candles_1', 'Crate', 'Crate_Wooden', 'Chest_Wood'],
+    ['Pot2_Broken', 'Barrel', 'Skull', 'Pot1_Broken', 'Crate', 'Crate_Wooden'],
     ['Bush_1x1', 'Bush_Round', 'Grass', 'Bush_1x1', 'Grass', 'Crate'],
-    ['Skull', 'Bricks', 'DeadTree_1', 'Column_Round_Short', 'Barrel'],
+    ['Skull', 'Bricks', 'DeadTree_1', 'Column_Round_Short', 'Barrel', 'Chest_Wood'],
   ]
   const options = SCATTER[biome]!
   const props: PropSpec[] = []
-  for (let i = 0; i < 500 && props.length < 40; i++) {
+  // Scale the clutter to the floor size but keep it sparse and well-spaced.
+  const propCap = Math.min(26, Math.round(cells * cells * 0.18))
+  for (let i = 0; i < 500 && props.length < propCap; i++) {
     const tx = 1 + Math.floor(rng() * (size - 2))
     const ty = 1 + Math.floor(rng() * (size - 2))
     if (tiles[ty * size + tx] !== 0) continue
@@ -318,7 +407,7 @@ export function generateFloor(floor: number, daySeed: number): FloorPlan {
     if (Math.hypot(px - start.x, py - start.y) < 4) continue
     if (Math.hypot(px - exit.x, py - exit.y) < 4) continue
     if (traps.some(t => Math.hypot(t.x - px, t.y - py) < 1.4)) continue
-    if (props.some(p => Math.hypot(p.x - px, p.y - py) < 1.2)) continue
+    if (props.some(p => Math.hypot(p.x - px, p.y - py) < 1.8)) continue
     const kind = options[Math.floor(rng() * options.length)]!
     props.push(makeProp(kind, px, py, rng() * Math.PI * 2, 0.7 + rng() * 0.45))
   }
