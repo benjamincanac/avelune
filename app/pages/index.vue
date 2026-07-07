@@ -6,8 +6,6 @@ definePageMeta({
   colorMode: 'dark',
 })
 
-useSiteSeo()
-
 const game = useGame()
 const toast = useToast()
 

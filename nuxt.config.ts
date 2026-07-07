@@ -1,3 +1,25 @@
+// Site metadata, single source of truth for SEO. Previously in app.config.ts +
+// useSiteSeo(), but every value here is static, so it lives in the build-time
+// head config instead of a runtime composable.
+const site = {
+  name: 'Mugen',
+  title: 'Mugen — endless multiplayer tower on Vercel WebSockets',
+  description:
+    'An endless multiplayer tower on the Vercel Functions WebSocket beta. Spawn in the hub, step into the teleport circle, and descend through biome floors — stone, sunken, verdant, magma — dodging hazards for depth on the daily leaderboard. Authoritative Nitro game loop, TresJS rendering, one WebSocket per runner.',
+  tagline: 'Nuxt × Vercel WebSockets',
+  repo: 'https://github.com/benjamincanac/mugen',
+  deployUrl:
+    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Fmugen&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=mugen&repository-name=mugen',
+  ogImage: '/og.png',
+  twitter: '@vercel',
+}
+
+// Canonical origin. Set NUXT_PUBLIC_SITE_URL in the deploy environment; the
+// fallback is only used for local/preview builds — change it to the real domain.
+const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://mugen-tower.vercel.app').replace(/\/$/, '')
+const canonical = `${siteUrl}/`
+const ogImage = `${siteUrl}${site.ogImage}`
+
 export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@tresjs/nuxt'],
 
@@ -8,13 +30,57 @@ export default defineNuxtConfig({
       htmlAttrs: { lang: 'en' },
       charset: 'utf-8',
       viewport: 'width=device-width, initial-scale=1',
+      title: site.title,
       meta: [
         { name: 'theme-color', content: '#00dc82' },
         { name: 'color-scheme', content: 'light dark' },
         { name: 'robots', content: 'index, follow' },
+        { name: 'description', content: site.description },
+        { name: 'author', content: 'Vercel Labs' },
+        {
+          name: 'keywords',
+          content: 'Nuxt, Vercel, WebSockets, realtime, multiplayer, game, MMO, Nitro, demo',
+        },
+        { property: 'og:title', content: site.title },
+        { property: 'og:description', content: site.description },
+        { property: 'og:type', content: 'website' },
+        { property: 'og:url', content: canonical },
+        { property: 'og:site_name', content: site.name },
+        { property: 'og:image', content: ogImage },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: site.title },
+        { name: 'twitter:description', content: site.description },
+        { name: 'twitter:image', content: ogImage },
+        { name: 'twitter:site', content: site.twitter },
       ],
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'canonical', href: canonical },
+      ],
+      script: [
+        {
+          type: 'application/ld+json',
+          innerHTML: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebApplication',
+            'name': site.name,
+            'description': site.description,
+            'url': siteUrl,
+            'image': ogImage,
+            'applicationCategory': 'DeveloperApplication',
+            'operatingSystem': 'Any',
+            'offers': {
+              '@type': 'Offer',
+              'price': '0',
+              'priceCurrency': 'USD',
+            },
+            'isPartOf': {
+              '@type': 'SoftwareSourceCode',
+              'codeRepository': site.repo,
+              'programmingLanguage': 'TypeScript',
+            },
+          }),
+        },
       ],
     },
   },
