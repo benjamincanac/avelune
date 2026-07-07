@@ -12,15 +12,14 @@ import { z } from 'zod'
  * (`AI_GATEWAY_API_KEY` locally, OIDC on Vercel).
  */
 
-// Both calls run on Gemini Flash-Lite — Google's lowest-latency tier — with
-// reasoning turned down hard. Gemini 3.x thinks by default, which ADDS latency;
-// left on, Flash-Lite is slower than Haiku for a one-line chat reply. The
-// portable `reasoning` param (AI SDK v7) is what keeps it fast: `none` on the
-// gate, `minimal` on the reply (bare-minimum, still enough for one tool call).
+// Both calls run on Claude Haiku 4.5 — Anthropic's low-latency tier — with
+// reasoning turned down hard to keep a one-line chat reply snappy. The portable
+// `reasoning` param (AI SDK v7) is what keeps it fast: `none` on the gate,
+// `minimal` on the reply (bare-minimum, still enough for one tool call).
 /** Cheap + fast — this runs on every hub message, so keep it small. */
-const CLASSIFIER_MODEL = 'google/gemini-3.1-flash-lite'
+const CLASSIFIER_MODEL = 'anthropic/claude-haiku-4.5'
 /** The in-character reply — only runs when addressed. */
-const RESPONDER_MODEL = 'google/gemini-3.1-flash-lite'
+const RESPONDER_MODEL = 'anthropic/claude-haiku-4.5'
 
 /** Chat replies must stay short; hard cap as a backstop to the prompt. */
 const MAX_REPLY = 220
@@ -66,7 +65,16 @@ async function isAddressed(recent: HubMessage[]): Promise<boolean> {
     const { text } = await generateText({
       model: CLASSIFIER_MODEL,
       reasoning: 'none',
-      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's hub, whom players can talk to. The players in that hub ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle: a question or remark aimed at it (by name, or clearly seeking the seer's knowledge, guidance, or lore about the tower). It is NOT for the Oracle if it's runner-to-runner talk, greetings between players, coordination, or idle banter. When unsure, answer NO. Reply with exactly "YES" or "NO" and nothing else.`,
+      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's hub, whom players can talk to. The players in that hub ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
+
+It IS for the Oracle when the line is:
+- addressed to it by name, or
+- a question or remark clearly seeking the seer's knowledge, guidance, or lore about the tower, or
+- a direct question aimed at a singular "you" — who the speaker is, what it is, its name, its purpose, what it knows — when no other player is being addressed. The Oracle is the only non-player presence in the hub, so a bare "who are you?", "what are you?", or "what is this place?" is meant for it.
+
+It is NOT for the Oracle if it's clearly runner-to-runner talk: greetings between players, coordination, addressing another player by name, or idle banter. When a question could go either way but names or clearly targets another runner, answer NO; otherwise a genuine question with no other addressee is for the Oracle.
+
+Reply with exactly "YES" or "NO" and nothing else.`,
       prompt: `Recent hub chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
     })
     console.log('[oracle] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
