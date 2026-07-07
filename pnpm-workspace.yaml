@@ -11,4 +11,4 @@ minimumReleaseAge: 2880
 # support via crossws/adapters/vercel. Prerelease semver means the caret range
 # won't pick this up on its own.
 overrides:
-  nitro: 3.0.260610-beta
+  nitro: 3.0.260522-beta
