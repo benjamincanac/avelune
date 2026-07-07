@@ -201,6 +201,12 @@ watch(game.lastDeath, (death: DeathEvent | null) => {
       deathFlash.value = false
     }, 900)
     game.announce(`You were ${death.cause} on floor ${death.floor}. Back to the hub — begin the climb again.`)
+    return
+  }
+  // A nearby runner fell — announce it on your floor (chat is floor-scoped).
+  if (death.floor === game.selfFloor.value) {
+    const name = game.players.get(death.id)?.name ?? 'A runner'
+    game.announce(`${name} was ${death.cause}.`)
   }
 })
 
