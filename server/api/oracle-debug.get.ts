@@ -35,6 +35,38 @@ export default defineEventHandler(async (event) => {
   }
 
   const key = process.env.AI_GATEWAY_API_KEY
+
+  // The real SDK path — the exact classifier call, from a request context.
+  let sdk: unknown
+  try {
+    const { generateText } = await import('ai')
+    const { text } = await generateText({
+      model: 'anthropic/claude-haiku-4.5',
+      reasoning: 'none',
+      instructions: 'Reply with exactly YES or NO.',
+      prompt: 'Is the sky blue?',
+    })
+    sdk = { ok: text }
+  }
+  catch (error) {
+    const e = error as {
+      name?: string
+      message?: string
+      statusCode?: number
+      cause?: { name?: string, message?: string, statusCode?: number, url?: string, responseBody?: string, responseHeaders?: Record<string, string> }
+    }
+    sdk = {
+      name: e.name,
+      message: e.message,
+      status: e.statusCode,
+      causeName: e.cause?.name,
+      causeMessage: e.cause?.message,
+      url: e.cause?.url,
+      body: e.cause?.responseBody?.slice?.(0, 200),
+      headers: e.cause?.responseHeaders,
+    }
+  }
+
   return {
     env: {
       hasApiKey: !!key,
@@ -45,8 +77,9 @@ export default defineEventHandler(async (event) => {
     },
     // Control: a totally unrelated external host.
     external: await probe('https://example.com'),
-    // The gateway host, unauthenticated — a real gateway answers with JSON
-    // (401/200), NOT a Nuxt 404. A Nuxt page here proves the loopback.
+    // The gateway host, raw — a real gateway answers JSON, not a Nuxt 404.
     gatewayModels: await probe('https://ai-gateway.vercel.sh/v1/models', key ? { authorization: `Bearer ${key}` } : undefined),
+    // The actual AI SDK call the Oracle makes.
+    sdk,
   }
 })
