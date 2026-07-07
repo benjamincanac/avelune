@@ -27,8 +27,17 @@ and reactive to live multiplayer state.
 - **Vercel AI SDK v7** (`ai@^7`, `@ai-sdk/vue@^4`). Client renders the stream with
   `useChat`. Server uses `streamText` + `tool()` + `zod` + `stepCountIs` for the
   tool loop.
-- **Routed through the Vercel AI Gateway** — `AI_GATEWAY_API_KEY` locally, OIDC on
-  Vercel. Model id is a gateway string, currently `google/gemini-3.1-flash-lite`
+- **Routed through the Vercel AI Gateway** — `AI_GATEWAY_API_KEY` both locally and
+  on Vercel. **Do not rely on OIDC here:** `VERCEL_OIDC_TOKEN` is request-scoped
+  (resolved via `@vercel/oidc`'s `getContext()`), so it is absent in the WS
+  `message` / game-loop context the Oracle actually runs from — set the API key
+  as a Vercel env var. **Landmine (cost hours):** a Vercel env-var change only
+  takes effect on a *new deployment*; until you redeploy, the runtime has no key,
+  and the gateway's keyless auth-fallback surfaces as a baffling
+  `GatewayResponseError: Invalid error response format / 404` (it even echoes this
+  app's own Nuxt 404 page) — NOT an auth error. A genuinely missing/bad key throws
+  `GatewayAuthenticationError`; a 404 with `cause: "OK"` means "no key in this
+  deployment," so redeploy after setting it. Model id is a gateway string, currently `google/gemini-3.1-flash-lite`
   for both the classifier and the responder (chosen for latency — it's a live
   chat NPC). **Gotcha:** Gemini 3.x thinks by default, which *adds* latency —
   left on, Flash-Lite is slower than Claude Haiku for a one-line reply. The
