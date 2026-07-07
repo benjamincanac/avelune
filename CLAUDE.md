@@ -1,0 +1,48 @@
+# Mugen
+
+Endless multiplayer dungeon-crawl tower. **Nuxt** (nightly) + **TresJS** (three.js) on the client, **Nitro v3 native WebSockets** on the server, deployed to **Vercel**. One shared tower per UTC day, regenerated deterministically so no geometry ever travels over the wire — only players.
+
+Roadmap / status is [.claude/ROADMAP.md](.claude/ROADMAP.md) — the source of truth for what's done and next. Keep it current as work lands.
+
+## Commands
+
+- `pnpm dev` — dev server (port 3000 is occupied on this machine; use the preview harness / autoPort)
+- `pnpm typecheck` — `nuxt typecheck` (vue-tsc)
+- `pnpm lint` / `pnpm lint:fix` — ESLint
+- `node scripts/ws-test.mjs ws://localhost:<port>/api/ws` — protocol test (two clients assert `welcome`/`state`/`clear`/`death`/`chat` frames)
+- Blender is headless: `"/Applications/Blender.app/Contents/MacOS/Blender" --background --python scripts/<x>.py -- <args>`
+
+Package manager is **pnpm**.
+
+## Architecture invariants (load-bearing)
+
+1. **Gameplay-affecting code lives in `shared/utils/maze.ts`.** Anything touching player position, collision, elevation, or hazards must go in the shared module so the authoritative server (`server/utils/game.ts`) and client prediction call the *same* functions and never disagree. Never fork physics into a component or the WS handler.
+2. **The server is authoritative.** It runs a fixed **20 Hz** tick loop and validates every action (jump/dash cooldowns, clears, deaths). Clients predict; the server decides.
+3. **Determinism.** Floors are generated from `(UTC day seed, floor index)` with a seeded PRNG — never `Math.random()` in generation paths. Any client can regenerate any floor; the socket carries only players. New tower at midnight UTC (`maze` frame).
+4. **Wire protocol** is the `t`-keyed discriminated unions in `shared/types/game.ts`. Client→server: `move`/`action`/`chat`/`ping`. Server→client: `welcome`/`join`/`leave`/`state`/`chat`/`death`/`clear`/`maze`/`pong`. `welcome.now` is the server clock that drives day/night + weather. Changing a frame's shape means updating both consumers.
+5. **Identity** rides a signed cookie on the same-origin WS upgrade; no valid cookie ⇒ socket closed. `?spectate=1` opens a read-only watcher (no cookie/character).
+6. **Browser-only code** (three.js, pointer lock) must be `.client.vue` / `<ClientOnly>` — never runs during SSR.
+
+## Subagents
+
+Work is divided into focused subagents in [.claude/agents/](.claude/agents/). Each owns a slice and runs in its own context — route work to the matching one (invoke by name or describe the task).
+
+| Agent | Owns |
+| --- | --- |
+| `world-sim` | `shared/**` — deterministic world/hub generation, `stepBody` kinematics, collision, hazards, seeds, and the protocol types. The server↔client invariant. |
+| `server-net` | `server/**` — the 20 Hz authoritative sim, crossws WS handler, sessions, and non-AI HTTP routes. |
+| `scene-3d` | TresJS rendering — camera, biome materials/fog, day/night + weather, instanced architecture, character animation, minimap, fog-of-war, spectator view. |
+| `game-ui` | 2D interface — HUD, chat, menus, records, character onboarding, `useGame`. |
+| `oracle-ai` | The hub Oracle AI NPC end to end — `server/api/oracle.post.ts` (`streamText` + in-process `tower_state` tool), dialog, `useOracle`, prompts/model/tools. |
+| `assets` | Blender/glTF pipeline — `scripts/*`, `public/models/**`, compression. |
+
+Ownership seams to respect: physics belongs to `world-sim` (not `server-net`/`scene-3d`); the Oracle's AI is `oracle-ai` (not `server-net`/`game-ui`); the Oracle's 3D placement/proximity is `scene-3d`.
+
+**Keep agent definitions current.** When a change alters a slice's durable contract — an ownership boundary, a load-bearing invariant, or a hard-won gotcha (e.g. the WebP-probe race, the shared-kinematics rule) — amend the matching `.claude/agents/*.md` in the same change so the next run starts from the truth. Keep *status/progress* out of agent files (that's the ROADMAP's job), and amend the specific fact rather than rewriting hand-tuned prose. A change that only adds a feature without shifting a contract needs no agent-file edit.
+
+## Stack notes
+
+- **Nuxt UI v4** + Tailwind for 2D UI; theme in `app/app.config.ts`. Prefer its components. Vue style: `<script setup>` + Composition API + TypeScript.
+- **AI SDK v7** (`ai@^7`, `@ai-sdk/vue@^4`) for the Oracle, routed through the **Vercel AI Gateway** (`AI_GATEWAY_API_KEY` local, OIDC on Vercel). Built in-process, deliberately **not** eve (see the `oracle-ai` agent for why + the eve/Nitro proxy landmine).
+- Nitro is a **beta** (`3.0.260610-beta`) with h3 2.0-rc — some ecosystem integrations recurse/break on it; verify rather than assume.
+- The Vercel WebSocket upgrade in prod is **unverified and load-bearing** — the whole architecture rests on it (ROADMAP §1).
