@@ -164,36 +164,58 @@ export function createRng(seed: number): () => number {
 /* Hub                                                                        */
 /* -------------------------------------------------------------------------- */
 
-/** A house footprint, as an inclusive tile rectangle. */
+/**
+ * A house footprint, as an inclusive tile rectangle, plus which way its door
+ * faces: 0 = north (-y), 1 = east (+x), 2 = south (+y), 3 = west (-x).
+ * Footprint spans are kept to 4/6/8 tiles so the renderer can cap each house
+ * with a matching Medieval-Village gable roof (`Roof_RoundTiles_WxD`).
+ */
 export interface HubHouse {
   x0: number
   y0: number
   x1: number
   y1: number
+  front: 0 | 1 | 2 | 3
 }
 
 /**
- * The nature-village hub layout, shared so `generateHub` (which fills the
- * collision tiles) and the client renderer (which places the tower, houses,
- * and portal meshes) never drift apart. World coords in tiles (1 tile = 1 unit).
+ * The village hub layout, shared so `generateHub` (which fills the collision
+ * tiles) and the client renderer (which places the tower, houses, roads, and
+ * portal meshes) never drift apart. World coords in tiles (1 tile = 1 unit).
  *
- * The plaza is an open grassy square: a gigantic solid tower at the back, a
- * few houses framing the sides, the spawn at the south edge, and the vertical
- * teleport portal at the tower's south base. All collision lives in the tiles.
+ * The village: a gigantic tower dead-center on a cobbled plaza, timber-frame
+ * houses fronting the plaza and the main street, a market corner, the spawn
+ * just inside the south gate, and the portal on the plaza before the tower.
+ * All collision lives in the tiles + solid props; roads are cosmetic but are
+ * shared here so the daily scatter keeps off them on every client.
  */
 export const HUB_LAYOUT = {
-  size: 32,
+  size: 40,
   /** Solid disc of wall tiles; players can't enter — the portal is the way up. */
-  tower: { x: 16, y: 10, radius: 3.5 },
-  /** Vertical portal + teleport trigger, just south of the tower base. */
-  exit: { x: 16, y: 15 },
-  /** Spawn, at the south edge of the plaza. */
-  start: { x: 16, y: 27 },
+  tower: { x: 20, y: 20, radius: 4 },
+  /** Cobbled plaza disc around the tower. */
+  plazaRadius: 9.5,
+  /** Main street: from the plaza rim south to the village gate. */
+  street: { x: 20, halfW: 1.6, y1: 37.5 },
+  /** Village gate arch across the street, at the south tree line. */
+  gate: { x: 20, y: 37 },
+  /** Vertical portal + teleport trigger, on the plaza south of the tower. */
+  exit: { x: 20, y: 26 },
+  /** Spawn, on the main street just inside the gate. */
+  start: { x: 20, y: 35 },
+  /** Market stall corner on the south-west plaza rim. */
+  market: { x: 13.5, y: 26.5 },
   houses: [
-    { x0: 4, y0: 7, x1: 7, y1: 10 },
-    { x0: 24, y0: 7, x1: 27, y1: 10 },
-    { x0: 4, y0: 21, x1: 7, y1: 24 },
-    { x0: 24, y0: 21, x1: 27, y1: 24 },
+    // Two grand plaza-front halls flanking the tower.
+    { x0: 5, y0: 16, x1: 10, y1: 21, front: 1 },
+    { x0: 29, y0: 16, x1: 34, y1: 21, front: 3 },
+    // The north row behind the plaza.
+    { x0: 9, y0: 6, x1: 14, y1: 9, front: 2 },
+    { x0: 25, y0: 6, x1: 30, y1: 9, front: 2 },
+    { x0: 17, y0: 4, x1: 22, y1: 7, front: 2 },
+    // Two houses flanking the main street by the gate.
+    { x0: 12, y0: 28, x1: 15, y1: 33, front: 1 },
+    { x0: 24, y0: 28, x1: 27, y1: 33, front: 3 },
   ] as HubHouse[],
 }
 
@@ -219,37 +241,48 @@ function generateHub(daySeed: number): FloorPlan {
     }
   }
 
-  // A few houses framing the plaza — each a solid rectangular footprint.
+  // Houses framing the plaza and the street — each a solid rectangular footprint.
   for (const h of houses) {
     for (let y = h.y0; y <= h.y1; y++) {
       for (let x = h.x0; x <= h.x1; x++) tiles[y * size + x] = 1
     }
   }
 
-  // Solid clutter: trees, boulders, and crates the player actually bumps into.
-  // These live in the shared plan (so the server simulates their collision the
-  // same way the client predicts it); small greenery stays client-side cosmetic.
+  // Village core: the cobbled plaza, the main street, the market, and a margin
+  // around every house stay tidy — daily scatter only lands in the meadow ring
+  // between the buildings and the border tree line.
+  const { plazaRadius, street, market } = HUB_LAYOUT
+  const inCore = (x: number, y: number) => {
+    if (Math.hypot(x - tower.x, y - tower.y) < plazaRadius + 2) return true
+    if (Math.abs(x - street.x) < street.halfW + 2 && y > tower.y) return true
+    if (Math.hypot(x - market.x, y - market.y) < 4) return true
+    return houses.some(h => x > h.x0 - 2 && x < h.x1 + 3 && y > h.y0 - 2 && y < h.y1 + 3)
+  }
+
+  // Solid clutter: trees, boulders, and market goods the player actually bumps
+  // into. These live in the shared plan (so the server simulates their collision
+  // the same way the client predicts it); small greenery stays client-side cosmetic.
   const props: PropSpec[] = []
   const rng = createRng((daySeed ^ 0x5f3a29c1) >>> 0)
   const onOpenTile = (x: number, y: number) => tiles[Math.floor(y) * size + Math.floor(x)] === 0
-  // Keep the spawn→portal lane down the middle clear.
-  const inLane = (x: number, y: number) => x > 13 && x < 19 && y > HUB_LAYOUT.exit.y - 2
   const clear = (x: number, y: number, dist: number) => props.every(p => Math.hypot(p.x - x, p.y - y) >= dist)
   const scatter = (kinds: string[], count: number, sMin: number, sMax: number, minDist: number) => {
     for (let placed = 0, tries = 0; placed < count && tries < count * 60; tries++) {
       const x = 2.5 + rng() * (size - 5)
       const y = 2.5 + rng() * (size - 5)
-      if (!onOpenTile(x, y) || inLane(x, y) || !clear(x, y, minDist)) continue
+      if (!onOpenTile(x, y) || inCore(x, y) || !clear(x, y, minDist)) continue
       props.push(makeProp(kinds[Math.floor(rng() * kinds.length)]!, x, y, rng() * Math.PI * 2, sMin + rng() * (sMax - sMin)))
       placed++
     }
   }
-  scatter(['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2'], 12, 0.6, 0.95, 3)
-  scatter(['Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3'], 8, 0.6, 1, 2.4)
-  // A little market corner near the front-right house.
-  props.push(makeProp('Prop_Wagon', 11, 21.5, 0.5, 1))
-  props.push(makeProp('Prop_Crate', 20.4, 20, 0.3, 1))
-  props.push(makeProp('Prop_Crate', 21, 20.7, 1.1, 0.85))
+  scatter(['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2'], 18, 0.6, 0.95, 3)
+  scatter(['Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3'], 10, 0.6, 1, 2.4)
+  // The market corner on the south-west plaza rim: a wagon and stacked goods.
+  props.push(makeProp('Prop_Wagon', market.x - 1.7, market.y + 1.6, 0.45, 1))
+  props.push(makeProp('Prop_Crate', market.x + 1.3, market.y + 2.3, 0.3, 1))
+  props.push(makeProp('Prop_Crate', market.x + 1.9, market.y + 1.6, 1.1, 0.85))
+  props.push(makeProp('Barrel', market.x + 2.7, market.y + 0.5, 0, 1))
+  props.push(makeProp('Barrel', market.x - 3.4, market.y - 0.4, 2.1, 0.9))
 
   return {
     floor: HUB_FLOOR,

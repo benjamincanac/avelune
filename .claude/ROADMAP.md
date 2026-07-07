@@ -24,6 +24,7 @@
 - [x] **Main-menu app shell** (`index.vue` state machine: `checking → menu → creating → playing → spectating`). Socket opens on demand, not on load. Returning player sees name + Enter; new visitor creates a runner; everyone can spectate. `MainMenu` + 3D `CharacterLineup` backdrop
 - [x] **Spectator mode**: `?spectate=1` read-only socket (`registerSpectator`, no cookie, never simulated/counted), full-tower reveal-all map
 - [x] Records over HTTP (`GET /api/records`) so the menu shows the board pre-socket; shared `RecordsBoard` used in menu / HUD / spectator
+- [x] **In-game Escape menu** (WoW-style, replaces the old bottom-right HUD buttons): controls reference + fullscreen + leave + return-to-game. Opens on Escape; while pointer-locked the keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
 - [x] In-day progress persistence: `progress` map (deepest floor per identity) survives a refresh; hub portal resumes you at `max(1, best)` *(NB: in-memory, cleared at rollover — see §7)*
 - [x] Per-day tower shared by all; midnight-UTC rollover (`maze` frame) → new tower, everyone back to hub
 
@@ -31,7 +32,8 @@
 - [x] **Hub Oracle AI NPC** — in-process AI SDK route (`POST /api/oracle`, `streamText` + `tower_state` tool reading live `snapshot()`), `anthropic/claude-sonnet-5` via Vercel AI Gateway, in-character persona. Client dialog (`OracleDialog` + `useOracle` + `useChat`), `MushroomKing.glb` body beside the portal, walk up + press `E`. (Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`)
 
 ### World, art & assets
-- [x] **Village-in-nature hub redesign** (`buildVillageHub`): procedural brick tower, timber-frame houses, meadow, tree/rock scatter — hub clutter is **real shared collision**; vertical "rift" portal (`makePortalTexture`)
+- [x] **Village hub v2** (`HUB_LAYOUT` 40×40 + `buildVillageHub`): tower dead-centre on a cobbled plaza, main street to a south gate (arch + fence line), 7 composed timber-frame houses (stone ground floor, jettied upper, footprint-matched gable roofs + shutters/balconies/chimneys/vines; ~35 more Medieval Village kit pieces via `convert_kits.sh`), market stall corner, door paths + curb edging; daily tree/rock scatter confined to the meadow ring — hub clutter is **real shared collision**; vertical "rift" portal (`makePortalTexture`)
+- [x] **Modeled portal gate** (`scripts/make_portal.py` → `portal_gate.glb`, 19 KB): ruined stone rune-ring on a stepped dais with twin obelisks, floating `Shard_*` stones and emissive `Rune` inlays animated by `buildPortal`; frames the energy rift in both the hub and the menu hero (menu stage gained lights for it)
 - [x] **Modular masonry walls** (`placeModularWalls`): real Ruins wall/door/window panels dress room faces (Verdant swaps overgrown variants); box-wall core still drives collision *(resolves the old §6 "no straight wall panels" holdout — via both Ruins `Wall*` modules and the Village MegaKit)*
 - [x] Enclosed interior: walls to `WALL_HEIGHT`, tiled flagstone ceiling, hung chandeliers; grand exit-portal dais (stairs + railings + flags); plank bridge over flooded rooms; trapdoor plates under traps; fantasy-prop interior scatter
 - [x] Character roster rebuilt: 8 Universal-skeleton Peasant/Ranger (M/F × 2 hairstyles) sharing one `animations.glb` clip library (Idle/Run/Jump/Roll + dashes), WebP textures, runtime colorway swap. Old 8 named GLBs removed
@@ -82,6 +84,8 @@
 
 ## Known issues / verify-me
 
+- [ ] **`scripts/ws-test.mjs` is broken by the signed-cookie gate** — it opens raw cookieless WebSockets, which `server/api/ws.ts` closes on upgrade, so it dies at "A: no welcome". Predates the village-hub work; the fix is to `POST /api/auth` first and replay the cookie on the upgrade
+- [ ] **Nitro-beta dev server can die/crash-loop under the hub's ~180-GLB load burst** (dev worker exits silently or "Dev worker failed after 3 retries"); a prod build (`pnpm build` + `NUXT_SESSION_PASSWORD=… node .output/server/index.mjs`) serves the same session rock-solid — use it for headless verification (see the run-mmo skill)
 - [ ] **Vercel WS upgrade unverified in prod** — load-bearing; see §1
 - [ ] **Oracle is a no-op without a working Gateway key / model id** — verify on deploy (§1)
 - [ ] Ranger's **hairstyle selector has no visible effect** — the hood is always baked on and covers it; the intended "hooded ⇒ no hairstyle choice" isn't enforced in the gate UI, and the aspirational runtime `hood` toggle is unimplemented (no `Player.hood` field / control)

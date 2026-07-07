@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NATURE_SRC="${NATURE_SRC:-$HOME/Downloads/quaternius/Stylized Nature MegaKit/glTF}"
-VILLAGE_SRC="${VILLAGE_SRC:-$HOME/Downloads/quaternius/Medieval Village MegaKit[Standard]/glTF}"
+VILLAGE_SRC="${VILLAGE_SRC:-$HOME/Downloads/quaternius/medieval-village-megakit/glTF}"
 
 NATURE_OUT="$ROOT/public/models/nature"
 VILLAGE_OUT="$ROOT/public/models/village"
@@ -28,19 +28,29 @@ NATURE=(
 )
 
 VILLAGE=(
-  # Tower + roofs
+  # Tower + roofs (gable roofs are named by the footprint they cap: Roof_RoundTiles_WxD)
   Roof_Tower_RoundTiles Roof_RoundTiles_6x6 Roof_RoundTiles_4x4
+  Roof_RoundTiles_4x6 Roof_RoundTiles_4x8 Roof_RoundTiles_6x4 Roof_RoundTiles_6x8
   Roof_Front_Brick4 Roof_Front_Brick6 Roof_Dormer_RoundTile
+  Roof_Wooden_2x1
   # Walls: stone/plaster ground floor + timber-frame upper floor
   Wall_Plaster_Straight Wall_Plaster_Window_Wide_Round Wall_Plaster_Door_Round
   Wall_Plaster_WoodGrid Wall_UnevenBrick_Straight
+  Wall_UnevenBrick_Window_Wide_Round Wall_UnevenBrick_Door_Round
+  Wall_Plaster_Window_Thin_Round Wall_Arch
   Corner_Exterior_Wood Corner_Exterior_Brick
   # Jettied upper storey + balconies + stairs
-  Overhang_Plaster_Long Overhang_Plaster_Corner
+  Overhang_Plaster_Long Overhang_Plaster_Short Overhang_Plaster_Corner
   Balcony_Simple_Straight Balcony_Simple_Corner Stairs_Exterior_Straight
   # Detail
-  Door_1_Round Window_Wide_Round1 Prop_Chimney Prop_Chimney2 Prop_Vine1
-  Prop_Wagon Prop_WoodenFence_Single Prop_Crate Prop_Support
+  Door_1_Round Window_Wide_Round1 Window_Thin_Round1
+  WindowShutters_Wide_Round_Open WindowShutters_Thin_Round_Closed
+  Prop_Chimney Prop_Chimney2 Prop_Vine1 Prop_Vine2 Prop_Vine4
+  Prop_Wagon Prop_WoodenFence_Single Prop_WoodenFence_Extension1
+  Prop_Crate Prop_Support Prop_Brick1 Prop_Brick2
+  # Road curbs + tower-yard fence
+  Prop_ExteriorBorder_Straight1 Prop_ExteriorBorder_Corner
+  Prop_MetalFence_Simple Prop_MetalFence_Ornament
 )
 
 GT=(npx --yes @gltf-transform/cli@latest)

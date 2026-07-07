@@ -16,7 +16,7 @@ that the authoritative server and the client's prediction/rendering both build
 from independently.
 
 ## Files you own
-- `shared/utils/maze.ts` — hub plaza + endless labyrinth generation, biomes,
+- `shared/utils/maze.ts` — hub village + endless labyrinth generation, biomes,
   collision, elevation (walkable props), traps/hazards, `stepBody` kinematics,
   seeds (`dateSeed`, per-floor `(daySeed, floorIndex)`), win detection.
 - `shared/utils/characters.ts` — character roster / assignment logic.
@@ -38,6 +38,14 @@ from independently.
 4. Corridors are 2 tiles wide; `PLAYER_RADIUS` and trap radii are in tiles.
    Traps only kill below `TRAP_MAX_Z` (jumpable). Keep these as exported
    constants so both sides read the same numbers.
+5. **`HUB_LAYOUT` is the hub village's shared truth** (40×40): centred tower
+   disc, `plazaRadius`/`street`/`market` (cosmetic cobbles client-side, but
+   shared here so the daily scatter keeps off them), gate, and `houses` —
+   inclusive tile rects that carry a `front` direction (0=N 1=E 2=S 3=W) the
+   renderer uses for doors/gables. Keep house footprint spans to 4/6/8 tiles:
+   the client caps them with footprint-matched `Roof_RoundTiles_WxD` kit
+   roofs, and gable ends only exist for spans 4 and 6. Collision is only the
+   tile stamps + `SOLID_PROPS` entries; fences/curbs/roads never collide.
 
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ optional action

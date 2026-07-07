@@ -32,12 +32,20 @@ No compile step — Nuxt dev builds on demand. Sanity checks: `pnpm lint`, `pnpm
 
 ## Run (agent path) — drive the game
 
-**1. Start a dev server on a known port.** Plain `pnpm dev` **refuses when another
+**1. Start a server on a known port.** Plain `pnpm dev` **refuses when another
 Nuxt dev server for this repo is already running** (it errors "Another Nuxt dev
 server is already running"). Force a fresh one on an explicit port:
 ```bash
 NUXT_IGNORE_LOCK=1 nohup pnpm dev --port 4321 > /tmp/mmo-dev.log 2>&1 &
 until curl -sf -o /dev/null http://localhost:4321/; do sleep 1; done
+```
+**The beta Nitro dev worker is flaky under the game's ~180-GLB load burst** — it
+can exit silently or crash-loop ("Dev worker failed after 3 retries"), killing
+model requests and the WS mid-session. If the dev server keeps dying, verify
+against a **prod build** instead — same app, rock-solid static serving:
+```bash
+pnpm build
+NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/index.mjs > /tmp/mmo-prod.log 2>&1 &   # listens on :3000
 ```
 
 **2. Drive it.** `hub` (default) enters and shoots the hub; `floor` also walks onto
@@ -98,6 +106,19 @@ walk onto the blue portal to climb. Useless headless — opens a real window and
   ("Named export not found") — the driver uses `createRequire` + the absolute path.
 - **Movement keys need canvas focus but not pointer lock.** They're global keydown
   listeners; the driver clicks the canvas once, then `keyboard.down('KeyW')`.
+- **Screenshot only after the model queue drains.** Under SwiftShader the main
+  thread starves the network callbacks, so the ~180 GLB requests complete at just
+  ~5/s — the world rebuilds with kit models only once its batch resolves, and an
+  early shot shows bare procedural geometry (ground/tower/portal but no houses or
+  props). Track `page.on('request'/'requestfinished')` for `/models/` URLs and wait
+  until the set is empty and quiet for ~4 s (typ. 7–15 s total) before shooting.
+- **Camera yaw headless: dispatch synthetic `mousemove` on the canvas.** The look
+  handler reads `event.movementX`, but real `page.mouse.move()` deltas are zero-sum
+  across the viewport (you can't turn past ~180° and sweep-backs cancel), and when
+  not pointer-locked events are ignored unless the target is inside the world root.
+  Reliable: `canvas.dispatchEvent(new MouseEvent('mousemove', { movementX: dx,
+  bubbles: true }))` — ~507 px per 90° (`MOUSE_SENSITIVITY` 0.0031 rad/px); split
+  large deltas into ~10 events. Same idea with `movementY` for pitch.
 - **Benign console noise (ignore):** a web-font `.woff2` 404, and
   `props.characters is not iterable` from the menu's `CharacterLineup` components
   (pre-existing, unrelated to the game scene). The driver dedupes and prints these.
