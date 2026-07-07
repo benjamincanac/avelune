@@ -59,6 +59,15 @@ owned by the `oracle-ai` agent — hand oracle work there.
    "Watch as spectator"), not character creation. Pre-game it fetches
    `/api/records` over HTTP because the socket isn't open yet; in-game and
    spectator boards use live `useGame().records`.
+7. **In-game session actions live in the Escape menu** (WoW-style overlay in
+   `index.vue`: controls reference, fullscreen, leave, return-to-game) — not in
+   HUD buttons. Two open paths, both needed: a bare Escape keydown covers every
+   unlocked state (and keyboard-locked fullscreen), and `GameScene`'s `unlock`
+   emit covers pointer-locked play, where the browser swallows the Escape
+   keydown (contract owned by `scene-3d`). Gotcha: window-level Escape handlers
+   must check `event.target`, NOT `document.activeElement` — `ChatPanel` blurs
+   its input on the same keydown, so focus may already be gone by the time the
+   event reaches another listener.
 
 ## Working style
 - Keep gameplay logic out of components — position/collision/hazard logic lives

@@ -259,7 +259,7 @@ export function useGame(): UseGame {
           // Greet once per session — reconnects re-send `welcome`, but silently.
           if (!greeted) {
             greeted = true
-            announce(`Welcome to the tower, ${msg.self.name}. Step onto the portal to begin your ascent. Press H for help.`)
+            announce(`Welcome to the tower, ${msg.self.name}. Step onto the portal to begin your ascent. Press Esc for the menu.`)
           }
         }
         break

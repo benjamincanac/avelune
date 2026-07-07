@@ -17,6 +17,15 @@ import type { UseGame } from '~/composables/useGame'
 
 const props = defineProps<{ game: UseGame }>()
 
+/**
+ * Fired when pointer lock is lost without us initiating it (Alt-cursor mode).
+ * While locked the browser swallows the Escape keydown entirely, so this
+ * transition IS the "player pressed Escape" signal — the page opens the game
+ * menu on it. Focus loss (Alt-Tab) also drops the lock; the `hasFocus()` guard
+ * below keeps that from counting.
+ */
+const emit = defineEmits<{ unlock: [] }>()
+
 const held: MoveInput = { forward: false, back: false, left: false, right: false }
 
 /**
@@ -185,7 +194,10 @@ function onContextMenu(event: MouseEvent) {
 }
 
 function onPointerLockChange() {
-  pointerLocked.value = document.pointerLockElement != null
+  const locked = document.pointerLockElement != null
+  const wasLocked = pointerLocked.value
+  pointerLocked.value = locked
+  if (wasLocked && !locked && !altHeld.value && document.hasFocus()) emit('unlock')
 }
 
 /** Exposed so the page can chain a lock attempt onto fullscreen toggles. */

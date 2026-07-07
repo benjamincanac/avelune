@@ -12,7 +12,7 @@ const oracle = useOracle()
 
 const gameRoot = useTemplateRef('gameRoot')
 const gameScene = useTemplateRef('gameScene')
-const showHelp = ref(false)
+const showMenu = ref(false)
 const deathFlash = ref(false)
 const fullscreen = ref(false)
 
@@ -99,11 +99,31 @@ function leave() {
 }
 
 /**
+ * The in-game Escape menu (WoW-style). While the pointer is locked the browser
+ * swallows the Escape keydown entirely, so the "open" signal is the scene's
+ * `unlock` emit (pointer lock lost without Alt); the keydown path below covers
+ * every unlocked state, plus keyboard-locked fullscreen where Escape DOES reach
+ * us while still locked.
+ */
+function openMenu() {
+  showMenu.value = true
+  // Free the OS cursor so the menu is clickable (no-op when already unlocked).
+  document.exitPointerLock?.()
+}
+
+function resume() {
+  showMenu.value = false
+  // Chrome refuses re-lock for ~1.25s after an Escape-exit — if this one loses
+  // that race, clicking the world (the scene's own handler) recovers.
+  gameScene.value?.requestLock()
+}
+
+/**
  * The browser exits fullscreen on a tap of Escape and this can't be cancelled
- * with preventDefault — so hitting Escape to unfocus the chat would also blow
- * away fullscreen. The Keyboard Lock API routes Escape to our own handlers
- * instead (blur the chat); *holding* Escape still exits, so there's an escape
- * hatch. Chromium-only, a no-op elsewhere.
+ * with preventDefault — so hitting Escape to unfocus the chat or open the game
+ * menu would also blow away fullscreen. The Keyboard Lock API routes Escape to
+ * our own handlers instead (blur the chat, toggle the menu); *holding* Escape
+ * still exits, so there's an escape hatch. Chromium-only, a no-op elsewhere.
  */
 const keyboard = computed(() =>
   import.meta.client
@@ -131,7 +151,8 @@ async function toggleFullscreen() {
       catch {
         // Keyboard Lock unsupported (non-Chromium) — Escape falls back to native.
       }
-      gameScene.value?.requestLock()
+      // Not while the Escape menu is up — it needs the cursor.
+      if (!showMenu.value) gameScene.value?.requestLock()
     }
   }
   catch {
@@ -146,15 +167,20 @@ function onFullscreenChange() {
 }
 
 function onKeyDown(event: KeyboardEvent) {
-  const typing = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA'
+  // `target`, not `activeElement`: the chat blurs itself on this same Escape
+  // keydown (also a window listener), so focus may already be gone by the time
+  // the event reaches us — the target still names the input it came from.
+  const target = event.target as HTMLElement | null
+  const typing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
   if (typing) return
-  if (event.code === 'KeyH') {
-    event.preventDefault()
-    showHelp.value = !showHelp.value
-  }
-  else if (event.code === 'KeyF') {
+  if (event.code === 'KeyF') {
     event.preventDefault()
     void toggleFullscreen()
+  }
+  else if (event.code === 'Escape' && view.value === 'playing') {
+    event.preventDefault()
+    if (showMenu.value) resume()
+    else openMenu()
   }
 }
 
@@ -293,6 +319,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         ref="gameScene"
         :game="game"
         class="absolute inset-0"
+        @unlock="showMenu = true"
       />
 
       <!-- Death flash. -->
@@ -385,63 +412,81 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       <!-- Bottom-center: controls hint. -->
       <footer class="pointer-events-none absolute inset-x-0 bottom-1.5 z-10 flex justify-center" />
 
-      <!-- Bottom-right: action buttons. -->
-      <div class="pointer-events-none absolute bottom-4 right-4 z-10">
-        <div class="pointer-events-auto flex items-center gap-1">
-          <UPopover v-model:open="showHelp">
-            <UButton
-              icon="i-lucide-circle-question-mark"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-            />
-            <template #content>
-              <div class="flex flex-col gap-1.5 p-2 text-[11px] min-w-44">
-                <div class="flex items-center justify-between gap-4">
-                  <span class="text-muted">Move</span>
-                  <span class="flex items-center gap-0.5">
-                    <UKbd value="W" /><UKbd value="A" /><UKbd value="S" /><UKbd value="D" />
-                  </span>
-                </div>
-                <div class="flex items-center justify-between gap-4">
-                  <span class="text-muted">Jump</span>
-                  <UKbd value="Space" />
-                </div>
-                <div class="flex items-center justify-between gap-4">
-                  <span class="text-muted">Dash</span>
-                  <UKbd value="Shift" />
-                </div>
-                <div class="flex items-center justify-between gap-4">
-                  <span class="text-muted">Cursor</span>
-                  <UKbd value="Alt" />
-                </div>
-                <div class="flex items-center justify-between gap-4">
-                  <span class="text-muted">Fullscreen</span>
-                  <UKbd value="F" />
-                </div>
+      <!-- Escape menu (WoW-style): dims the world, session actions + controls.
+           Clicking the backdrop resumes too — the click doubles as the user
+           gesture pointer lock wants. -->
+      <Transition
+        enter-active-class="transition duration-150 ease-out"
+        enter-from-class="opacity-0"
+        leave-active-class="transition duration-100 ease-in"
+        leave-to-class="opacity-0"
+      >
+        <div
+          v-if="showMenu"
+          class="absolute inset-0 z-40 flex select-none items-center justify-center bg-black/50"
+          @click.self="resume"
+        >
+          <div class="flex w-60 flex-col gap-4 rounded-xl bg-black/60 p-4 ring ring-white/10 backdrop-blur">
+            <p class="text-center text-[10px] font-medium uppercase tracking-widest text-muted">
+              Game menu
+            </p>
+
+            <div class="flex flex-col gap-1.5 text-[11px]">
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Move</span>
+                <span class="flex items-center gap-0.5">
+                  <UKbd value="W" /><UKbd value="A" /><UKbd value="S" /><UKbd value="D" />
+                </span>
               </div>
-            </template>
-          </UPopover>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Jump</span>
+                <UKbd value="Space" />
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Dash</span>
+                <UKbd value="Shift" />
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Cursor</span>
+                <UKbd value="Alt" />
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Fullscreen</span>
+                <UKbd value="F" />
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Menu</span>
+                <UKbd value="Esc" />
+              </div>
+            </div>
 
-          <UButton
-            :icon="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            :aria-label="fullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'"
-            @click="toggleFullscreen"
-          />
-
-          <UButton
-            icon="i-lucide-door-open"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            aria-label="Leave to main menu"
-            @click="leave"
-          />
+            <div class="flex flex-col gap-1.5">
+              <UButton
+                :label="fullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+                :icon="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
+                color="neutral"
+                variant="soft"
+                block
+                @click="toggleFullscreen"
+              />
+              <UButton
+                label="Leave to main menu"
+                icon="i-lucide-door-open"
+                color="neutral"
+                variant="soft"
+                block
+                @click="leave"
+              />
+              <UButton
+                label="Return to game"
+                color="neutral"
+                block
+                @click="resume"
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      </Transition>
     </template>
   </div>
 </template>
