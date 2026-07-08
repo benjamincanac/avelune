@@ -22,6 +22,16 @@ isn't the 3D world.
   (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
 - `app/composables/useGame.ts` — the client-side game/socket state composable the
   UI binds to.
+- `app/components/EditorPanel.vue` + `app/composables/useEditor.ts` — the dev-only
+  hub editor's 2D overlay (palette / inspector w/ X·Y·Height·rot·scale / save-exit)
+  and its shared state. The working copy merges two persisted layers so every
+  object edits uniformly: `props` (`hub-props.json`, gameplay clutter) and
+  `structure` (`hub-structure.json`, the exploded village — walls/roofs/statues).
+  `save()` splits the layers back to their two files. Before the village is baked,
+  `MazeScene` seeds the structure layer from its procedural composer via
+  `seedStructure`, so the first save IS the bake. The 3D side (fly camera, picking,
+  elevation-aware drag) is `scene-3d`'s `app/utils/hubEditor.ts`; the save routes
+  are `server-net`'s `server/api/editor/hub-props.post.ts` + `hub-structure.post.ts`.
 
 The hub Oracle (`OracleDialog.client.vue`, `useOracle.ts`, `oracle.post.ts`) is
 owned by the `oracle-ai` agent — hand oracle work there.
@@ -41,7 +51,11 @@ owned by the `oracle-ai` agent — hand oracle work there.
    runners; a future `party` scope is planned (ROADMAP §4).
 4. `.client.vue` / `<ClientOnly>` for anything browser-only.
 5. **Entry flow is a view state machine in `index.vue`**: `checking → menu →
-   creating | playing | spectating`. The first screen is ALWAYS the main menu —
+   creating | playing | spectating | editing` (`editing` is the dev-only prop
+   editor: same never-connected `game`, `<GameScene editor>` + `LazyEditorPanel`,
+   gated behind `import.meta.dev`; a save reloads the dev server, and a
+   `sessionStorage` flag drops straight back into the editor on the way up). The
+   first screen is ALWAYS the main menu —
    never an auto-drop into the game — and the socket opens only for `playing` /
    `spectating`. Leaving a game or the spectator view is a `window.location.reload()`
    back to the menu (the reload re-probes `/api/auth` and resumes the saved

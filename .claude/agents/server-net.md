@@ -25,6 +25,15 @@ bytes between it and clients.
   `newUserId`.
 - `server/api/*.ts` — `records.get`, `auth.get`, `auth.post`. (`oracle.post`
   is the Oracle AI endpoint — owned by the `oracle-ai` agent, not here.)
+- `server/api/editor/hub-props.post.ts` + `hub-structure.post.ts` — **dev-only**
+  routes (first line: `if (!import.meta.dev) throw createError({ statusCode: 404 })`)
+  that the hub editor POSTs to; validate placements with zod against
+  `ALL_PROP_KINDS` + `HUB_LAYOUT` bounds and overwrite `shared/data/hub-props.json`
+  / `hub-structure.json` on disk (the only `node:fs` writes in the server).
+  `hub-structure` additionally allows `z` (elevation) + `s3` (per-axis scale) and a
+  higher row cap (the exploded village is ~250 pieces). Dev-only because Vercel's
+  prod FS is read-only. They're the sole writers of those files; `world-sim`'s
+  `generateHub` is the reader.
 
 ## Load-bearing invariants
 1. **The server is authoritative.** Clients predict; the server decides. Jump,
@@ -36,6 +45,14 @@ bytes between it and clients.
    add it to the shared module and consume it — don't fork it server-side.
 3. **Identity rides the signed cookie on the same-origin WS upgrade.** No valid
    cookie ⇒ close the socket (they skipped onboarding). Spectators skip this.
+   **One live session per identity.** `sessions` is keyed by identity id, so a
+   second connection (another tab, or a refresh that raced its own close) would
+   overwrite the first. `registerConnection` makes the newest win: it installs
+   the new session, then boots the old socket with a `kicked` frame. The gotcha
+   this creates: the booted socket's `close` still fires `disconnect()`, which
+   must NOT `delete`/`leave` the id — so `disconnect` is guarded by
+   `sessions.get(id) === session` (only the session that still owns the id tears
+   it down). Never remove that guard or the take-over evicts the live player.
 4. **One tower, shared by all.** Day seed from UTC date; state survives instance
    recycling because it's regenerable. Midnight rollover broadcasts `maze` and
    resets everyone to the hub.
@@ -54,7 +71,7 @@ bytes between it and clients.
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (self/players/seed/
 `now` clock/records — `self` is `null` for spectators), `join`, `leave`, `state`
 (only players that moved), `chat` (carries sender floor `f`), `death`, `clear`,
-`maze`, `pong`. The
+`maze`, `kicked` (booted for a duplicate tab; carries a `reason`), `pong`. The
 `welcome.now` server clock drives client day/night + weather — keep it monotonic
 and honest.
 

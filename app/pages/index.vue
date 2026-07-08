@@ -10,13 +10,17 @@ definePageMeta({
 const game = useGame()
 const oracle = useOracle()
 
+/** Set before a "play here" reload from the kicked overlay: on the next load
+ *  the entry flow drops straight into the hub instead of the menu. */
+const PLAY_REENTER_KEY = 'mugen:play-reenter'
+
 const gameRoot = useTemplateRef('gameRoot')
 const gameScene = useTemplateRef('gameScene')
 const showMenu = ref(false)
 const deathFlash = ref(false)
 const fullscreen = ref(false)
 
-type View = 'checking' | 'menu' | 'creating' | 'playing' | 'spectating'
+type View = 'checking' | 'menu' | 'creating' | 'playing' | 'spectating' | 'editing'
 
 /**
  * Entry flow. The first screen is always the main menu — never an auto-drop
@@ -49,6 +53,22 @@ onMounted(async () => {
     // No board is fine — the menu still works without it.
   }
   view.value = 'menu'
+
+  // A save in the prop editor rewrites hub-props.json, which triggers a full
+  // dev reload; drop straight back into the editor so the round-trip is seamless.
+  if (import.meta.dev && sessionStorage.getItem(EDITOR_REENTER_KEY)) {
+    sessionStorage.removeItem(EDITOR_REENTER_KEY)
+    edit()
+    return
+  }
+
+  // "Play here" from the kicked overlay reloads to take the session back; drop
+  // straight into the hub (taking over from whichever tab still holds it).
+  if (identity.value && sessionStorage.getItem(PLAY_REENTER_KEY)) {
+    sessionStorage.removeItem(PLAY_REENTER_KEY)
+    play()
+    return
+  }
 
   // Warm character models while the menu idles. A brand-new visitor will open
   // creation, so warm the whole roster ("Create your runner" opens instantly); a
@@ -90,11 +110,31 @@ function spectate() {
 }
 
 /**
+ * Dev-only: enter the hub prop editor. Renders the hub with a fly camera and no
+ * socket (the same never-connected `game` the menu uses) — placements are saved
+ * to a repo file, not sent over the wire.
+ */
+function edit() {
+  if (!import.meta.dev) return
+  view.value = 'editing'
+}
+
+/**
  * Leave the game or the spectator view — hard-reload back to the main menu. The
  * reload tears down the socket; the character cookie survives, so the menu
  * shows the saved character again.
  */
 function leave() {
+  window.location.reload()
+}
+
+/**
+ * From the kicked overlay: reclaim the session in this tab. The reload re-runs
+ * the entry flow, and the re-enter flag drops back into the hub — which boots
+ * whichever tab currently holds the session (user-initiated, so no ping-pong).
+ */
+function playHere() {
+  sessionStorage.setItem(PLAY_REENTER_KEY, '1')
   window.location.reload()
 }
 
@@ -297,6 +337,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       @play="play"
       @create="create"
       @spectate="spectate"
+      @edit="edit"
     />
 
     <!-- Character creation, reached from the menu by a brand-new visitor. -->
@@ -487,6 +528,54 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
           </div>
         </div>
       </Transition>
+
+      <!-- Kicked: this identity opened the tower in another tab, and that newer
+           socket took over. We don't reconnect (it would boot the new tab) — the
+           player picks which window wins. -->
+      <div
+        v-if="game.kicked.value"
+        class="absolute inset-0 z-50 flex select-none items-center justify-center bg-black/80 backdrop-blur"
+      >
+        <div class="flex w-80 flex-col gap-4 rounded-xl bg-black/60 p-6 text-center ring ring-white/10">
+          <UIcon
+            name="i-lucide-monitor-x"
+            class="mx-auto size-8 text-warning"
+          />
+          <div class="flex flex-col gap-1">
+            <p class="text-sm font-medium text-highlighted">
+              Playing in another tab
+            </p>
+            <p class="text-xs text-muted">
+              {{ game.kicked.value }}
+            </p>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <UButton
+              label="Play here instead"
+              color="primary"
+              block
+              @click="playHere"
+            />
+            <UButton
+              label="Back to main menu"
+              color="neutral"
+              variant="soft"
+              block
+              @click="leave"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Dev-only hub prop editor: the hub with a fly camera + placement tools. -->
+    <template v-else-if="view === 'editing'">
+      <GameScene
+        :game="game"
+        editor
+        class="absolute inset-0"
+      />
+      <LazyEditorPanel @exit="leave" />
     </template>
   </div>
 </template>

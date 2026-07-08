@@ -67,6 +67,9 @@ export interface UseGame {
   records: Ref<FloorRecord[]>
   lastDeath: Ref<DeathEvent | null>
   lastClear: Ref<ClearEvent | null>
+  /** Set when the server booted this socket because the same identity opened
+   *  another tab. Holds the reason; reconnection is stopped. */
+  kicked: Ref<string | null>
   /** When you entered your current floor (client clock). */
   floorEnteredAt: Ref<number | null>
   /** Estimated server clock, for trap phases and the day/night cycle. */
@@ -124,6 +127,7 @@ export function useGame(): UseGame {
   const records = ref<FloorRecord[]>([])
   const lastDeath = ref<DeathEvent | null>(null)
   const lastClear = ref<ClearEvent | null>(null)
+  const kicked = ref<string | null>(null)
   const floorEnteredAt = ref<number | null>(null)
   const chatLog = ref<ChatMessage[]>([])
   // Bumped whenever a score or the roster changes, so the leaderboard recomputes.
@@ -351,6 +355,15 @@ export function useGame(): UseGame {
         }
         break
       }
+      case 'kicked':
+        // Another tab under the same identity took over. Stop for good — a
+        // reconnect would boot that new tab straight back (ping-pong). The
+        // page surfaces `kicked` and offers a manual "play here" reload.
+        kicked.value = msg.reason
+        closed = true
+        stopHeartbeat()
+        socket?.close()
+        break
       case 'pong':
         clearPong()
         break
@@ -493,6 +506,7 @@ export function useGame(): UseGame {
     records,
     lastDeath,
     lastClear,
+    kicked,
     floorEnteredAt,
     serverNow,
     chatLog,

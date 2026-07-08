@@ -29,6 +29,12 @@ receive geometry over the wire.
 - `app/components/MazeScene.vue` — floor/hub geometry: instanced slabs, arches,
   buttresses, exit gateways, torches, the hub teleport gate; biome tint/fog;
   day-night + weather.
+- `app/utils/hubEditor.ts` — the dev-only hub prop editor's 3D controller (fly
+  camera, ground raycast, click-to-place / select / drag, keyboard nudges). Owns
+  its own `editorGroup` on the scene root and renders selectable per-prop clones;
+  driven by `useEditor` state and mounted by `MazeScene` when its `editor` prop is
+  set (dev-only, tree-shaken from prod). The 2D palette/inspector is `game-ui`'s
+  `EditorPanel.vue`.
 - `app/components/MiniMap.vue` — round WoW-style minimap (top-right), fogged;
   explored-tile bitmaps per floor. It only ever shows *your* current floor —
   there is no in-game full-tower map (removed as anti-cheat, so a racer can't
@@ -112,6 +118,24 @@ receive geometry over the wire.
    in the eager list so the first paint isn't missing panels.
 
 ## Known rendering gotchas (from ROADMAP)
+- **Hub props render instanced, not cloned.** `buildVillageHub` batches
+  `plan.props` into one `InstancedMesh` per kind via `instantiateModule` — the
+  clone-per-prop `placeProps` path is dungeon-floors only. The prop editor filters
+  `hand`-flagged props out of that batch (its `editor` prop) and renders its own
+  selectable clones instead. Prop template clones **share materials** with the
+  template (`clone(true)`), so a selection highlight must be a `BoxHelper`, never a
+  material tint (tinting would recolor every clone of that kind).
+- **The village is data-driven, not procedural at render.** `composeVillage`
+  (pure `{kind,x,y,z,rot,scale,s3?}` pieces via an `emit` collector — the old
+  `buildHouse`/`buildHubMarket`/`buildHubGate` logic, verbatim) is the single
+  source the editor bakes into `hub-structure.json`. Once baked, those pieces flow
+  through `plan.props` and render via the instanced solids loop (`propMatrix`
+  honors `z` elevation + `s3` per-axis scale); `composeVillage` is then only the
+  bake input. Pre-bake, `renderComposed(composeVillage())` is the normal-play
+  fallback (visual only, no collision). Editor mode never uses that fallback —
+  `MazeScene`'s `onMounted` seeds the editable structure layer from
+  `composeVillage` so the controller's clones own the village. Only the tower
+  shaft, roads, and portal stay procedural always.
 - Pointer lock throws `WrongDocumentError` inside the Claude preview iframe; real
   tabs/deploy are fine. A delta-look fallback covers embeds — keep it.
 - Camera boom only considers the wall grid, not prop heights — it can clip

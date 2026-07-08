@@ -16,7 +16,10 @@ defineProps<{
   online: number | null
 }>()
 
-const emit = defineEmits<{ play: [], create: [], spectate: [] }>()
+const emit = defineEmits<{ play: [], create: [], spectate: [], edit: [] }>()
+
+// The prop editor is a dev-only tool (its save route only exists in dev).
+const isDev = import.meta.dev
 
 // A cool atmospheric backdrop tuned to the teleport's blue glow.
 const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(47,107,255,0.28), transparent 68%), linear-gradient(180deg, #0a1024 0%, #070b16 55%, #05070d 100%)'
@@ -44,13 +47,22 @@ const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(47,107,255,0.
 
     <!-- Right: today's fastest clears. -->
     <aside class="absolute right-6 top-6 z-10 hidden w-72 flex-col gap-12 lg:flex items-end">
-      <UButton
-        label="Watch as spectator"
-        color="neutral"
-        variant="soft"
-        icon="i-lucide-eye"
-        @click="emit('spectate')"
-      />
+      <div class="flex items-center gap-2">
+        <UButton
+          v-if="isDev"
+          label="Editor"
+          color="neutral"
+          icon="i-lucide-puzzle"
+          @click="emit('edit')"
+        />
+        <UButton
+          label="Watch as spectator"
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-eye"
+          @click="emit('spectate')"
+        />
+      </div>
 
       <RecordsBoard
         :records="records"

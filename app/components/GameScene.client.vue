@@ -15,7 +15,7 @@ import type { UseGame } from '~/composables/useGame'
  * fixed cadence.
  */
 
-const props = defineProps<{ game: UseGame }>()
+const props = defineProps<{ game: UseGame, editor?: boolean }>()
 
 /**
  * Fired when pointer lock is lost without us initiating it (Alt-cursor mode).
@@ -87,6 +87,8 @@ function triggerDash() {
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  // Editor mode owns keyboard/mouse (fly camera, placement) via its controller.
+  if (props.editor) return
   if (isTyping()) return
   if (event.code === 'AltLeft' || event.code === 'AltRight') {
     // Prevent the OS menu-bar focus that a bare Alt tap triggers on some
@@ -137,6 +139,7 @@ function onKeyDown(event: KeyboardEvent) {
 }
 
 function onKeyUp(event: KeyboardEvent) {
+  if (props.editor) return
   if (event.code === 'AltLeft' || event.code === 'AltRight') {
     if (altHeld.value) {
       altHeld.value = false
@@ -172,7 +175,7 @@ function onKeyUp(event: KeyboardEvent) {
  * `pointer-lock` permission) — there, cursor-position steering takes over.
  */
 function onClick() {
-  if (altHeld.value || pointerLocked.value) return
+  if (props.editor || altHeld.value || pointerLocked.value) return
   try {
     const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
     request?.catch?.(() => {})
@@ -184,7 +187,7 @@ function onClick() {
 
 /** Right-click dashes; the context menu is suppressed below so it can. */
 function onMouseDown(event: MouseEvent) {
-  if (event.button !== 2 || isTyping()) return
+  if (props.editor || event.button !== 2 || isTyping()) return
   event.preventDefault()
   triggerDash()
 }
@@ -206,6 +209,7 @@ function requestLock() {
 }
 
 function onMouseMove(event: MouseEvent) {
+  if (props.editor) return
   // Alt frees the cursor for the HUD — don't steer while it's held.
   if (altHeld.value) return
   // Same raw-delta look in both modes; without pointer lock, only while the
@@ -265,7 +269,7 @@ defineExpose({ pointerLocked, requestLock })
   <div
     ref="root"
     class="size-full select-none"
-    :class="altHeld ? 'cursor-default' : 'cursor-none'"
+    :class="editor || altHeld ? 'cursor-default' : 'cursor-none'"
     @click="onClick"
     @mousedown="onMouseDown"
     @contextmenu="onContextMenu"
@@ -282,6 +286,7 @@ defineExpose({ pointerLocked, requestLock })
         :game="game"
         :held="held"
         :view="view"
+        :editor="editor"
       />
     </TresCanvas>
   </div>
