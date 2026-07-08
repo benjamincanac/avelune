@@ -18,7 +18,7 @@
 // Ctrl-C for a clean shutdown (closes every socket).
 
 import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '../shared/utils/characters.ts'
-import { HUB_FLOOR, HUB_LAYOUT, generateFloor, isWalkable } from '../shared/utils/maze.ts'
+import { DASH_COOLDOWN, HUB_FLOOR, HUB_LAYOUT, PLAYER_RADIUS, PLAYER_SPEED, TRAP_RADIUS, floorSpeed, generateFloor, isTrapActive, isWalkable } from '../shared/utils/maze.ts'
 
 /* ------------------------------- args --------------------------------- */
 
@@ -35,10 +35,21 @@ const WS_URL = BASE.replace(/^http/, 'ws') + '/api/ws'
 const COUNT = Math.max(1, Number(flag('count', 3)) || 3)
 const RADIUS = Number(flag('radius', 5)) || 5 // wander radius around spawn (tiles)
 const CHAT = flag('chat', false) === true
-const DIVE = flag('dive', false) === true // let bots seek the exit instead of loitering
+const DIVE = flag('dive', false) === true // dive for the exit (routes the maze, times traps) instead of loitering
 
 const rand = (min, max) => min + Math.random() * (max - min)
 const pick = arr => arr[Math.floor(Math.random() * arr.length)]
+
+const DIVE_TICK = 160 // ms between navigation decisions when diving (~6×/s, tight enough to time traps)
+const TRAP_LOOKAHEAD = 1.4 // tiles ahead we scan the travel ray for timed hazards
+
+// Shortest signed angle from b to a, wrapped to [-PI, PI].
+const angleDelta = (a, b) => {
+  let d = (a - b) % (Math.PI * 2)
+  if (d > Math.PI) d -= Math.PI * 2
+  if (d < -Math.PI) d += Math.PI * 2
+  return d
+}
 
 /* --------------------- deterministic exit lookup ---------------------- */
 
@@ -133,6 +144,10 @@ class Bot {
     this.wp = 0 // index of the next waypoint
     this.stuck = 0
     this.angle = rand(0, Math.PI * 2)
+    this.lastA = null // last heading we actually sent (drive() throttle)
+    this.driving = false // is 'forward' currently held server-side?
+    this.clockOffset = 0 // serverNow − Date.now(), read from the welcome frame
+    this.dashReadyAt = 0 // client-side dash-cooldown estimate, so dashes aren't wasted
     this.closed = false
     this.timers = []
   }
@@ -166,6 +181,7 @@ class Bot {
         this.floor = m.self.floor
         this.pos = { x: m.self.x, y: m.self.y }
         this.home = { x: m.self.x, y: m.self.y }
+        this.clockOffset = m.now - Date.now() // sync to the authoritative clock for trap timing
         alive++
         console.log(`[${this.name}] welcome — floor ${m.self.floor}, ${m.players.length} in world, seed ${m.seed}`)
         this.startBehavior()
@@ -203,8 +219,10 @@ class Bot {
   startBehavior() {
     if (this.started) return
     this.started = true
-    // Wander tick: choose a heading and hold forward for a beat.
-    this.timers.push(setInterval(() => this.wander(), 900))
+    // Diving bots re-plan several times a second (smooth steering + trap timing);
+    // loiterers just need a lazy wander beat near their spawn.
+    if (DIVE) this.timers.push(setInterval(() => this.dive(), DIVE_TICK))
+    else this.timers.push(setInterval(() => this.wander(), 900))
     // Keep-alive ping so idle proxies don't reap the socket.
     this.timers.push(setInterval(() => this.send({ t: 'ping' }), 10_000))
     if (CHAT) this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.send({ t: 'chat', text: pick(CHAT_LINES) }) }, 8_000))
@@ -213,8 +231,7 @@ class Bot {
   wander() {
     if (!this.pos) return
 
-    if (DIVE) this.steerToExit()
-    else this.loiter()
+    this.loiter()
 
     // Walk for most of the tick, then coast to a stop.
     this.send({ t: 'move', ...NO_MOVE, forward: true, a: this.angle })
@@ -222,57 +239,157 @@ class Bot {
     this.prevPos = { ...this.pos }
   }
 
-  // Head for the floor's exit portal. The hub has a clear spawn→portal lane, so
-  // there we make straight for it. On the labyrinth floors we follow a BFS route
-  // (tile-center waypoints), advancing as we reach each, and break out of the
-  // occasional wall-wedge with a hop + heading nudge.
-  steerToExit() {
+  /* --------------------------- diving (smart) --------------------------- */
+
+  plan() { return planFor(this.seed, this.floor) }
+  serverNow() { return Date.now() + this.clockOffset }
+
+  // One navigation decision, run ~6×/s: steer along the BFS route toward the
+  // exit, cross timed traps deliberately (wait out the lethal window, or hop the
+  // last stretch when we're too close to stop), and dash the open straights.
+  dive() {
+    if (!this.pos) return
+
+    // Straight lane from the hub spawn to the dive portal — just make for it.
     if (this.floor === HUB_FLOOR) {
-      this.angle = Math.atan2(HUB_LAYOUT.exit.y - this.pos.y, HUB_LAYOUT.exit.x - this.pos.x)
-      if (Math.random() < 0.3) this.send({ t: 'action', kind: 'dash' })
+      this.drive(Math.atan2(HUB_LAYOUT.exit.y - this.pos.y, HUB_LAYOUT.exit.x - this.pos.x), true)
+      if (Math.random() < 0.25) this.tryDash()
       return
     }
 
-    // (Re)load the route whenever we land on a new floor.
+    // (Re)load the route whenever we drop onto a new floor.
     if (this.pathFloor !== this.floor) {
       this.path = pathFor(this.seed, this.floor)
       this.pathFloor = this.floor
       this.wp = 0
+      this.stuck = 0
     }
 
     const path = this.path
-    if (!path) { // unreachable route — fall back to straight-line + jitter
-      const exit = planFor(this.seed, this.floor).exit
-      this.angle = this.stuck >= 2 ? rand(0, Math.PI * 2) : Math.atan2(exit.y - this.pos.y, exit.x - this.pos.x)
-      this.bumpStuck(0.15, true)
+    if (!path) { // no route (shouldn't happen) — straight-line at the exit, jitter if wedged
+      const exit = this.plan().exit
+      this.drive(Math.atan2(exit.y - this.pos.y, exit.x - this.pos.x) + (this.stuck >= 2 ? rand(-1.2, 1.2) : 0), true)
+      this.trackStuck()
       return
     }
 
-    // Advance past every waypoint we're already on top of.
-    while (this.wp < path.length - 1 && Math.hypot(path[this.wp].x - this.pos.x, path[this.wp].y - this.pos.y) < 0.9) this.wp++
+    this.advanceWaypoints(path)
     const target = path[this.wp]
+    const heading = Math.atan2(target.y - this.pos.y, target.x - this.pos.x)
 
-    this.bumpStuck(0.1, false)
-    if (this.stuck >= 3) {
-      this.send({ t: 'action', kind: 'jump' })
-      this.angle = Math.atan2(target.y - this.pos.y, target.x - this.pos.x) + rand(-1, 1)
-      if (this.stuck > 6) this.stuck = 0
+    const hazard = this.trapAhead(heading)
+    if (hazard === 'wait') { // hold short of a live trap and let its cycle pass
+      this.drive(this.angle, false)
+      this.stuck = 0
+      this.prevPos = { ...this.pos }
+      return
     }
-    else {
-      this.angle = Math.atan2(target.y - this.pos.y, target.x - this.pos.x)
-      if (Math.random() < 0.2) this.send({ t: 'action', kind: 'dash' })
+
+    this.drive(heading, true)
+    if (hazard === 'clear') { // too close to stop — fly the last stretch over it
+      this.send({ t: 'action', kind: 'jump' })
+      this.tryDash()
+    }
+    else if (Math.hypot(target.x - this.pos.x, target.y - this.pos.y) > 2 && this.losClear(this.pos.x, this.pos.y, target.x, target.y)) {
+      if (Math.random() < 0.3) this.tryDash() // open straightaway — sprint it
+    }
+
+    this.trackStuck()
+  }
+
+  // Send a move only when the heading turned or the throttle toggled: the server
+  // holds our intent between ticks, so re-sending identical frames is just noise.
+  drive(angle, forward) {
+    const turned = this.lastA === null || Math.abs(angleDelta(angle, this.lastA)) > 0.05
+    if (forward === this.driving && !turned) return
+    this.angle = angle
+    this.lastA = angle
+    this.driving = forward
+    this.send({ t: 'move', ...NO_MOVE, forward, a: angle })
+  }
+
+  // Dash on a client-side cooldown mirror so we don't burn frames the server
+  // will reject anyway (it enforces DASH_COOLDOWN authoritatively).
+  tryDash() {
+    if (this.serverNow() < this.dashReadyAt) return
+    this.dashReadyAt = this.serverNow() + DASH_COOLDOWN * 1000
+    this.send({ t: 'action', kind: 'dash' })
+  }
+
+  // Skip waypoints we've reached, then string-pull: jump ahead to the furthest
+  // upcoming waypoint we have a clear line to, cutting corners in the roomy
+  // 3-wide corridors instead of stair-stepping between tile centres.
+  advanceWaypoints(path) {
+    while (this.wp < path.length - 1 && Math.hypot(path[this.wp].x - this.pos.x, path[this.wp].y - this.pos.y) < 0.9) this.wp++
+    for (let k = Math.min(this.wp + 4, path.length - 1); k > this.wp; k--) {
+      if (this.losClear(this.pos.x, this.pos.y, path[k].x, path[k].y)) { this.wp = k; break }
     }
   }
 
-  // Track how long we've barely moved; optionally hop when wedged.
-  bumpStuck(threshold, hopWhenStuck) {
-    const moved = this.prevPos ? Math.hypot(this.pos.x - this.prevPos.x, this.pos.y - this.prevPos.y) : 1
-    if (moved < threshold) this.stuck++
-    else this.stuck = 0
-    if (hopWhenStuck && this.stuck >= 2) {
-      this.send({ t: 'action', kind: 'jump' })
-      if (this.stuck > 5) this.stuck = 0
+  // Is the straight segment a→b wall-free for a body of PLAYER_RADIUS? Samples
+  // the centre line plus both radius-offset edges every ~⅓ tile.
+  losClear(ax, ay, bx, by) {
+    const dist = Math.hypot(bx - ax, by - ay)
+    if (dist === 0) return true
+    const nx = -(by - ay) / dist * PLAYER_RADIUS
+    const ny = (bx - ax) / dist * PLAYER_RADIUS
+    const steps = Math.ceil(dist / 0.34)
+    const plan = this.plan()
+    for (let i = 0; i <= steps; i++) {
+      const s = i / steps
+      const x = ax + (bx - ax) * s
+      const y = ay + (by - ay) * s
+      if (!isWalkable(plan, Math.floor(x + nx), Math.floor(y + ny))) return false
+      if (!isWalkable(plan, Math.floor(x - nx), Math.floor(y - ny))) return false
     }
+    return true
+  }
+
+  // Decide how to handle the nearest timed trap sitting on our travel ray:
+  // 'go' (no trap, or it'll be safe as we cross), 'wait' (lethal soon — hold
+  // short until the cycle passes), or 'clear' (< ~0.85 tiles, too close to stop
+  // — hop it, since a jump keeps us airborne long enough to clear the disc).
+  trapAhead(heading) {
+    const traps = this.plan().traps
+    if (!traps.length) return 'go'
+    const dirx = Math.cos(heading)
+    const diry = Math.sin(heading)
+    const speed = PLAYER_SPEED * floorSpeed(this.floor)
+    let nearest = null
+    let nearestAlong = Infinity
+    for (const t of traps) {
+      const rx = t.x - this.pos.x
+      const ry = t.y - this.pos.y
+      const along = rx * dirx + ry * diry
+      if (along < -0.3 || along > TRAP_LOOKAHEAD) continue // behind us, or beyond our horizon
+      if (Math.abs(rx * diry - ry * dirx) > TRAP_RADIUS + PLAYER_RADIUS) continue // we'd miss its disc
+      if (along < nearestAlong) { nearestAlong = along; nearest = t }
+    }
+    if (!nearest) return 'go'
+
+    // When do we enter its kill disc, and for how long? Widen the window with a
+    // margin to swallow clock drift against the authoritative server.
+    const along = Math.max(0, nearestAlong)
+    const etaMs = along / speed * 1000
+    const crossMs = 2 * TRAP_RADIUS / speed * 1000
+    const from = this.serverNow() + etaMs - 90
+    const to = this.serverNow() + etaMs + crossMs + 90
+    let lethal = false
+    for (let ms = from; ms <= to; ms += 60) if (isTrapActive(nearest, ms)) { lethal = true; break }
+    if (!lethal) return 'go'
+    return along < 0.85 ? 'clear' : 'wait'
+  }
+
+  // Barely moved since the last decision while trying to advance? We're wedged
+  // on a wall or prop — nudge the heading and hop to break free.
+  trackStuck() {
+    const moved = this.prevPos ? Math.hypot(this.pos.x - this.prevPos.x, this.pos.y - this.prevPos.y) : 1
+    this.prevPos = { ...this.pos }
+    if (moved > 0.05) { this.stuck = 0; return }
+    if (++this.stuck < 3) return
+    this.send({ t: 'action', kind: 'jump' })
+    this.drive(this.angle + rand(-1.2, 1.2), true)
+    if (this.stuck > 6) this.stuck = 0
   }
 
   // Mill around near spawn without drifting into the dive portal.
