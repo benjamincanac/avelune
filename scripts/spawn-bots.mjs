@@ -61,7 +61,10 @@ const pathCache = new Map()
 function planFor(seed, floor) {
   const key = `${seed}:${floor}`
   let plan = planCache.get(key)
-  if (!plan) { plan = generateFloor(floor, seed); planCache.set(key, plan) }
+  if (!plan) {
+    plan = generateFloor(floor, seed)
+    planCache.set(key, plan)
+  }
   return plan
 }
 
@@ -82,7 +85,10 @@ function pathFor(seed, floor) {
   let head = 0, found = false
   while (head < queue.length) {
     const cur = queue[head++]
-    if (cur === goalI) { found = true; break }
+    if (cur === goalI) {
+      found = true
+      break
+    }
     const cx = cur % W, cy = (cur - cx) / W
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = cx + dx, ny = cy + dy
@@ -173,7 +179,9 @@ class Bot {
 
     ws.addEventListener('message', (e) => {
       let m
-      try { m = JSON.parse(e.data) }
+      try {
+        m = JSON.parse(e.data)
+      }
       catch { return }
       if (m.t === 'welcome' && m.self) {
         this.id = m.self.id
@@ -188,7 +196,10 @@ class Bot {
       }
       else if (m.t === 'state') {
         const me = m.players.find(p => p.id === this.id)
-        if (me) { this.pos = { x: me.x, y: me.y }; this.floor = me.f }
+        if (me) {
+          this.pos = { x: me.x, y: me.y }
+          this.floor = me.f
+        }
       }
       else if (m.t === 'death' && m.id === this.id) {
         console.log(`[${this.name}] died: ${m.cause} — respawned in hub`)
@@ -208,7 +219,10 @@ class Bot {
 
     ws.addEventListener('close', (e) => {
       this.stopTimers()
-      if (this.started) { alive--; this.started = false }
+      if (this.started) {
+        alive--
+        this.started = false
+      }
       if (this.closed) return
       console.log(`[${this.name}] socket closed (code ${e.code}) — reconnecting in 2s`)
       setTimeout(() => !this.closed && this.connect(), 2000)
@@ -225,7 +239,9 @@ class Bot {
     else this.timers.push(setInterval(() => this.wander(), 900))
     // Keep-alive ping so idle proxies don't reap the socket.
     this.timers.push(setInterval(() => this.send({ t: 'ping' }), 10_000))
-    if (CHAT) this.timers.push(setInterval(() => { if (Math.random() < 0.15) this.send({ t: 'chat', text: pick(CHAT_LINES) }) }, 8_000))
+    if (CHAT) this.timers.push(setInterval(() => {
+      if (Math.random() < 0.15) this.send({ t: 'chat', text: pick(CHAT_LINES) })
+    }, 8_000))
   }
 
   wander() {
@@ -322,7 +338,10 @@ class Bot {
   advanceWaypoints(path) {
     while (this.wp < path.length - 1 && Math.hypot(path[this.wp].x - this.pos.x, path[this.wp].y - this.pos.y) < 0.9) this.wp++
     for (let k = Math.min(this.wp + 4, path.length - 1); k > this.wp; k--) {
-      if (this.losClear(this.pos.x, this.pos.y, path[k].x, path[k].y)) { this.wp = k; break }
+      if (this.losClear(this.pos.x, this.pos.y, path[k].x, path[k].y)) {
+        this.wp = k
+        break
+      }
     }
   }
 
@@ -363,7 +382,10 @@ class Bot {
       const along = rx * dirx + ry * diry
       if (along < -0.3 || along > TRAP_LOOKAHEAD) continue // behind us, or beyond our horizon
       if (Math.abs(rx * diry - ry * dirx) > TRAP_RADIUS + PLAYER_RADIUS) continue // we'd miss its disc
-      if (along < nearestAlong) { nearestAlong = along; nearest = t }
+      if (along < nearestAlong) {
+        nearestAlong = along
+        nearest = t
+      }
     }
     if (!nearest) return 'go'
 
@@ -375,7 +397,12 @@ class Bot {
     const from = this.serverNow() + etaMs - 90
     const to = this.serverNow() + etaMs + crossMs + 90
     let lethal = false
-    for (let ms = from; ms <= to; ms += 60) if (isTrapActive(nearest, ms)) { lethal = true; break }
+    for (let ms = from; ms <= to; ms += 60) {
+      if (isTrapActive(nearest, ms)) {
+        lethal = true
+        break
+      }
+    }
     if (!lethal) return 'go'
     return along < 0.85 ? 'clear' : 'wait'
   }
@@ -385,7 +412,10 @@ class Bot {
   trackStuck() {
     const moved = this.prevPos ? Math.hypot(this.pos.x - this.prevPos.x, this.pos.y - this.prevPos.y) : 1
     this.prevPos = { ...this.pos }
-    if (moved > 0.05) { this.stuck = 0; return }
+    if (moved > 0.05) {
+      this.stuck = 0
+      return
+    }
     if (++this.stuck < 3) return
     this.send({ t: 'action', kind: 'jump' })
     this.drive(this.angle + rand(-1.2, 1.2), true)
@@ -413,14 +443,19 @@ class Bot {
   }
 
   stopTimers() {
-    for (const t of this.timers) { clearInterval(t); clearTimeout(t) }
+    for (const t of this.timers) {
+      clearInterval(t)
+      clearTimeout(t)
+    }
     this.timers = []
   }
 
   close() {
     this.closed = true
     this.stopTimers()
-    try { this.ws?.close() }
+    try {
+      this.ws?.close()
+    }
     catch { /* ignore */ }
   }
 }

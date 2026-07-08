@@ -43,7 +43,9 @@ const url = await detectUrl()
 const errors = []
 const browser = await chromium.launch({ headless: true, args: GL_ARGS })
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
+page.on('console', (m) => {
+  if (m.type() === 'error') errors.push(m.text())
+})
 page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message))
 
 console.log(`→ ${url}  (mode=${mode})`)
@@ -54,9 +56,12 @@ await page.waitForTimeout(1200)
 // your runner" (there is NO one-click Play). Create → fill the name → Enter (the
 // button is disabled until the name is non-empty). A machine WITH a saved cookie
 // shows an enter/play button instead, so try that first.
-const click = async rx => {
+const click = async (rx) => {
   const b = page.getByRole('button', { name: rx })
-  if (await b.count()) { await b.first().click().catch(() => {}); return true }
+  if (await b.count()) {
+    await b.first().click().catch(() => {})
+    return true
+  }
   return false
 }
 if (!(await click(/enter the tower|^play$|^enter$|climb/i))) {
@@ -80,7 +85,10 @@ for (let i = 0; i < 12; i++) {
     const c = document.querySelector('canvas')
     return !!c && c.width > 0 && (document.querySelector('header')?.innerText || '').length > 0
   })
-  if (ok) { live = true; break }
+  if (ok) {
+    live = true
+    break
+  }
   await page.waitForTimeout(1000)
 }
 if (!live) {
@@ -110,7 +118,9 @@ await page.screenshot({ path: OUT })
 const scene = await page.evaluate(() => {
   const c = document.querySelector('canvas')
   let gl = false
-  try { gl = !!(c?.getContext('webgl2') || c?.getContext('webgl')) }
+  try {
+    gl = !!(c?.getContext('webgl2') || c?.getContext('webgl'))
+  }
   catch { /* no context */ }
   return { canvas: !!c, w: c?.width, h: c?.height, gl, header: document.querySelector('header')?.innerText || '' }
 })
