@@ -2148,6 +2148,24 @@ const ARROW_TURN_SPEED = 2.6
 /** How fast the character pivots to face its travel direction. */
 const CHARACTER_TURN_RATE = 16
 
+/* Client-side reconciliation of our predicted body toward server authority.
+ * Prediction and the server run the *same* shared `stepBody`, so they only ever
+ * drift by network lag: the server is a fraction of an RTT behind our inputs.
+ * A naive "always ease toward the server" blend turns that lag into two felt
+ * artifacts — a forward glide when you release a key (the in-flight "stop"
+ * lets the server overshoot, which the blend then eases you into) and a
+ * rubber-band stick in tight corridors (the server, on its slightly-stale
+ * heading, clamps against a wall your prediction slid past, and the blend drags
+ * you back into it). So the reconcile is input-aware, below. */
+/** Beyond this error (tiles) we hard-snap — a teleport or a big lag spike. */
+const RECONCILE_SNAP = 3
+/** Convergence rate for the smooth corrections (higher = snappier). */
+const RECONCILE_RATE = 8
+/** While idle, ignore server disagreement under this (tiles) so releasing a
+ *  key doesn't glide into the server's stop-overshoot. Self-heals on the next
+ *  move via along-track catch-up; the server stays authoritative regardless. */
+const RECONCILE_IDLE_FREEZE = 0.4
+
 /* -------------------------------------------------------------------------- */
 /* Hub Oracle: the ancient seer by the portal. Unlike the player characters    */
 /* (shared universal skeleton + shared clips), this monster carries its own    */
@@ -2280,15 +2298,37 @@ onBeforeRender(({ delta, elapsed }) => {
     stepBody(currentPlan, local, dx, dy, dt)
 
     if (self.floor === currentPlan.floor) {
-      if (Math.hypot(self.x - local.x, self.y - local.y) > 3) {
+      const ex = self.x - local.x
+      const ey = self.y - local.y
+      const k = 1 - Math.exp(-dt * RECONCILE_RATE)
+      if (Math.hypot(ex, ey) > RECONCILE_SNAP) {
+        // Gross desync (teleport, big lag spike): jump to authority.
         local.x = self.x
         local.y = self.y
         local.z = self.z
       }
-      else {
-        const correction = 1 - Math.exp(-dt * 2)
-        local.x += (self.x - local.x) * correction
-        local.y += (self.y - local.y) * correction
+      else if (drive !== 0 || strafe !== 0) {
+        // Driving: split the error into components along our travel direction
+        // and perpendicular to it. Always correct the perpendicular part (that
+        // smooths out heading-lag side drift), but only correct along-track
+        // when the server is *ahead* (catch up) — never drag us backward
+        // against our own input, which is the "stuck on an invisible wall"
+        // feel. This lets the prediction lead the lagging server, not fight it.
+        const len = Math.hypot(dx, dy) || 1
+        const tx = dx / len
+        const ty = dy / len
+        const along = ex * tx + ey * ty
+        local.x += (ex - along * tx) * k
+        local.y += (ey - along * ty) * k
+        if (along > 0) {
+          local.x += along * tx * k
+          local.y += along * ty * k
+        }
+      }
+      else if (Math.hypot(ex, ey) > RECONCILE_IDLE_FREEZE) {
+        // Idle: only chase real disagreement; small stop-overshoot is left be.
+        local.x += ex * k
+        local.y += ey * k
       }
     }
   }

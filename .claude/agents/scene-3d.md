@@ -67,7 +67,13 @@ receive geometry over the wire.
 1. **Client prediction uses the SHARED kinematics** (`shared/utils/maze.ts` →
    `stepBody`, collision, elevation). Do not reimplement physics in a component —
    call the shared functions so prediction matches the authoritative server. New
-   physics ⇒ ask `world-sim`.
+   physics ⇒ ask `world-sim`. **Reconciliation is input-aware, not a naive lerp:**
+   in the render loop we ease the predicted body toward the server only
+   *perpendicular* to travel (and forward to catch up) while driving — never
+   backward into it — and freeze small disagreement while idle. A plain
+   "always ease toward `self`" blend brings back the rubber-band-into-invisible-
+   walls (corridors) and the release-a-key glide (hub); keep the `RECONCILE_*`
+   split intact.
 2. **No geometry over the socket.** Regenerate floors locally from the seed in
    `welcome`/`maze`. Only player snapshots (`state`) arrive.
 3. **Day/night + weather are driven by the server clock** (`welcome.now`), not

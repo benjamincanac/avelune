@@ -88,12 +88,17 @@ export interface FloorPlan {
  * is a ledge you can hop onto. `r` is the circular collision footprint.
  */
 const SOLID_PROPS: Record<string, [number, number]> = {
-  Crate: [0.8, 0.5],
+  // Radii track each model's real footprint (measured), so collision hugs the
+  // visible mesh instead of a fat invisible ring around it. `Bricks` is left
+  // out on purpose: its mesh is a long, tall, thin wall (~1.8×0.55×1.6) that no
+  // single circle can fit — a circle wide enough to cover the broad faces reads
+  // as an invisible wall, and a full-height one would wall off corridors — so
+  // it stays decorative clutter you can walk through.
+  Crate: [0.8, 0.42],
   Barrel: [1.05, 0.42],
   Chest: [0.88, 0.55],
-  Bricks: [0.5, 0.75],
   // Fantasy-kit furniture that doubles as a low platform to hop onto.
-  Crate_Wooden: [1.1, 0.55],
+  Crate_Wooden: [1.1, 0.45],
   Chest_Wood: [0.68, 0.55],
   // Hub nature/village obstacles: trees and boulders block like walls; the
   // crate/wagon are lower so they read as clutter you can vault with a jump.
