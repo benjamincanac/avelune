@@ -20,7 +20,7 @@ const showMenu = ref(false)
 const deathFlash = ref(false)
 const fullscreen = ref(false)
 
-type View = 'checking' | 'menu' | 'creating' | 'playing' | 'spectating'
+type View = 'checking' | 'menu' | 'creating' | 'playing' | 'spectating' | 'editing'
 
 /**
  * Entry flow. The first screen is always the main menu — never an auto-drop
@@ -53,6 +53,14 @@ onMounted(async () => {
     // No board is fine — the menu still works without it.
   }
   view.value = 'menu'
+
+  // A save in the prop editor rewrites hub-props.json, which triggers a full
+  // dev reload; drop straight back into the editor so the round-trip is seamless.
+  if (import.meta.dev && sessionStorage.getItem(EDITOR_REENTER_KEY)) {
+    sessionStorage.removeItem(EDITOR_REENTER_KEY)
+    edit()
+    return
+  }
 
   // "Play here" from the kicked overlay reloads to take the session back; drop
   // straight into the hub (taking over from whichever tab still holds it).
@@ -99,6 +107,16 @@ function onCreated(created: Player) {
 function spectate() {
   view.value = 'spectating'
   game.connect(true)
+}
+
+/**
+ * Dev-only: enter the hub prop editor. Renders the hub with a fly camera and no
+ * socket (the same never-connected `game` the menu uses) — placements are saved
+ * to a repo file, not sent over the wire.
+ */
+function edit() {
+  if (!import.meta.dev) return
+  view.value = 'editing'
 }
 
 /**
@@ -319,6 +337,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       @play="play"
       @create="create"
       @spectate="spectate"
+      @edit="edit"
     />
 
     <!-- Character creation, reached from the menu by a brand-new visitor. -->
@@ -547,6 +566,16 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
           </div>
         </div>
       </div>
+    </template>
+
+    <!-- Dev-only hub prop editor: the hub with a fly camera + placement tools. -->
+    <template v-else-if="view === 'editing'">
+      <GameScene
+        :game="game"
+        editor
+        class="absolute inset-0"
+      />
+      <LazyEditorPanel @exit="leave" />
     </template>
   </div>
 </template>

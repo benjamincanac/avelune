@@ -20,6 +20,14 @@ from independently.
   collision, elevation (walkable props), traps/hazards, `stepBody` kinematics,
   seeds (`dateSeed`, per-floor `(daySeed, floorIndex)`), win detection.
 - `shared/utils/characters.ts` — character roster / assignment logic.
+- `shared/utils/propCatalog.ts` — the GLB template name lists (moved out of
+  `MazeScene.vue`) plus `PROP_CATALOG` / `ALL_PROP_KINDS`. Shared so the client
+  renderer and the dev prop editor agree on what's placeable. A prop `kind` is a
+  GLB basename; its directory is implied by which list it's in.
+- `shared/data/hub-props.json` — the hub's hand-placed gameplay props (see invariant 6).
+- `shared/data/hub-structure.json` — the "exploded" village (every wall/roof/
+  corner/statue/fence as an editable piece), baked from the client's procedural
+  composer (see invariant 6).
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, `FloorRecord`,
   and the `ClientMessage` / `ServerMessage` unions.
 
@@ -42,10 +50,24 @@ from independently.
    disc, `plazaRadius`/`street`/`market` (cosmetic cobbles client-side, but
    shared here so the daily scatter keeps off them), gate, and `houses` —
    inclusive tile rects that carry a `front` direction (0=N 1=E 2=S 3=W) the
-   renderer uses for doors/gables. Keep house footprint spans to 4/6/8 tiles:
-   the client caps them with footprint-matched `Roof_RoundTiles_WxD` kit
-   roofs, and gable ends only exist for spans 4 and 6. Collision is only the
-   tile stamps + `SOLID_PROPS` entries; fences/curbs/roads never collide.
+   *composer* uses for doors/gables. `houses` no longer stamps solid tiles —
+   house collision now comes from the baked ground-wall props (invariant 6);
+   `houses` only keeps the daily scatter off building footprints. The tower disc
+   + border ring are still tile collision. Fences/curbs/roads never collide.
+6. **The hub loads its props/pieces from two committed JSON files**, both written
+   by the dev editor and both appended to `plan.props` (each `hand: true`) through
+   `makeProp` **after** the daily scatter — appending last is load-bearing: it
+   leaves the scatter RNG stream untouched, so editing/saving can never reshuffle
+   the meadow. `hub-props.json` = free-standing gameplay clutter; `hub-structure.json`
+   = the exploded village (walls/roofs/statues…). Placements are `{kind, x, y, rot,
+   scale, z?, s3?}`: `z` = 3D elevation and `s3` = per-axis scale are **render-only**
+   (carried onto the spec) — collision stays circular + ground-based, so only
+   ground-level (`z≈0`) kinds in `SOLID_PROPS` block. Ground building kinds
+   (`Wall_UnevenBrick_Straight`/`_Window_Wide_Round`, `Corner_Exterior_Brick`,
+   `Prop_Support`, `Prop_WoodenFence_Single`) are solid; door frames, upper walls,
+   roofs, and statues are not. Never store `top`/`r` in the JSON — always derive
+   via `makeProp`. `hub-structure.json` empty ⇒ not yet baked (client shows the
+   procedural composer output instead).
 
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ optional action

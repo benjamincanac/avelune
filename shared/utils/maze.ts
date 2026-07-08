@@ -13,6 +13,9 @@
  * regenerate any floor on demand.
  */
 
+import hubProps from '../data/hub-props.json'
+import hubStructure from '../data/hub-structure.json'
+
 /** How far players move, in tiles per second (biome modifiers apply). */
 export const PLAYER_SPEED = 3.2
 /** Collision radius of a player, in tiles (corridors are 2 tiles wide). */
@@ -62,6 +65,32 @@ export interface PropSpec {
   top: number
   /** Footprint radius for the walkable surface. */
   r: number
+  /** Hand-placed via the dev editor (vs. daily scatter) — lets the editor
+   *  isolate and re-render just the props it owns. */
+  hand?: boolean
+  /** 3D elevation (height off the ground) — for baked building pieces (upper
+   *  floors, roofs). Render-only: collision stays ground-based (see makeProp). */
+  z?: number
+  /** Per-axis scale `[x, y, z]` for the handful of stretched building pieces
+   *  (market canopy, gate arch). Render-only; overrides uniform `scale`. */
+  s3?: [number, number, number]
+}
+
+/**
+ * A hand-placed hub prop as stored in `shared/data/hub-props.json` (gameplay
+ * props) or `shared/data/hub-structure.json` (baked village pieces), written by
+ * the dev prop editor. `top`/`r` are never stored — they're always derived
+ * through `makeProp` so server collision and client rendering stay in lockstep.
+ * `z` (elevation) and `s3` (per-axis scale) are optional render-only extras.
+ */
+export interface HubPropPlacement {
+  kind: string
+  x: number
+  y: number
+  rot: number
+  scale: number
+  z?: number
+  s3?: [number, number, number]
 }
 
 export interface FloorPlan {
@@ -107,6 +136,16 @@ const SOLID_PROPS: Record<string, [number, number]> = {
   Rock_Medium_3: [1.8, 0.95],
   Prop_Crate: [0.9, 0.55],
   Prop_Wagon: [1.2, 1.05],
+  // Ground-level village building pieces (baked into hub-structure.json). Tall
+  // `top` (unjumpable) so house walls block; ~1-tile radius so a chain of 2-unit
+  // wall panels reads as a solid perimeter. The door frame + gate arch are left
+  // OUT so their openings stay walkable. Upper-floor/roof kinds are never listed
+  // (cosmetic, and they sit at z>0 where ground collision wouldn't apply).
+  Wall_UnevenBrick_Straight: [3.4, 1],
+  Wall_UnevenBrick_Window_Wide_Round: [3.4, 1],
+  Corner_Exterior_Brick: [3.4, 0.7],
+  Prop_Support: [3.4, 0.35],
+  Prop_WoodenFence_Single: [1.1, 1],
 }
 
 function makeProp(kind: string, x: number, y: number, rot: number, scale: number): PropSpec {
@@ -120,6 +159,11 @@ function makeProp(kind: string, x: number, y: number, rot: number, scale: number
     top: solid ? solid[0] * scale : 0,
     r: solid ? solid[1] * scale : 0,
   }
+}
+
+/** Whether a prop kind collides (blocks/ledges) vs. renders purely decorative. */
+export function isSolidProp(kind: string): boolean {
+  return kind in SOLID_PROPS
 }
 
 export const BIOMES = [
@@ -241,12 +285,10 @@ function generateHub(daySeed: number): FloorPlan {
     }
   }
 
-  // Houses framing the plaza and the street — each a solid rectangular footprint.
-  for (const h of houses) {
-    for (let y = h.y0; y <= h.y1; y++) {
-      for (let x = h.x0; x <= h.x1; x++) tiles[y * size + x] = 1
-    }
-  }
+  // NOTE: houses are no longer stamped as solid tiles. Once the village is baked
+  // (dev prop editor → hub-structure.json), each ground-floor wall piece is a
+  // solid prop, so house collision follows the editable pieces. `houses` is still
+  // used below to keep the daily scatter off the building footprints.
 
   // Village core: the cobbled plaza, the main street, the market, and a margin
   // around every house stay tidy — daily scatter only lands in the meadow ring
@@ -277,12 +319,17 @@ function generateHub(daySeed: number): FloorPlan {
   }
   scatter(['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2'], 18, 0.6, 0.95, 3)
   scatter(['Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3'], 10, 0.6, 1, 2.4)
-  // The market corner on the south-west plaza rim: a wagon and stacked goods.
-  props.push(makeProp('Prop_Wagon', market.x - 1.7, market.y + 1.6, 0.45, 1))
-  props.push(makeProp('Prop_Crate', market.x + 1.3, market.y + 2.3, 0.3, 1))
-  props.push(makeProp('Prop_Crate', market.x + 1.9, market.y + 1.6, 1.1, 0.85))
-  props.push(makeProp('Barrel', market.x + 2.7, market.y + 0.5, 0, 1))
-  props.push(makeProp('Barrel', market.x - 3.4, market.y - 0.4, 2.1, 0.9))
+  // Hand-placed props and baked village pieces come from committed JSON files,
+  // appended AFTER the daily scatter so the RNG stream — and thus the meadow
+  // layout — is identical no matter what's been placed/baked. `top`/`r` are
+  // derived through makeProp so the server simulates collision exactly as the
+  // client renders; `z` (elevation) and `s3` (per-axis scale) are render-only
+  // extras carried onto the spec. `hub-structure.json` is the exploded village
+  // (walls/roofs/etc.); `hub-props.json` is free-standing gameplay clutter.
+  const placements = [...hubStructure, ...hubProps] as HubPropPlacement[]
+  for (const p of placements) {
+    props.push({ ...makeProp(p.kind, p.x, p.y, p.rot, p.scale), hand: true, z: p.z, s3: p.s3 })
+  }
 
   return {
     floor: HUB_FLOOR,

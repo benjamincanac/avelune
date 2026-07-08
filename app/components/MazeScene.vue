@@ -49,7 +49,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
-import type { FloorPlan, HubHouse, Trap } from '#shared/utils/maze'
+import type { FloorPlan, HubHouse, HubPropPlacement, PropSpec, Trap } from '#shared/utils/maze'
 import {
   CELL_STRIDE,
   CELL_TILES,
@@ -68,6 +68,16 @@ import {
   isWalkable,
   stepBody,
 } from '#shared/utils/maze'
+import {
+  FANTASY_NAMES,
+  NATURE_NAMES,
+  PROP_DECOR_NAMES,
+  PROP_NAMES,
+  VILLAGE_NAMES,
+} from '#shared/utils/propCatalog'
+import HUB_STRUCTURE from '#shared/data/hub-structure.json'
+import { createHubEditor } from '~/utils/hubEditor'
+import type { HubEditor } from '~/utils/hubEditor'
 import type { StonePalette } from '~/utils/textures'
 import { makeBrickTexture, makeCobbleTexture, makeCrackTexture, makeGrassTexture } from '~/utils/textures'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
@@ -105,14 +115,18 @@ interface ViewState {
   dashQueued: boolean
 }
 
-const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState }>()
+const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState, editor?: boolean }>()
 
 // Hub Oracle proximity/dialogue state, shared with GameScene and the HUD.
 const oracle = useOracle()
 
-const { scene, camera: cameraManager } = useTresContext()
+const { scene, camera: cameraManager, renderer } = useTresContext()
 const camera = cameraManager.activeCamera
 const { onBeforeRender } = useLoop()
+
+// Dev-only hub prop editor: created in onMounted when `editor` is set (see the
+// bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
+let editorCtl: HubEditor | null = null
 
 /**
  * Interior wall + ceiling height. Tall enough that the third-person camera
@@ -564,6 +578,9 @@ function buildFloor() {
   if (isHub) {
     buildVillageHub(plan)
     tagShadows(floorGroup)
+    // Re-sync the editor's own selectable clones (templates may have just
+    // finished loading, so this runs after each build phase).
+    editorCtl?.rebuild()
     return
   }
 
@@ -1087,15 +1104,16 @@ function faceOut(ox: number, oz: number): number {
  * shared tile stamps in `generateHub`.
  */
 function buildVillageHub(plan: FloorPlan) {
-  const { tower, houses } = HUB_LAYOUT
+  const { tower } = HUB_LAYOUT
   const add = (g: Group | null) => {
     if (g) floorGroup.add(g)
   }
 
-  // --- Cobbled plaza, main street, door paths, and curb edging.
+  // --- Procedural base (never editable): cobbled roads, the tower shaft, the
+  // portal. Everything else (tower cap, houses, market, gate, statues) is kit
+  // pieces that live in the editable, baked structure — see below.
   buildHubRoads()
 
-  // --- Gigantic tower: procedural stone shaft, capped and detailed by the kit.
   const TOWER_R = 3.6
   const TOWER_H = 24
   const towerTex = makeBrickTexture(9001, HUB_LOOK.wall)
@@ -1108,54 +1126,29 @@ function buildVillageHub(plan: FloorPlan) {
   shaft.position.set(tower.x, TOWER_H / 2, tower.y)
   floorGroup.add(shaft)
 
-  // Conical kit roof, scaled to the shaft's top diameter.
-  const topR = TOWER_R * 0.9
-  add(instantiateModule(
-    'Roof_Tower_RoundTiles',
-    [placementMatrix(tower.x, TOWER_H - 0.5, tower.y, 0, (topR * 2) / 5.65 * 1.2)],
-    '#ffffff',
-  ))
-
-  // Windows spiralling up the tapered shaft + banners flanking the door.
-  const windows: Matrix4[] = []
-  for (let i = 0; i < 10; i++) {
-    const a = i * 1.35
-    const h = 4 + i * 1.9
-    const r = (TOWER_R + (topR - TOWER_R) * (h / TOWER_H)) * (i % 2 === 0 ? 1.02 : 0.98)
-    windows.push(placementMatrix(tower.x + Math.cos(a) * r, h, tower.y + Math.sin(a) * r, faceOut(Math.cos(a), Math.sin(a)), 1))
-  }
-  add(instantiateModule('Window_Wide_Round1', windows, '#ffffff'))
-  add(instantiateModule('Flag_Wall', [-0.55, 0.55].map((da) => {
-    const a = Math.PI / 2 + da
-    const r = TOWER_R - 0.36 * (9 / TOWER_H)
-    return placementMatrix(tower.x + Math.cos(a) * r, 9, tower.y + Math.sin(a) * r, faceOut(Math.cos(a), Math.sin(a)), 1.4)
-  }), '#ffffff'))
-
-  // A stone doorway at the south base, facing the portal/plaza.
-  add(instantiateModule(
-    'Wall_UnevenBrick_Door_Round',
-    [placementMatrix(tower.x, 0, tower.y + TOWER_R - 0.12, faceOut(0, 1), 1)],
-    '#ffffff',
-  ))
-
   // --- The vertical pulsing portal (the teleport) on the plaza south of the tower.
   buildHubPortal(plan.exit.x, plan.exit.y)
 
-  // --- Guardian statues flanking the portal approach (Ruins kit).
-  add(instantiateModule('Statue_Stag', [placementMatrix(17.6, 0, 26.8, Math.PI / 2, 0.62)], '#ffffff'))
-  add(instantiateModule('Statue_Fox', [placementMatrix(22.4, 0, 26.8, -Math.PI / 2, 0.72)], '#ffffff'))
+  // --- Editable village kit pieces. Once baked (hub-structure.json), each piece
+  // is a `hand` prop in plan.props: rendered instanced here, or skipped so the
+  // editor can clone it as a selectable object. Before the first bake the file is
+  // empty, so fall back to rendering the procedural composition (non-selectable)
+  // just so the village is visible to bake.
+  // Normal play, pre-bake: show the procedural village (visual only, no
+  // collision until baked). In editor mode the village comes from the working
+  // copy (seeded on mount), so the controller's clones own it — skip here.
+  if (!props.editor && !HUB_STRUCTURE.length) renderComposed(composeVillage(plan))
 
-  // --- The village: houses, the market stall, and the south gate.
-  houses.forEach((house, i) => buildHouse(house, plan.seed, i))
-  buildHubMarket()
-  buildHubGate()
-
-  // --- Solid clutter from the shared plan (trees/boulders/market goods that
-  // collide), rendered exactly where the server simulates their footprints.
+  // --- Solid clutter, hand props, and baked structure from the shared plan,
+  // rendered exactly where the server simulates their footprints.
   const solids = new Map<string, Matrix4[]>()
   for (const p of plan.props) {
+    // In editor mode the hand-placed props (incl. baked structure) are rendered
+    // as individually selectable clones by the editor controller — skip them here
+    // so they aren't drawn twice (and can't be picked through the instanced batch).
+    if (props.editor && p.hand) continue
     const arr = solids.get(p.kind) ?? []
-    arr.push(placementMatrix(p.x, 0, p.y, p.rot, p.scale))
+    arr.push(propMatrix(p))
     solids.set(p.kind, arr)
   }
   for (const [kind, mats] of solids) add(instantiateModule(kind, mats, '#ffffff'))
@@ -1163,6 +1156,76 @@ function buildVillageHub(plan: FloorPlan) {
   // --- Cosmetic greenery (walk-through).
   scatterHub(plan)
 }
+
+/** Instance matrix for a prop, honoring elevation (`z`) and per-axis scale (`s3`). */
+function propMatrix(p: PropSpec): Matrix4 {
+  return p.s3
+    ? placementMatrixScaled(p.x, p.z ?? 0, p.y, p.rot, p.s3[0], p.s3[1], p.s3[2])
+    : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale)
+}
+
+/**
+ * The procedural village composition as a flat list of kit-piece placements
+ * (`{kind, x, y, z (elevation), rot, scale, s3?}`). This is the single source
+ * the dev editor bakes into `hub-structure.json`; after baking, the pieces flow
+ * through `plan.props` instead and this is only the pre-bake fallback + bake input.
+ */
+function composeVillage(plan: FloorPlan): HubPropPlacement[] {
+  const pieces: HubPropPlacement[] = []
+  // emit(kind, worldX, height, worldZ, rot, scale?, s3?) — arg order matches
+  // placementMatrix so the house math below is copied verbatim; stored as a
+  // placement (y = world Z, z = elevation).
+  const emit = (kind: string, x: number, height: number, worldZ: number, rot: number, scale = 1, s3?: [number, number, number]) =>
+    pieces.push({ kind, x, y: worldZ, z: height, rot, scale, s3 })
+
+  const { tower } = HUB_LAYOUT
+  const TOWER_R = 3.6
+  const TOWER_H = 24
+  const topR = TOWER_R * 0.9
+
+  // Tower cap: conical kit roof, windows spiralling up the shaft, banners, door.
+  emit('Roof_Tower_RoundTiles', tower.x, TOWER_H - 0.5, tower.y, 0, (topR * 2) / 5.65 * 1.2)
+  for (let i = 0; i < 10; i++) {
+    const a = i * 1.35
+    const h = 4 + i * 1.9
+    const r = (TOWER_R + (topR - TOWER_R) * (h / TOWER_H)) * (i % 2 === 0 ? 1.02 : 0.98)
+    emit('Window_Wide_Round1', tower.x + Math.cos(a) * r, h, tower.y + Math.sin(a) * r, faceOut(Math.cos(a), Math.sin(a)))
+  }
+  for (const da of [-0.55, 0.55]) {
+    const a = Math.PI / 2 + da
+    const r = TOWER_R - 0.36 * (9 / TOWER_H)
+    emit('Flag_Wall', tower.x + Math.cos(a) * r, 9, tower.y + Math.sin(a) * r, faceOut(Math.cos(a), Math.sin(a)), 1.4)
+  }
+  emit('Wall_UnevenBrick_Door_Round', tower.x, 0, tower.y + TOWER_R - 0.12, faceOut(0, 1))
+
+  // Guardian statues flanking the portal approach.
+  emit('Statue_Stag', 17.6, 0, 26.8, Math.PI / 2, 0.62)
+  emit('Statue_Fox', 22.4, 0, 26.8, -Math.PI / 2, 0.72)
+
+  // Houses, market stall, south gate.
+  HUB_LAYOUT.houses.forEach((house, i) => composeHouse(house, plan.seed, i, emit))
+  composeMarket(emit)
+  composeGate(emit)
+  return pieces
+}
+
+/** Render a composed piece list instanced (pre-bake fallback only). */
+function renderComposed(pieces: HubPropPlacement[]) {
+  const byKind = new Map<string, Matrix4[]>()
+  for (const p of pieces) {
+    const arr = byKind.get(p.kind) ?? []
+    arr.push(p.s3
+      ? placementMatrixScaled(p.x, p.z ?? 0, p.y, p.rot, p.s3[0], p.s3[1], p.s3[2])
+      : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale))
+    byKind.set(p.kind, arr)
+  }
+  for (const [kind, mats] of byKind) {
+    const g = instantiateModule(kind, mats, '#ffffff')
+    if (g) floorGroup.add(g)
+  }
+}
+
+type EmitPiece = (kind: string, x: number, height: number, worldZ: number, rot: number, scale?: number, s3?: [number, number, number]) => void
 
 /** Grey village cobbles — distinct from the dungeon biomes' tinted stone. */
 let roadTexture: CanvasTexture | null = null
@@ -1238,17 +1301,12 @@ function buildHubRoads() {
  * The market: a wooden canopy stall on the south-west plaza rim. The wagon,
  * crates, and barrels beside it come from the shared plan (they collide).
  */
-function buildHubMarket() {
+function composeMarket(emit: EmitPiece) {
   const { market } = HUB_LAYOUT
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
-  const posts: Matrix4[] = []
   for (const [sx, sz] of [[-1.1, -0.8], [1.1, -0.8], [-1.1, 0.8], [1.1, 0.8]] as const) {
-    posts.push(placementMatrix(market.x + sx, 0, market.y + sz, 0, 1))
+    emit('Prop_Support', market.x + sx, 0, market.y + sz, 0)
   }
-  add(instantiateModule('Prop_Support', posts, '#ffffff'))
-  add(instantiateModule('Roof_Wooden_2x1', [placementMatrixScaled(market.x, 2.05, market.y, 0, 1.4, 1, 1.9)], '#ffffff'))
+  emit('Roof_Wooden_2x1', market.x, 2.05, market.y, 0, 1, [1.4, 1, 1.9])
 }
 
 /**
@@ -1256,20 +1314,14 @@ function buildHubMarket() {
  * posts, and a wooden fence line running out to the border tree line on both
  * sides. Cosmetic — the real boundary is the border wall ring behind the trees.
  */
-function buildHubGate() {
+function composeGate(emit: EmitPiece) {
   const { gate, street, size } = HUB_LAYOUT
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
-  add(instantiateModule('Wall_Arch', [placementMatrixScaled(gate.x, 0, gate.y, 0, (street.halfW * 2 + 1) / 2, 1.15, 1)], '#ffffff'))
-  add(instantiateModule('Corner_Exterior_Brick', [-1, 1].map(s =>
-    placementMatrix(gate.x + s * (street.halfW + 0.5), 0, gate.y, 0, 1.15)), '#ffffff'))
-  const fences: Matrix4[] = []
+  emit('Wall_Arch', gate.x, 0, gate.y, 0, 1, [(street.halfW * 2 + 1) / 2, 1.15, 1])
+  for (const s of [-1, 1]) emit('Corner_Exterior_Brick', gate.x + s * (street.halfW + 0.5), 0, gate.y, 0, 1.15)
   for (let x = 2.4; x < size - 2; x += 2.06) {
     if (Math.abs(x - gate.x) < street.halfW + 1.4) continue
-    fences.push(placementMatrix(x, 0, gate.y, 0, 1))
+    emit('Prop_WoodenFence_Single', x, 0, gate.y, 0)
   }
-  add(instantiateModule('Prop_WoodenFence_Single', fences, '#ffffff'))
 }
 
 /**
@@ -1318,10 +1370,7 @@ function doorWorld(house: HubHouse): { x: number, z: number } {
  * ends face front and back), a balcony over the door, a chimney, and trailing
  * vines. Deterministic per (seed, salt) so every client agrees.
  */
-function buildHouse(house: HubHouse, seed: number, salt: number) {
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
+function composeHouse(house: HubHouse, seed: number, salt: number, emit: EmitPiece) {
   const x0 = house.x0
   const z0 = house.y0
   const x1 = house.x1 + 1
@@ -1332,12 +1381,7 @@ function buildHouse(house: HubHouse, seed: number, salt: number) {
   const d = z1 - z0
   const [fx, fz] = FRONT_DIR[house.front]
 
-  const parts = new Map<string, Matrix4[]>()
-  const push = (kind: string, x: number, y: number, z: number, rotY: number) => {
-    const arr = parts.get(kind) ?? []
-    arr.push(placementMatrix(x, y, z, rotY, 1))
-    parts.set(kind, arr)
-  }
+  const push = (kind: string, x: number, y: number, z: number, rotY: number) => emit(kind, x, y, z, rotY)
   // Offset a point by (lx, lz) in the local frame of a wall rotated rotY.
   const local = (x: number, z: number, rotY: number, lx: number, lz: number) =>
     [x + lx * Math.cos(rotY) + lz * Math.sin(rotY), z - lx * Math.sin(rotY) + lz * Math.cos(rotY)] as const
@@ -1407,8 +1451,6 @@ function buildHouse(house: HubHouse, seed: number, salt: number) {
   const [vx, vz] = FRONT_DIR[vineFace]
   const vine = ['Prop_Vine1', 'Prop_Vine2', 'Prop_Vine4'][(placementHash(seed, salt, 11, 24) * 3) | 0]!
   push(vine, cx + vx * (Math.abs(vx) * w / 2 + Math.abs(vz) * d / 2), 1.6, cz + vz * (Math.abs(vx) * w / 2 + Math.abs(vz) * d / 2), faceOut(vx, vz))
-
-  for (const [kind, mats] of parts) add(instantiateModule(kind, mats, '#ffffff'))
 }
 
 /**
@@ -1516,89 +1558,9 @@ const flames: Array<{ mesh: Mesh, base: number, offset: number }> = []
 const flameGeometry = new OctahedronGeometry(0.07, 1)
 const flameMaterial = new MeshBasicMaterial({ color: '#ffb545' })
 
-/**
- * Quaternius "Ultimate Modular Ruins" props (CC0), converted from .blend to
- * GLB by scripts/convert_props.py. The hub gets a fixed arrangement; floors
- * get deterministic biome-flavored scatter.
- */
-const PROP_NAMES = [
-  'Statue_Fox', 'Statue_Stag', 'Cart', 'Crate', 'Barrel', 'Chest', 'Flag_Wall',
-  'Bricks', 'Skull', 'Pot1_Broken', 'Pot2_Broken', 'Column_Round_Short',
-  'Bush_1x1', 'Bush_Round', 'Grass', 'DeadTree_1', 'Candles_1',
-  // Structural modules
-  'Floor_Standard', 'Floor_Squares', 'Floor_Diamond', 'Floor_SquareLarge',
-  'Arch_Gothic', 'Arch_Round', 'Column_Round', 'Column_Square',
-  'Support_Center', 'Support_Left', 'Support_Right', 'Support_Tall',
-  'Rail_Straight', 'Curve_1_Overgrown', 'Curve_2_Overgrown', 'Torch',
-  // Tower-interior masonry + fittings
-  'Wall', 'Wall_Half', 'Wall_ArchRound', 'Wall_Broken', 'Wall_Hole', 'Window_Open',
-  'Doors_GothicArch', 'Doors_RoundArch', 'Stairs', 'Stairs_2', 'Rail_Corner', 'Rail_Divider',
-  'Bookcase_Full', 'Bookcase_Empty', 'Chest_Gold', 'Pot1', 'Pot2', 'Pot3',
-  'Candles_2', 'Trapdoor', 'Arch_Gothic_RoundColumn',
-  // Structural additions (floors, wall/window variety incl. the Verdant
-  // overgrown set, curved corners, extra arches/doors) — eager so the first
-  // complete floor paint isn't missing panels.
-  'Floor_Hole_Corner', 'Floor_Hole_Straight', 'Floor_Standard_Half', 'Floor_Tree',
-  'Wall_ArchGothic', 'Wall_ArchRound_Broken', 'Wall_Overgrown',
-  'Wall_ArchRound_Overgrown', 'Wall_ArchRound_Overgrown_Broken',
-  'Window_Bars', 'Window_Bars_Overgrown', 'Curve_1', 'Curve_2',
-  'Arch_Round_RoundColumn', 'Doors_GothicArch_Covered', 'Doors_RoundArch_Covered',
-] as const
-
-/**
- * Purely-decorative Ruins props (banners, ground-hazard clutter, the water
- * bridge, extra scatter). Deferred to the post-hub load phase alongside the
- * fantasy furniture so they don't delay the first structural paint — a missing
- * banner or bush just pops in on the follow-up rebuild.
- */
-const PROP_DECOR_NAMES = [
-  'Flag_GothicArch', 'Flag_RoundArch', 'Flag_Wall2',
-  'BearTrap_Closed', 'BearTrap_Open', 'BridgeSection', 'Column_BridgeSupport',
-  'Pot3_Broken', 'DeadTree_2', 'DeadTree_3', 'Bush_2x1', 'Bush_2x2', 'Bush_Large',
-] as const
-
-/**
- * Quaternius CC0 MegaKit models for the nature-village hub, optimized to GLB by
- * scripts/convert_kits.sh. Nature dresses the meadow; village builds the tower
- * cap, house facades, and plaza props. Loaded into the same template map.
- */
-const NATURE_NAMES = [
-  'CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2',
-  'Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3', 'Pebble_Round_1', 'Pebble_Round_2',
-  'Bush_Common', 'Bush_Common_Flowers', 'Grass_Common_Tall', 'Grass_Wispy_Tall',
-  'Fern_1', 'Clover_1', 'Flower_3_Group', 'Plant_1', 'Mushroom_Common',
-] as const
-const VILLAGE_NAMES = [
-  // Tower cap + house gable roofs (named by the footprint they cover).
-  'Roof_Tower_RoundTiles', 'Roof_RoundTiles_4x4', 'Roof_RoundTiles_4x6',
-  'Roof_RoundTiles_6x4', 'Roof_RoundTiles_6x6', 'Roof_RoundTiles_6x8',
-  'Roof_Front_Brick4', 'Roof_Front_Brick6', 'Roof_Dormer_RoundTile', 'Roof_Wooden_2x1',
-  // House shells: stone ground floor, timber upper floor, gate arch.
-  'Wall_UnevenBrick_Straight', 'Wall_UnevenBrick_Window_Wide_Round', 'Wall_UnevenBrick_Door_Round',
-  'Wall_Plaster_Straight', 'Wall_Plaster_Window_Wide_Round', 'Wall_Plaster_Door_Round',
-  'Wall_Plaster_WoodGrid', 'Wall_Arch', 'Corner_Exterior_Wood', 'Corner_Exterior_Brick',
-  'Balcony_Simple_Straight', 'Door_1_Round', 'Window_Wide_Round1', 'WindowShutters_Wide_Round_Open',
-  // Dressing: chimneys, vines, market + street furniture, curb edging.
-  'Prop_Chimney', 'Prop_Chimney2', 'Prop_Vine1', 'Prop_Vine2', 'Prop_Vine4',
-  'Prop_Wagon', 'Prop_WoodenFence_Single', 'Prop_Crate', 'Prop_Support',
-  'Prop_ExteriorBorder_Straight1',
-] as const
-
-/**
- * Quaternius "Fantasy Props MegaKit" (CC0) furniture, optimized to GLB by
- * scripts/convert_fantasy.sh. These dress the tower-interior labyrinth floors —
- * bookcases, banners, chandeliers, chests, forge gear — themed per biome by
- * `scatterInterior`. Loaded into the shared template map from /models/fantasy.
- */
-const FANTASY_NAMES = [
-  'Bookcase_2', 'Chair_1', 'Bench', 'Stool', 'Bed_Twin1',
-  'Chandelier', 'CandleStick', 'CandleStick_Triple',
-  'Chest_Wood', 'Crate_Wooden',
-  'Banner_1', 'Banner_2', 'WeaponStand', 'Sword_Bronze', 'Shield_Wooden',
-  'Cauldron', 'BookStand', 'Book_Stack_1', 'Coin_Pile', 'Coin_Pile_2',
-  'Cabinet', 'Shelf_Simple', 'Lantern_Wall', 'Torch_Metal', 'Rope_1',
-  'Anvil', 'Workbench', 'Cage_Small', 'Vase_2', 'Potion_1', 'Scroll_1', 'Table_Large',
-] as const
+// Prop template name lists (PROP_NAMES, PROP_DECOR_NAMES, NATURE_NAMES,
+// VILLAGE_NAMES, FANTASY_NAMES) live in #shared/utils/propCatalog so the dev
+// editor can share them; imported at the top of this file.
 
 /** Subtle per-biome tint multiplied into structural module materials. */
 const MODULE_TINTS = ['#ffffff', '#ffffff', '#a8ccd6', '#b4d8a4', '#d89b82']
@@ -2293,8 +2255,17 @@ onBeforeRender(({ delta, elapsed }) => {
     }
   }
 
+  // Editor mode owns the camera (free fly) — drive it and keep the sun/shadow
+  // target centered on where we're looking; skip the third-person follow-cam.
+  if (editorCtl) {
+    editorCtl.update(dt)
+    if (camera.value) {
+      local.x = camera.value.position.x
+      local.y = camera.value.position.z
+    }
+  }
   // Third-person camera: behind the shoulder, pulled in by walls.
-  if (camera.value) {
+  else if (camera.value) {
     const yaw = props.view.yaw
     const pitch = props.view.pitch
     const headX = local.x
@@ -2560,7 +2531,35 @@ onBeforeRender(({ delta, elapsed }) => {
 
 // Remove everything we added to the shared scene (also keeps HMR honest —
 // a stale setup's lights and geometry would otherwise stack up on reload).
+// Dev-only: spin up the hub prop editor once the render context exists. Guarded
+// by `import.meta.dev` so the whole controller (Raycaster, fly cam, listeners)
+// dead-code-eliminates from the production bundle.
+if (import.meta.dev) {
+  onMounted(() => {
+    if (!props.editor) return
+    const canvas = renderer.instance?.domElement
+    if (!canvas || !scene.value) return
+    const ed = useEditor()
+    // Before the village is baked, seed the editable structure layer from the
+    // procedural composition so every kit piece is immediately selectable and
+    // the first save writes hub-structure.json (the bake).
+    if (!HUB_STRUCTURE.length) ed.seedStructure(composeVillage(currentPlan))
+    editorCtl = createHubEditor({
+      scene: scene.value,
+      getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
+      canvas,
+      getTemplate: kind => propTemplates.get(kind),
+      editor: ed,
+    })
+    editorCtl.rebuild()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).__editor = ed
+  })
+}
+
 onUnmounted(() => {
+  editorCtl?.dispose()
+  editorCtl = null
   scene.value.remove(ambient, hemi, sun, sun.target, torchLight, rain, skyDome, cloudDome, sunGlow, floorGroup, playerGroup)
 })
 

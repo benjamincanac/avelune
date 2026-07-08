@@ -25,6 +25,15 @@ bytes between it and clients.
   `newUserId`.
 - `server/api/*.ts` — `records.get`, `auth.get`, `auth.post`. (`oracle.post`
   is the Oracle AI endpoint — owned by the `oracle-ai` agent, not here.)
+- `server/api/editor/hub-props.post.ts` + `hub-structure.post.ts` — **dev-only**
+  routes (first line: `if (!import.meta.dev) throw createError({ statusCode: 404 })`)
+  that the hub editor POSTs to; validate placements with zod against
+  `ALL_PROP_KINDS` + `HUB_LAYOUT` bounds and overwrite `shared/data/hub-props.json`
+  / `hub-structure.json` on disk (the only `node:fs` writes in the server).
+  `hub-structure` additionally allows `z` (elevation) + `s3` (per-axis scale) and a
+  higher row cap (the exploded village is ~250 pieces). Dev-only because Vercel's
+  prod FS is read-only. They're the sole writers of those files; `world-sim`'s
+  `generateHub` is the reader.
 
 ## Load-bearing invariants
 1. **The server is authoritative.** Clients predict; the server decides. Jump,

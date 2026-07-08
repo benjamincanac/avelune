@@ -43,6 +43,8 @@
 - [x] **Asset compression pass** (meshopt + WebP) on the new kits — *(was §1; not yet applied retroactively to the pre-existing `props/` GLBs)*
 - [x] **Real `og.png`** rendered from game assets (`make_og.py`) — *(was §1)*
 - [x] Chat: bottom-left, floor-filtered history, **system announcements** (`announce()`, replaced all toasts)
+- [x] **Dev-only in-game hub editor** (menu → "Editor", `import.meta.dev`-gated): fly camera + click-to-place / select (bounding-box pick) / drag / rotate / scale / elevation on the hub, palette from `shared/utils/propCatalog.ts`. 3D controller `app/utils/hubEditor.ts`, 2D `EditorPanel.vue` + `useEditor.ts`. Tree-shaken from prod; save routes 404 in prod (read-only FS)
+  - **Exploded village**: the whole procedural village (`composeVillage` — every wall/roof/corner/statue/fence as a piece) is editable. Pieces bake into `shared/data/hub-structure.json` (first save = bake); free-standing clutter stays in `hub-props.json`. Both append to `plan.props` (`hand:true`) through `makeProp` **after** the scatter (RNG untouched). Placements carry `z` (elevation) + `s3` (per-axis scale), render-only. House collision moved from tile stamps to **per-piece solid footprints** (ground wall/corner kinds added to `SOLID_PROPS`; doorways passable); tower/roads/portal stay procedural
 
 ### Ship
 - [x] `git init`, `benjamincanac/mugen` repo created & pushed *(was §1)*
@@ -50,33 +52,63 @@
 ## Next up (prioritized)
 
 ### 1. Ship it — verify prod
-- [ ] **First Vercel deploy — verify the WebSocket upgrade actually works in prod** (never tested; the whole architecture rests on it). No `vercel.json` yet
+- [x] **First Vercel deploy — verify the WebSocket upgrade actually works in prod** (never tested; the whole architecture rests on it). No `vercel.json` yet
 - [ ] Verify the Oracle works deployed: `AI_GATEWAY_API_KEY` / OIDC configured and `anthropic/claude-sonnet-5` resolves on the Gateway — it's a no-op otherwise
 - [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the new kits are already meshopt+WebP)
 
-### 2. Audio (biggest missing sense — nothing implemented yet)
+### 2. Combat, monsters & loot (PvE) — headline next feature
+The game's first HP/damage system: fight monsters, loot chests, and a full inventory/gear/stats RPG layer. Authoritative server-side (damage & loot never trusted from clients — same rule as leaderboard depth); monster kinematics + placement live in `shared/utils/maze.ts` and stay deterministic per `(daySeed, floor)`. Assets are already on disk — 50 rigged monsters in `~/Downloads/quaternius/ultimate-monsters/`, player `Sword_Regular_A`/`Roll`/`Death01` clips in `animations.glb`, and `Chest*`/`Sword_Bronze`/`Shield_Wooden`/`Potion_1`/`Coin_Pile` GLBs already converted.
+
+**Phase A — HP, damage & player melee (foundations)**
+- [ ] `hp`/`maxHp` on `Player` (`shared/types/game.ts`) + combat runtime on `Session` (`attackUntil`, `attackCooldownUntil`, `lastAttacker`) in `server/utils/game.ts`
+- [ ] First non-hazard death path: decrement HP, set `dyingUntil` only at 0 — reuse the existing trap-death `broadcast({ t:'death', … cause })` block as the template
+- [ ] New `{ t:'action', kind:'attack' }` client message, cooldown-gated exactly like `dash`; transient `PlayerState` flags (`atk?`/`hit?`/`hp?`) mirroring the `d`/`dead` pattern
+- [ ] Client: new `CLIP` entries + priority branches in `MazeScene.vue` (attack = `Sword_Regular_A`, hit-react, dodge reuses `Roll`); HP bar + hit feedback in the HUD (`game-ui`)
+
+**Phase B — Monsters & enemy AI**
+- [ ] Batch-convert `ultimate-monsters` → `public/models/monsters/` via a new `scripts/convert_monsters.sh` (same `gltf-transform optimize` → meshopt+WebP one-liner as `convert_fantasy.sh`); start with the 16 Big bipeds (fullest clip set)
+- [ ] Deterministic per-`(daySeed, floor)` monster spawns in `generateFloor` (mirrors the trap/prop scatter loops) so both sides agree with no placement traffic; depth-scaled count/type/HP
+- [ ] Server monster registry + a new update pass in `tick()`: aggro/chase via `moveWithCollision`, melee/ranged attacks, HP, death → loot drop; new `ServerMessage` monster-snapshot variant + monster array in the 10 Hz broadcast
+- [ ] Client: generalize the Oracle `createOracleRig` pattern into a keyed monster-rig map driven by snapshots (own `AnimationMixer` per monster, `Idle/Walk/Run/Attack/HitReact/Death` from each GLB), nameplates + health bars
+- [ ] Biome-appropriate rosters (Blob critters shallow, Flying enemies deeper)
+
+**Phase C — Loot & chests**
+- [ ] Lootable chests: tag chest placements as interactive (loot flag on `PropSpec` or a parallel `loot` array in `FloorPlan`), deterministic per floor; open via `E` + interaction-range check in `tick()`; render off the existing `Chest`/`Chest_Wood`/`Chest_Gold` GLBs
+- [ ] Depth-scaled **loot tables** with rarity tiers feeding both chest contents and monster drops: coins, potions, weapons, armor
+- [ ] New wire messages: chest-open, item pickup/drop, loot-grant (authoritative)
+
+**Phase D — Inventory, gear & stats (the RPG layer)**
+- [ ] Server inventory keyed by `identity.id` (mirror the `progress` map; **cleared at daily rollover** in `rolloverTower()` until persistent accounts land — see §7)
+- [ ] Equippable weapons (damage/speed) + armor (mitigation); stats & leveling from kills/depth; rarity tiers
+- [ ] Inventory/equipment UI panel (`game-ui`, Nuxt UI); equipped weapon/shield rendered on the player rig (hand-bone attach — `Sword_Bronze`/`Shield_Wooden` GLBs exist)
+- [ ] Consumables (potions heal); coins as currency (hub vendor a further stretch)
+
+**Assets**
+- [ ] Extend the player clip lists (`CLIPS_UAL1`/`CLIPS_UAL2` in `convert_universal_characters.py` + `rebuild_animations.py`) with `Sword_Attack`, `Hit_Chest`, `Consume`, `Melee_Hook`, then rebuild `animations.glb`
+
+### 3. Audio (biggest missing sense — nothing implemented yet)
 - [ ] Footsteps (surface-aware: stone/water), jump/land, dash whoosh
 - [ ] Trap warnings + activation sounds (audible timing = fairer dodges)
 - [ ] Teleport/clear/death stingers; ambient loops per biome (wind, drips, jungle, magma rumble)
 - [ ] Positional audio for other players (three.js `AudioListener`/`PositionalAudio`)
 
-### 3. Death & clear polish (death pause done ✓)
+### 4. Death & clear polish (death pause done ✓)
 - [ ] `Victory` clip on floor clear before the drop
 - [ ] Trap pre-fire telegraph (glow/particles ~0.4s before lethal) — currently binary
 
-### 4. Party system (brief asked for "form groups") — not started
+### 5. Party system (brief asked for "form groups") — not started
 - [ ] `party` messages: invite/accept/leave over the existing socket; party = shared color ring + markers on both maps regardless of fog
 - [ ] Party chat channel (chat already carries floor; add `party` scope)
 - [ ] Maybe: party members see each other through walls (outline shader)
 
-### 5. Deeper biome mechanics (hazards beyond timed traps) — not started
+### 6. Deeper biome mechanics (hazards beyond timed traps) — not started
 - [ ] Sunken: deep-water pools that drown after ~3s submerged (needs per-player timer server-side)
 - [ ] Verdant: collapsing floor tiles (break after N crossings, respawn on rollover)
 - [ ] Magma: lava pools as instant-death zones w/ visible pathing (place only on braid loops so floors stay solvable)
 - [ ] Floor modifiers at depth milestones (darkness floors, no-minimap floors, speed floors)
-- [ ] Monsters: `monsters/` pack is imported but only used for the (non-hostile) Oracle — no combat/enemy AI yet
+- [ ] (Monsters/combat moved out — now the headline §2)
 
-### 6. Stretch (from the original brief)
+### 7. Stretch (from the original brief)
 - [ ] Proximity/party voice chat in the hub — WebRTC, signaling over the game socket (deliberately deferred)
 - [ ] **Persistent accounts: depth records surviving the daily rollover** (needs a store — KV keyed by day). *Partial today:* identity persists via the signed cookie and in-day depth survives a refresh, but the `progress` map is in-memory and cleared at rollover — nothing survives midnight yet
 - [ ] Multi-instance sharding once one function instance isn't enough
