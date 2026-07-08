@@ -411,9 +411,20 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     close,
   }
 
-  const others = [...sessions.values()].map(s => s.player)
+  // Single live session per identity: if this player already has a socket open
+  // (a second tab, or a refresh that raced its own close), the newest one wins.
+  // Install the new session first, then boot the old socket with a `kicked`
+  // notice so its tab stops instead of reconnecting into a take-over war.
+  // `others` excludes this id so the booted session isn't duplicated into the
+  // newcomer's initial roster.
+  const existing = sessions.get(player.id)
+  const others = [...sessions.values()].map(s => s.player).filter(p => p.id !== player.id)
   sessions.set(player.id, session)
   startLoop()
+  if (existing) {
+    existing.send(JSON.stringify({ t: 'kicked', reason: 'You opened the tower in another tab. This window has been disconnected.' } satisfies ServerMessage))
+    existing.close()
+  }
 
   send(JSON.stringify({
     t: 'welcome',
@@ -478,9 +489,15 @@ export function registerConnection(identity: Identity, send: (data: string) => v
       }
     },
     disconnect() {
-      sessions.delete(player.id)
+      // Only tear down the roster entry if this exact session still owns the id.
+      // A newer tab may have taken over (see the take-over above), in which case
+      // the booted socket's close lands here too — but the delete + leave belong
+      // to the session that replaced it, not this one.
+      if (sessions.get(player.id) === session) {
+        sessions.delete(player.id)
+        broadcast({ t: 'leave', id: player.id })
+      }
       stopLoop()
-      broadcast({ t: 'leave', id: player.id })
     },
   }
 }

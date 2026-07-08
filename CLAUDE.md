@@ -19,8 +19,8 @@ Package manager is **pnpm**.
 1. **Gameplay-affecting code lives in `shared/utils/maze.ts`.** Anything touching player position, collision, elevation, or hazards must go in the shared module so the authoritative server (`server/utils/game.ts`) and client prediction call the *same* functions and never disagree. Never fork physics into a component or the WS handler.
 2. **The server is authoritative.** It runs a fixed **20 Hz** tick loop and validates every action (jump/dash cooldowns, clears, deaths). Clients predict; the server decides.
 3. **Determinism.** Floors are generated from `(UTC day seed, floor index)` with a seeded PRNG — never `Math.random()` in generation paths. Any client can regenerate any floor; the socket carries only players. New tower at midnight UTC (`maze` frame).
-4. **Wire protocol** is the `t`-keyed discriminated unions in `shared/types/game.ts`. Client→server: `move`/`action`/`chat`/`ping`. Server→client: `welcome`/`join`/`leave`/`state`/`chat`/`death`/`clear`/`maze`/`pong`. `welcome.now` is the server clock that drives day/night + weather. Changing a frame's shape means updating both consumers.
-5. **Identity** rides a signed cookie on the same-origin WS upgrade; no valid cookie ⇒ socket closed. `?spectate=1` opens a read-only watcher (no cookie/character).
+4. **Wire protocol** is the `t`-keyed discriminated unions in `shared/types/game.ts`. Client→server: `move`/`action`/`chat`/`ping`. Server→client: `welcome`/`join`/`leave`/`state`/`chat`/`death`/`clear`/`maze`/`kicked`/`pong`. `welcome.now` is the server clock that drives day/night + weather. Changing a frame's shape means updating both consumers.
+5. **Identity** rides a signed cookie on the same-origin WS upgrade; no valid cookie ⇒ socket closed. One live session per identity: a second connection (another tab) takes over and the old socket gets a `kicked` frame. `?spectate=1` opens a read-only watcher (no cookie/character).
 6. **Browser-only code** (three.js, pointer lock) must be `.client.vue` / `<ClientOnly>` — never runs during SSR.
 
 ## Subagents

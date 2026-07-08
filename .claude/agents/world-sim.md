@@ -50,8 +50,10 @@ from independently.
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ optional action
 seq `a`), `action` (`jump`|`dash`), `chat`, `ping`. Server→client: `welcome`,
-`join`, `leave`, `state`, `chat`, `death`, `clear`, `maze`, `pong`. `welcome.self`
-is `Player | null` — `null` marks a spectator connection (no character). When you
+`join`, `leave`, `state`, `chat`, `death`, `clear`, `maze`, `kicked`, `pong`.
+`welcome.self` is `Player | null` — `null` marks a spectator connection (no
+character). `kicked` carries a `reason` and boots a socket when the same identity
+opens another (single session per player). When you
 change a frame's shape, flag both consumers explicitly — the change is not done
 until `server-net` and the client agent are told what moved.
 

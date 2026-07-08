@@ -88,6 +88,11 @@ export type ServerMessage
     | { t: 'clear', id: string, name: string, floor: number, to: number, ms: number, best: number, record: boolean }
     /** Midnight UTC rollover: a new tower, everyone back to the hub. */
     | { t: 'maze', seed: number, players: Player[] }
+    /** This identity connected from another tab/window and that newer socket
+     *  took over — only one live session per player is allowed. The client
+     *  shows the reason and stops reconnecting (a reconnect would kick the new
+     *  tab straight back, ping-ponging forever). */
+    | { t: 'kicked', reason: string }
     | { t: 'pong' }
 
 export const MAX_CHAT_LENGTH = 120

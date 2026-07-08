@@ -36,6 +36,14 @@ bytes between it and clients.
    add it to the shared module and consume it — don't fork it server-side.
 3. **Identity rides the signed cookie on the same-origin WS upgrade.** No valid
    cookie ⇒ close the socket (they skipped onboarding). Spectators skip this.
+   **One live session per identity.** `sessions` is keyed by identity id, so a
+   second connection (another tab, or a refresh that raced its own close) would
+   overwrite the first. `registerConnection` makes the newest win: it installs
+   the new session, then boots the old socket with a `kicked` frame. The gotcha
+   this creates: the booted socket's `close` still fires `disconnect()`, which
+   must NOT `delete`/`leave` the id — so `disconnect` is guarded by
+   `sessions.get(id) === session` (only the session that still owns the id tears
+   it down). Never remove that guard or the take-over evicts the live player.
 4. **One tower, shared by all.** Day seed from UTC date; state survives instance
    recycling because it's regenerable. Midnight rollover broadcasts `maze` and
    resets everyone to the hub.
@@ -54,7 +62,7 @@ bytes between it and clients.
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (self/players/seed/
 `now` clock/records — `self` is `null` for spectators), `join`, `leave`, `state`
 (only players that moved), `chat` (carries sender floor `f`), `death`, `clear`,
-`maze`, `pong`. The
+`maze`, `kicked` (booted for a duplicate tab; carries a `reason`), `pong`. The
 `welcome.now` server clock drives client day/night + weather — keep it monotonic
 and honest.
 

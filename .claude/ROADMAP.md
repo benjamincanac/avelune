@@ -25,6 +25,7 @@
 - [x] **Spectator mode**: `?spectate=1` read-only socket (`registerSpectator`, no cookie, never simulated/counted), full-tower reveal-all map
 - [x] Records over HTTP (`GET /api/records`) so the menu shows the board pre-socket; shared `RecordsBoard` used in menu / HUD / spectator
 - [x] **In-game Escape menu** (WoW-style, replaces the old bottom-right HUD buttons): controls reference + fullscreen + leave + return-to-game. Opens on Escape; while pointer-locked the keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
+- [x] **Single session per identity**: `sessions` is keyed by identity id, so opening a second tab takes over — the newest socket wins and the old one gets a `kicked` frame (client stops reconnecting, shows a "playing in another tab" overlay with "play here instead"). `disconnect` is guarded by `sessions.get(id) === session` so the booted socket can't evict the live player
 - [x] In-day progress persistence: `progress` map (deepest floor per identity) survives a refresh; hub portal resumes you at `max(1, best)` *(NB: in-memory, cleared at rollover — see §7)*
 - [x] Per-day tower shared by all; midnight-UTC rollover (`maze` frame) → new tower, everyone back to hub
 
