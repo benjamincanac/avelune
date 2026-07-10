@@ -10,7 +10,6 @@ import {
 import type { Object3D, PerspectiveCamera, Scene } from 'three'
 import { watch } from 'vue'
 import type { Ref, WatchStopHandle } from 'vue'
-import { HUB_LAYOUT } from '#shared/utils/maze'
 import type { EditorPlacement } from '~/composables/useEditor'
 
 /**
@@ -34,6 +33,9 @@ interface HubEditorOptions {
   canvas: HTMLCanvasElement
   getTemplate: (kind: string) => Group | undefined
   editor: EditorState
+  /** Current floor's grid extent (tiles) — bounds placement + seeds the camera.
+   *  Read dynamically so a floor switch changes the editable area. */
+  getSize: () => number
 }
 
 export interface HubEditor {
@@ -41,6 +43,8 @@ export interface HubEditor {
   update: (dt: number) => void
   /** Re-clone every placement (call once templates finish loading). */
   rebuild: () => void
+  /** Re-seat the fly camera over the current floor's centre (on a floor switch). */
+  focus: () => void
   /** Tear down: detach listeners, drop scene objects, stop watchers. */
   dispose: () => void
 }
@@ -78,7 +82,7 @@ function isTyping(): boolean {
  * `floorGroup.clear()` never wipes them.
  */
 export function createHubEditor(opts: HubEditorOptions): HubEditor {
-  const { scene, getCamera, canvas, getTemplate, editor } = opts
+  const { scene, getCamera, canvas, getTemplate, editor, getSize } = opts
 
   const editorGroup = new Group()
   editorGroup.name = 'hubEditor'
@@ -103,8 +107,9 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   const pickBox = new Box3()
   const pickPoint = new Vector3()
 
-  // Fly-camera pose (owned here — does not touch the shared gameplay `view`).
-  const camPos = new Vector3(HUB_LAYOUT.tower.x, 18, HUB_LAYOUT.tower.y + 15)
+  // Fly-camera pose (owned here — does not touch the shared gameplay `view`),
+  // seeded looking down at the current floor's centre.
+  const camPos = new Vector3(getSize() / 2, 18, getSize() / 2 + 15)
   let yaw = 0
   let pitch = -0.5
   const held = new Set<string>()
@@ -192,7 +197,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   function groundHit(): { x: number, y: number } | null {
     if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null
     const lo = 0.5
-    const hi = HUB_LAYOUT.size - 0.5
+    const hi = getSize() - 0.5
     return { x: clamp(hit.x, lo, hi), y: clamp(hit.z, lo, hi) }
   }
 
@@ -277,7 +282,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       grabY = p.y - hit.z
     }
     const lo = 0.5
-    const hi = HUB_LAYOUT.size - 0.5
+    const hi = getSize() - 0.5
     obj.position.set(clamp(hit.x + grabX, lo, hi), elev, clamp(hit.z + grabY, lo, hi))
     box.update()
   }
@@ -385,7 +390,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       const dx = -Math.sin(yaw) * fwd + Math.cos(yaw) * side
       const dz = -Math.cos(yaw) * fwd - Math.sin(yaw) * side
       const lo = 0.5
-      const hi = HUB_LAYOUT.size - 0.5
+      const hi = getSize() - 0.5
       p.x = clamp(p.x + dx * step, lo, hi)
       p.y = clamp(p.y + dz * step, lo, hi)
       editor.commit()
@@ -447,6 +452,14 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     if (box.visible) box.update()
   }
 
+  /** Re-seat the fly camera looking down at the current floor's centre. */
+  function focus() {
+    const s = getSize()
+    camPos.set(s / 2, 18, s / 2 + 15)
+    yaw = 0
+    pitch = -0.5
+  }
+
   function dispose() {
     canvas.removeEventListener('mousedown', onMouseDown)
     canvas.removeEventListener('wheel', onWheel)
@@ -462,5 +475,5 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     editorGroup.clear()
   }
 
-  return { update, rebuild, dispose }
+  return { update, rebuild, focus, dispose }
 }

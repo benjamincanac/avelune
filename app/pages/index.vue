@@ -54,12 +54,17 @@ onMounted(async () => {
   }
   view.value = 'menu'
 
-  // A save in the prop editor rewrites hub-props.json, which triggers a full
-  // dev reload; drop straight back into the editor so the round-trip is seamless.
-  if (import.meta.dev && sessionStorage.getItem(EDITOR_REENTER_KEY)) {
-    sessionStorage.removeItem(EDITOR_REENTER_KEY)
-    edit()
-    return
+  // A save in the world editor rewrites the layout JSON, which triggers a full
+  // dev reload; drop straight back into the editor on the same floor so the
+  // round-trip is seamless. The stored value is the floor index that was active.
+  if (import.meta.dev) {
+    const reenter = sessionStorage.getItem(EDITOR_REENTER_KEY)
+    if (reenter != null) {
+      sessionStorage.removeItem(EDITOR_REENTER_KEY)
+      useEditor().switchFloor(Number(reenter))
+      edit()
+      return
+    }
   }
 
   // "Play here" from the kicked overlay reloads to take the session back; drop

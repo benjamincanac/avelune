@@ -49,7 +49,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
-import type { FloorPlan, HubHouse, HubPropPlacement, PropSpec, Trap } from '#shared/utils/maze'
+import type { AuthoredFloorData, FloorPlan, HubHouse, HubPropPlacement, PropSpec, Trap } from '#shared/utils/maze'
 import {
   CELL_STRIDE,
   CELL_TILES,
@@ -67,6 +67,7 @@ import {
   isAuthoredFloor,
   isTrapActive,
   isWalkable,
+  planFromAuthored,
   stepBody,
 } from '#shared/utils/maze'
 import {
@@ -128,9 +129,29 @@ const { scene, camera: cameraManager, renderer } = useTresContext()
 const camera = cameraManager.activeCamera
 const { onBeforeRender } = useLoop()
 
-// Dev-only hub prop editor: created in onMounted when `editor` is set (see the
+// Dev-only world editor: created in onMounted when `editor` is set (see the
 // bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
 let editorCtl: HubEditor | null = null
+// The editor's shared state, when editing. Drives which floor's plan the scene
+// builds and the controller's editable bounds.
+let ed: ReturnType<typeof useEditor> | null = null
+
+/** The FloorPlan for the editor's active floor: the hub's procedural base, or an
+ *  authored plan built live from the working doc (so brand-new floors render). */
+function editorPlan(): FloorPlan {
+  const doc = ed!.current.value
+  if (doc.floor === HUB_FLOOR) return getPlan(HUB_FLOOR)
+  return planFromAuthored({
+    version: 1,
+    floor: doc.floor,
+    size: doc.size,
+    biome: doc.biome,
+    start: doc.start,
+    exit: doc.exit,
+    traps: doc.traps,
+    placements: doc.placements,
+  } satisfies AuthoredFloorData)
+}
 
 /**
  * Interior wall + ceiling height. Tall enough that the third-person camera
@@ -562,7 +583,9 @@ function buildFloor() {
   // Authored floors are hand-built from freely-placed wall/arch/column pieces
   // (like the hub), so the tile-derived dressing passes don't apply — the placed
   // pieces ARE the architecture. They still get ground/border/ceiling/traps/portal.
-  const isAuthored = isAuthoredFloor(plan.floor)
+  // In editor mode every non-hub floor is authored (a freshly-created floor isn't
+  // in floors.json yet), so it renders the authored base for the controller.
+  const isAuthored = isAuthoredFloor(plan.floor) || (!!props.editor && plan.floor !== HUB_FLOOR)
   // Ground: pack floor slabs where possible; the Magma Halls keep the
   // procedural emissive-crack floor (the slabs would hide the glow), and the
   // hub is an open meadow (no dungeon slabs).
@@ -2609,19 +2632,32 @@ if (import.meta.dev) {
     if (!props.editor) return
     const canvas = renderer.instance?.domElement
     if (!canvas || !scene.value) return
-    const ed = useEditor()
-    // Before the village is baked, seed the editable structure layer from the
+    ed = useEditor()
+    // Before the hub is baked, seed the editable structure layer from the
     // procedural composition so every kit piece is immediately selectable and
     // the first save writes hub-structure.json (the bake).
-    if (!HUB_STRUCTURE.length) ed.seedStructure(composeVillage(currentPlan))
+    if (ed.currentFloor.value === HUB_FLOOR && !HUB_STRUCTURE.length) {
+      ed.seedStructure(composeVillage(currentPlan))
+    }
+    // Build the editor's active floor (persisted across a save-reload).
+    currentPlan = editorPlan()
+    buildFloor()
     editorCtl = createHubEditor({
       scene: scene.value,
       getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
       canvas,
       getTemplate: kind => propTemplates.get(kind),
       editor: ed,
+      getSize: () => ed!.current.value.size,
     })
     editorCtl.rebuild()
+    // Rebuild the scene when the active floor changes (switch / create / undo of
+    // a structural edit). The controller re-clones off its own deep watch.
+    watch(() => ed!.structureVersion.value, () => {
+      currentPlan = editorPlan()
+      buildFloor()
+      editorCtl?.focus()
+    })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).__editor = ed
   })

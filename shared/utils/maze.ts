@@ -463,8 +463,9 @@ export function floorSalt(floor: number): number {
 }
 
 /** Build a runtime `FloorPlan` from authored data. Tiles are just a border ring
- *  (like the hub) — collision comes from each solid placement's footprint. */
-function planFromAuthored(d: AuthoredFloorData): FloorPlan {
+ *  (like the hub) — collision comes from each solid placement's footprint.
+ *  Exported so the editor can render a floor's working doc live. */
+export function planFromAuthored(d: AuthoredFloorData): FloorPlan {
   const size = d.size
   const tiles = new Uint8Array(size * size)
   for (let i = 0; i < size; i++) {

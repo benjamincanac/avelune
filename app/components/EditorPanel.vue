@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { PROP_CATALOG } from '#shared/utils/propCatalog'
-import { isSolidProp } from '#shared/utils/maze'
+import { BIOMES, HUB_FLOOR, isSolidProp } from '#shared/utils/maze'
 
 /**
- * 2D overlay for the dev hub prop editor. Pure HUD chrome over the live scene —
- * the palette arms a kind for click-to-place, the inspector edits the selected
- * prop's transform, and Save writes the working copy to the repo's JSON. All 3D
- * interaction (fly camera, picking, drag) is handled by the scene controller
+ * 2D overlay for the dev world editor. Pure HUD chrome over the live scene — a
+ * floor switcher moves between the hub and each dungeon floor, the palette arms
+ * a kind for click-to-place, the inspector edits the selected prop, and Save
+ * writes every floor's working copy to the repo's JSON. All 3D interaction (fly
+ * camera, picking, drag) is handled by the scene controller
  * (`app/utils/hubEditor.ts`); this panel only reads/writes `useEditor` state.
  */
 const emit = defineEmits<{ exit: [] }>()
@@ -15,6 +16,32 @@ const editor = useEditor()
 const toast = useToast()
 
 const search = ref('')
+
+// Floor switcher: the hub plus each authored dungeon floor, in order.
+const isHub = computed(() => editor.currentFloor.value === HUB_FLOOR)
+const floors = computed(() => editor.docs.value.map(d => ({
+  floor: d.floor,
+  label: d.floor === HUB_FLOOR ? 'Hub' : `F${d.floor}`,
+  dirty: editor.dirtyFloors.value.has(d.floor),
+})))
+const maxFloor = computed(() => Math.max(...editor.docs.value.map(d => d.floor)))
+
+// Per-floor biome (dungeon floors only), edited live.
+const biomes = BIOMES.map((b, i) => ({ label: b.name, value: i }))
+const biome = computed({
+  get: () => editor.current.value.biome,
+  set: (v: number) => {
+    editor.current.value.biome = v
+    editor.commit()
+  },
+})
+
+function addFloor() {
+  editor.createFloor()
+}
+function removeFloor() {
+  if (confirm(`Delete Floor ${maxFloor.value}? This can't be undone after saving.`)) editor.deleteFloor()
+}
 
 // Palette filtered by the search box; empty categories drop out.
 const categories = computed(() => {
@@ -146,6 +173,59 @@ function onExit() {
         variant="soft"
         @click="onExit"
       />
+    </div>
+
+    <!-- Floor switcher: hub + each dungeon floor, new-floor, per-floor biome. -->
+    <div class="pointer-events-auto absolute left-1/2 top-16 flex -translate-x-1/2 items-center gap-1.5 rounded-lg bg-black/45 px-2 py-1.5 backdrop-blur">
+      <button
+        v-for="f in floors"
+        :key="f.floor"
+        type="button"
+        class="relative rounded px-2 py-1 text-xs font-medium transition-colors"
+        :class="editor.currentFloor.value === f.floor ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
+        @click="editor.switchFloor(f.floor)"
+      >
+        {{ f.label }}
+        <span
+          v-if="f.dirty"
+          class="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
+          title="Unsaved"
+        />
+      </button>
+      <UButton
+        icon="i-lucide-plus"
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        title="New floor"
+        @click="addFloor"
+      />
+      <template v-if="!isHub">
+        <div class="mx-0.5 h-4 w-px bg-white/15" />
+        <select
+          class="rounded bg-black/40 px-1 py-0.5 text-[11px] text-white outline-none ring-1 ring-white/10"
+          :value="biome"
+          title="Biome"
+          @change="biome = Number(($event.target as HTMLSelectElement).value)"
+        >
+          <option
+            v-for="b in biomes"
+            :key="b.value"
+            :value="b.value"
+          >
+            {{ b.label }}
+          </option>
+        </select>
+        <UButton
+          v-if="editor.currentFloor.value === maxFloor"
+          icon="i-lucide-trash-2"
+          size="xs"
+          color="error"
+          variant="ghost"
+          title="Delete this (deepest) floor"
+          @click="removeFloor"
+        />
+      </template>
     </div>
 
     <!-- Left: prop palette. -->
