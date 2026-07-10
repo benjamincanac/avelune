@@ -7,16 +7,16 @@ const site = {
   description:
     'A multiplayer dungeon crawl on the Vercel Functions WebSocket beta. Spawn in a colosseum arena, step through the great door, and descend the hand-built dungeon — stone, sunken, verdant, magma — dodging hazards for depth on the leaderboard. Authoritative Nitro game loop, TresJS rendering, one WebSocket per runner.',
   tagline: 'Nuxt × Vercel WebSockets',
-  repo: 'https://github.com/benjamincanac/mugen',
+  repo: 'https://github.com/benjamincanac/tempest',
   deployUrl:
-    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Fmugen&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest',
+    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest',
   ogImage: '/og.png',
   twitter: '@vercel',
 }
 
 // Canonical origin. Set NUXT_PUBLIC_SITE_URL in the deploy environment; the
 // fallback is only used for local/preview builds — change it to the real domain.
-const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://mugen-tower.vercel.app').replace(/\/$/, '')
+const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://tempest-tower.vercel.app').replace(/\/$/, '')
 const canonical = `${siteUrl}/`
 const ogImage = `${siteUrl}${site.ogImage}`
 

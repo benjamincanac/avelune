@@ -11,7 +11,7 @@ description: >
 model: inherit
 ---
 
-You own Mugen's shared, deterministic world layer — the single source of truth
+You own Tempest's shared, deterministic world layer — the single source of truth
 that the authoritative server and the client's prediction/rendering both build
 from independently.
 

@@ -1,14 +1,14 @@
 ---
 name: run-mmo
 description: >
-  Build, launch, and drive Mugen — the Nuxt + three.js multiplayer tower game.
+  Build, launch, and drive Tempest — the Nuxt + three.js multiplayer tower game.
   Use to run, start, or screenshot the app, or to verify a rendering / gameplay
   change in the real running game (the hub or a dungeon floor), not just tests.
 ---
 
-# Run Mugen
+# Run Tempest
 
-Mugen is a Nuxt app (Nitro WebSocket backend) whose game view is a TresJS /
+Tempest is a Nuxt app (Nitro WebSocket backend) whose game view is a TresJS /
 three.js **WebGL canvas** — there is no server-rendered page to assert on, so you
 drive the live canvas with headless Chromium via **Playwright**. The harness is
 [`driver.mjs`](driver.mjs): it onboards a runner, enters the hub, optionally walks
@@ -60,7 +60,7 @@ It prints the HUD label + WebGL status and writes the screenshot to
 
 Verified output (floor mode):
 ```
-SCENE  {"canvas":true,"w":1280,"h":800,"gl":true,"header":"MUGEN\n1 in the tower\nFloor 1 — Stone Dungeon\n…"}
+SCENE  {"canvas":true,"w":1280,"h":800,"gl":true,"header":"TEMPEST\n1 in the tower\nFloor 1 — Stone Dungeon\n…"}
 SHOT   /tmp/mmo-floor.png
 ERRORS 2
 ```
@@ -76,14 +76,14 @@ walk onto the blue portal to climb. Useless headless — opens a real window and
 
 ## Gotchas
 - **Autodetect is nondeterministic, and entry is timing-flaky.** Several ports can
-  answer 200 with Mugen HTML at once (here `:3000` and `:3001`) and autodetect takes
+  answer 200 with Tempest HTML at once (here `:3000` and `:3001`) and autodetect takes
   the first — not necessarily your dev server. Entry itself is timing-sensitive: I
   saw one run land on a `0×0` canvas with an empty HUD (WS not yet connected) that
   then succeeded on a plain re-run. So **start your own server and pass `MMO_URL`**,
   and if the driver reports `FAILED` / `w:0`, just run it again. The post-entry
   health check turns a failed entry into a non-zero exit instead of a black shot.
 - **Onboarding is mandatory; there is no one-click Play for a fresh browser.** With
-  no `mugen_id` cookie the menu shows only "Create your runner" → a **name field**
+  no `tempest_id` cookie the menu shows only "Create your runner" → a **name field**
   → **Enter** (the Enter button stays disabled until the name is non-empty). The
   driver fills the name "Probe" automatically.
 - **Only the hub builds until you climb.** `MazeScene` builds the floor the player
@@ -131,7 +131,7 @@ walk onto the blue portal to climb. Useless headless — opens a real window and
 - **`Another Nuxt dev server is already running`** — expected when the repo already
   has a dev server up. Use `NUXT_IGNORE_LOCK=1` + an explicit `--port`, or target
   the existing one via `MMO_URL`.
-- **`No Mugen dev server found on :3000-3010`** — nothing is serving; start one as
+- **`No Tempest dev server found on :3000-3010`** — nothing is serving; start one as
   above, or set `MMO_URL`.
 - **`Cannot find module 'playwright'`** — set `MMO_PW` to your Playwright path, or
   `npm i -g playwright && npx playwright install chromium`.

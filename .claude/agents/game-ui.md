@@ -10,7 +10,7 @@ description: >
 model: inherit
 ---
 
-You own Mugen's 2D interface — everything the player reads and clicks that
+You own Tempest's 2D interface — everything the player reads and clicks that
 isn't the 3D world.
 
 ## Files you own

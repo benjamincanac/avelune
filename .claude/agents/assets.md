@@ -10,7 +10,7 @@ description: >
 model: inherit
 ---
 
-You own Mugen's asset pipeline: turning source packs into the optimized `.glb`
+You own Tempest's asset pipeline: turning source packs into the optimized `.glb`
 files the game loads, and the scripts that do it.
 
 ## Files you own

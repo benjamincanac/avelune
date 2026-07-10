@@ -10,7 +10,7 @@ description: >
 model: inherit
 ---
 
-You own Mugen's server: the authoritative tower and everything that moves
+You own Tempest's server: the authoritative tower and everything that moves
 bytes between it and clients.
 
 ## Files you own

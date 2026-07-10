@@ -11,7 +11,7 @@ description: >
 model: inherit
 ---
 
-You own Mugen's hub Oracle: the AI NPC players walk up to and chat with in the
+You own Tempest's hub Oracle: the AI NPC players walk up to and chat with in the
 hub. This is the project's AI showcase, so it should feel crafted, in-character,
 and reactive to live multiplayer state.
 
