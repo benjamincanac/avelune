@@ -100,11 +100,12 @@ if (!live) {
 }
 
 if (mode === 'floor') {
-  // Spawn faces the portal; hold forward to walk onto it → teleport to Floor 1.
-  // Keys are global keydown listeners, but click the canvas first to focus it.
+  // Spawn faces the great door across the arena; hold forward to walk to it →
+  // teleport to Floor 1. Keys are global keydown listeners, but click the canvas
+  // first to focus it. (The colosseum arena is a longer walk than the old hub.)
   await page.locator('canvas').click({ position: { x: 640, y: 400 } }).catch(() => {})
   await page.keyboard.down('KeyW')
-  await page.waitForTimeout(4500)
+  await page.waitForTimeout(8000)
   await page.keyboard.up('KeyW')
   // Poll the HUD header until it leaves "The Hub".
   for (let i = 0; i < 12; i++) {

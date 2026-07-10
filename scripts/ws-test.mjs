@@ -69,11 +69,14 @@ check('dash outruns walking', dashed > plain * 1.3, `plain=${plain.toFixed(2)} d
 const dashFlag = statesOf(b, self.id, mark).some(s => s.d === true)
 check('dash flagged in snapshots', dashFlag)
 
-// Walk into the teleport circle from wherever the dash left us.
+// Walk to the great door from wherever the dash left us. The colosseum door /
+// exit trigger sits at HUB_LAYOUT.exit = (28, 13), north across the arena from
+// the spawn at (28, 32) — a longer walk than the old village portal.
+const DOOR = { x: 28, y: 13 }
 const here = lastState()
-const heading = Math.atan2(12 - here.y, 12 - here.x)
+const heading = Math.atan2(DOOR.y - here.y, DOOR.x - here.x)
 send(a, { t: 'move', ...noMove, forward: true, a: heading })
-await sleep(Math.min(4200, (Math.hypot(12 - here.x, 12 - here.y) / 3.2) * 1000 + 900))
+await sleep(Math.min(9000, (Math.hypot(DOOR.x - here.x, DOOR.y - here.y) / 3.2) * 1000 + 900))
 send(a, { t: 'move', ...noMove, a: heading })
 await sleep(400)
 const clearMsg = b.frames.find(f => f.t === 'clear' && f.id === self.id)

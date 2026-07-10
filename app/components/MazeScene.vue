@@ -88,7 +88,7 @@ import type { StonePalette } from '~/utils/textures'
 import { makeBrickTexture, makeCobbleTexture, makeCrackTexture, makeGrassTexture } from '~/utils/textures'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
-import { buildPortal } from '~/utils/portal'
+import { buildBigDoor } from '~/utils/bigDoor'
 import type { Portal } from '~/utils/portal'
 
 /**
@@ -1221,15 +1221,14 @@ function renderComposed(pieces: HubPropPlacement[]) {
 }
 
 /**
- * A ruined stone rune-gate framing a Solo-Leveling-style energy rift: a
- * receding swirl tunnel, a hot pulsing core, a glowing rim, rune circles
- * spinning over the dais, and motes drawn up into it. Geometry + animation live
- * in the shared `buildPortal` so the main-menu hero (MenuPortal) renders the
- * exact same gate; here we just drop it at the exit tile. The ground trigger
- * just south teleports you up the tower.
+ * The great door: the monumental stone gate + banded leaves (scripts/make_door.py)
+ * set into the arena's north wall. Its front (+Z) faces the arena (+tile-y) so
+ * players approach the glowing seam and floating rune shards head-on; the ground
+ * trigger at the door teleports you down into the dungeon. Glow driven by the
+ * same `hubPortal.update(...)` render-loop hook.
  */
 function buildHubPortal(ex: number, ey: number) {
-  hubPortal = buildPortal({ light: true })
+  hubPortal = buildBigDoor()
   hubPortal.root.position.set(ex, 0, ey)
   floorGroup.add(hubPortal.root)
 }
