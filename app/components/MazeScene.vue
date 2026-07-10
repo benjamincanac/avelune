@@ -61,14 +61,18 @@ import {
   HUB_LAYOUT,
   JUMP_VELOCITY,
   PLAYER_SPEED,
-  dateSeed,
+  TOWER_SEED,
   floorSpeed,
   generateFloor,
+  isAuthoredFloor,
   isTrapActive,
   isWalkable,
   stepBody,
 } from '#shared/utils/maze'
 import {
+  CASTLE_NAMES,
+  CRYPT_NAMES,
+  DUNGEON_NAMES,
   FANTASY_NAMES,
   NATURE_NAMES,
   PROP_DECOR_NAMES,
@@ -411,7 +415,7 @@ const sunDir = new Vector3()
 const planCache = new Map<string, FloorPlan>()
 
 function getPlan(floor: number): FloorPlan {
-  const daySeed = props.game.seed.value ?? dateSeed()
+  const daySeed = props.game.seed.value ?? TOWER_SEED
   const key = `${daySeed}:${floor}`
   let plan = planCache.get(key)
   if (!plan) {
@@ -555,6 +559,10 @@ function buildFloor() {
   const textures = texturesFor(plan)
 
   const isHub = plan.floor === HUB_FLOOR
+  // Authored floors are hand-built from freely-placed wall/arch/column pieces
+  // (like the hub), so the tile-derived dressing passes don't apply — the placed
+  // pieces ARE the architecture. They still get ground/border/ceiling/traps/portal.
+  const isAuthored = isAuthoredFloor(plan.floor)
   // Ground: pack floor slabs where possible; the Magma Halls keep the
   // procedural emissive-crack floor (the slabs would hide the glow), and the
   // hub is an open meadow (no dungeon slabs).
@@ -602,18 +610,21 @@ function buildFloor() {
 
     // A ruined plank bridge over the flooded centre room, on stone pilings —
     // room centres are always open, so it never clips a wall. Deferred module,
-    // so it appears on the follow-up rebuild.
-    const cc = Math.floor(((plan.width - 1) / CELL_STRIDE) / 2)
-    const rx = cc * CELL_STRIDE + 1 + CELL_TILES / 2
-    const rz = cc * CELL_STRIDE + 1 + CELL_TILES / 2
-    const tint = MODULE_TINTS[plan.biome + 1]!
-    const bridge = instantiateModule('BridgeSection', [placementMatrix(rx, 0.22, rz, 0, 1)], tint)
-    if (bridge) floorGroup.add(bridge)
-    const pilings = instantiateModule('Column_BridgeSupport', [
-      placementMatrix(rx - 1, 0, rz, 0, 0.5),
-      placementMatrix(rx + 1, 0, rz, 0, 0.5),
-    ], tint)
-    if (pilings) floorGroup.add(pilings)
+    // so it appears on the follow-up rebuild. Procedural-only: authored floors
+    // place their own bridges via the editor.
+    if (!isAuthored) {
+      const cc = Math.floor(((plan.width - 1) / CELL_STRIDE) / 2)
+      const rx = cc * CELL_STRIDE + 1 + CELL_TILES / 2
+      const rz = cc * CELL_STRIDE + 1 + CELL_TILES / 2
+      const tint = MODULE_TINTS[plan.biome + 1]!
+      const bridge = instantiateModule('BridgeSection', [placementMatrix(rx, 0.22, rz, 0, 1)], tint)
+      if (bridge) floorGroup.add(bridge)
+      const pilings = instantiateModule('Column_BridgeSupport', [
+        placementMatrix(rx - 1, 0, rz, 0, 0.5),
+        placementMatrix(rx + 1, 0, rz, 0, 0.5),
+      ], tint)
+      if (pilings) floorGroup.add(pilings)
+    }
   }
 
   // Walls: a stone core of instanced blocks, dressed on every corridor-facing
@@ -716,13 +727,22 @@ function buildFloor() {
   startRing.position.set(plan.start.x, 0.02, plan.start.y)
   floorGroup.add(startRing)
 
-  placeModularWalls(plan)
-  placeTorches(plan)
-  placeProps(plan)
-  placeArchitecture(plan)
-  scatterInterior(plan)
-  placeChandeliers(plan)
+  if (isAuthored) {
+    // The editor-placed pieces are the whole interior — no tile-derived dressing.
+    renderPlanProps(plan)
+  }
+  else {
+    placeModularWalls(plan)
+    placeTorches(plan)
+    placeProps(plan)
+    placeArchitecture(plan)
+    scatterInterior(plan)
+    placeChandeliers(plan)
+  }
   tagShadows(floorGroup)
+  // Re-sync the editor's selectable clones after a rebuild (templates may have
+  // just finished loading), same as the hub path.
+  editorCtl?.rebuild()
 }
 
 /**
@@ -1105,9 +1125,6 @@ function faceOut(ox: number, oz: number): number {
  */
 function buildVillageHub(plan: FloorPlan) {
   const { tower } = HUB_LAYOUT
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
 
   // --- Procedural base (never editable): cobbled roads, the tower shaft, the
   // portal. Everything else (tower cap, houses, market, gate, statues) is kit
@@ -1141,20 +1158,30 @@ function buildVillageHub(plan: FloorPlan) {
 
   // --- Solid clutter, hand props, and baked structure from the shared plan,
   // rendered exactly where the server simulates their footprints.
+  renderPlanProps(plan)
+
+  // --- Cosmetic greenery (walk-through).
+  scatterHub(plan)
+}
+
+/**
+ * Render a plan's props as instanced batches per kind, exactly where the server
+ * simulates their footprints. In editor mode, hand-placed props (incl. baked
+ * structure and authored-floor pieces) are skipped so the editor controller can
+ * clone them as individually selectable objects instead of drawing them twice.
+ */
+function renderPlanProps(plan: FloorPlan) {
   const solids = new Map<string, Matrix4[]>()
   for (const p of plan.props) {
-    // In editor mode the hand-placed props (incl. baked structure) are rendered
-    // as individually selectable clones by the editor controller — skip them here
-    // so they aren't drawn twice (and can't be picked through the instanced batch).
     if (props.editor && p.hand) continue
     const arr = solids.get(p.kind) ?? []
     arr.push(propMatrix(p))
     solids.set(p.kind, arr)
   }
-  for (const [kind, mats] of solids) add(instantiateModule(kind, mats, '#ffffff'))
-
-  // --- Cosmetic greenery (walk-through).
-  scatterHub(plan)
+  for (const [kind, mats] of solids) {
+    const g = instantiateModule(kind, mats, '#ffffff')
+    if (g) floorGroup.add(g)
+  }
 }
 
 /** Instance matrix for a prop, honoring elevation (`z`) and per-axis scale (`s3`). */
@@ -1705,6 +1732,9 @@ Promise.all([
   return Promise.all([
     loadTemplates('props', PROP_DECOR_NAMES),
     loadTemplates('fantasy', FANTASY_NAMES),
+    loadTemplates('dungeon', DUNGEON_NAMES),
+    loadTemplates('castle', CASTLE_NAMES),
+    loadTemplates('crypt', CRYPT_NAMES),
   ])
 }).then(() => buildFloor())
 

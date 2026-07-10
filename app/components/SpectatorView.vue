@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { FloorPlan } from '#shared/utils/maze'
-import { BIOMES, HUB_FLOOR, biomeIndex, dateSeed, generateFloor } from '#shared/utils/maze'
+import { BIOMES, HUB_FLOOR, TOWER_SEED, biomeIndex, generateFloor, occupancyGrid } from '#shared/utils/maze'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
 
 /**
  * The tower map: a live spectator view of every active floor.
  *
- * Because floors are generated deterministically from (day seed, floor),
+ * Because floors are loaded deterministically from bundled authored data,
  * the client can draw a map of any floor without asking the server —
  * the only live data are the player markers already streaming in.
  */
@@ -56,15 +56,21 @@ const floors = computed<FloorEntry[]>(() => {
 })
 
 const planCache = new Map<string, FloorPlan>()
+/** Display wall grid (tiles + rasterized solid props), cached per floor. */
+const occCache = new Map<string, Uint8Array>()
 function getPlan(floor: number): FloorPlan {
-  const seed = props.game.seed.value ?? dateSeed()
+  const seed = props.game.seed.value ?? TOWER_SEED
   const key = `${seed}:${floor}`
   let plan = planCache.get(key)
   if (!plan) {
     plan = generateFloor(floor, seed)
     planCache.set(key, plan)
+    occCache.set(key, occupancyGrid(plan))
   }
   return plan
+}
+function getOcc(floor: number): Uint8Array {
+  return occCache.get(`${props.game.seed.value ?? TOWER_SEED}:${floor}`) ?? getPlan(floor).tiles
 }
 
 /**
@@ -75,6 +81,7 @@ function getPlan(floor: number): FloorPlan {
 function drawFloor(canvas: HTMLCanvasElement | null, entry: FloorEntry) {
   if (!canvas) return
   const plan = getPlan(entry.floor)
+  const occ = getOcc(entry.floor)
   canvas.width = plan.width * SCALE
   canvas.height = plan.height * SCALE
   const ctx = canvas.getContext('2d')!
@@ -87,7 +94,7 @@ function drawFloor(canvas: HTMLCanvasElement | null, entry: FloorEntry) {
   for (let y = 0; y < plan.height; y++) {
     for (let x = 0; x < plan.width; x++) {
       if (!isExplored(x, y)) continue
-      ctx.fillStyle = plan.tiles[y * plan.width + x] === 1 ? '#3a4457' : '#171d29'
+      ctx.fillStyle = occ[y * plan.width + x] === 1 ? '#3a4457' : '#171d29'
       ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE)
     }
   }
@@ -134,7 +141,7 @@ function canvasRef(entry: FloorEntry) {
           Tower Map
         </h2>
         <p class="text-sm text-muted">
-          Every floor, every runner, live. Deepest today: floor {{ deepest }}.
+          Every floor, every runner, live. Deepest: floor {{ deepest }}.
         </p>
       </div>
       <UButton

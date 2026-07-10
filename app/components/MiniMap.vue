@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FloorPlan } from '#shared/utils/maze'
-import { BIOMES, HUB_FLOOR, biomeIndex, dateSeed, generateFloor } from '#shared/utils/maze'
+import { BIOMES, HUB_FLOOR, TOWER_SEED, biomeIndex, generateFloor, occupancyGrid } from '#shared/utils/maze'
 import type { UseGame } from '~/composables/useGame'
 
 /**
@@ -17,13 +17,16 @@ const RANGE = 11
 const canvas = useTemplateRef('canvas')
 
 const planCache = new Map<string, FloorPlan>()
+/** Display wall grid (tiles + rasterized solid props), cached per floor. */
+const occCache = new Map<string, Uint8Array>()
 function getPlan(floor: number): FloorPlan {
-  const seed = props.game.seed.value ?? dateSeed()
+  const seed = props.game.seed.value ?? TOWER_SEED
   const key = `${seed}:${floor}`
   let plan = planCache.get(key)
   if (!plan) {
     plan = generateFloor(floor, seed)
     planCache.set(key, plan)
+    occCache.set(key, occupancyGrid(plan))
   }
   return plan
 }
@@ -42,6 +45,7 @@ function draw() {
   const scale = SIZE / (RANGE * 2)
   const floor = self.floor
   const plan = getPlan(floor)
+  const occ = occCache.get(`${props.game.seed.value ?? TOWER_SEED}:${floor}`) ?? plan.tiles
   const explored = props.game.exploredFor(floor)
 
   ctx.clearRect(0, 0, SIZE, SIZE)
@@ -65,7 +69,7 @@ function draw() {
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {
       if (explored && !explored[ty * plan.width + tx]) continue
-      const wall = plan.tiles[ty * plan.width + tx] === 1
+      const wall = occ[ty * plan.width + tx] === 1
       ctx.fillStyle = wall ? '#4a5468' : '#232c3d'
       const { x, y } = toScreen(tx, ty)
       ctx.fillRect(x, y, scale + 0.5, scale + 0.5)

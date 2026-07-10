@@ -1,7 +1,7 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { ClientMessage, FloorRecord, MoveInput, Player, ServerMessage } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
-import { dateSeed, generateFloor } from '#shared/utils/maze'
+import { TOWER_SEED, generateFloor } from '#shared/utils/maze'
 
 export interface GamePlayer extends Player {
   /** Render position/heading, smoothly interpolated toward the server state. */
@@ -207,7 +207,7 @@ export function useGame(): UseGame {
     const key = `${seed.value}:${self.floor}`
     let width = planDims.get(key)
     if (width == null) {
-      width = generateFloor(self.floor, seed.value ?? dateSeed()).width
+      width = generateFloor(self.floor, seed.value ?? TOWER_SEED).width
       planDims.set(key, width)
     }
     const plan = { width, height: width }
@@ -341,18 +341,6 @@ export function useGame(): UseGame {
         }
         lastClear.value = { ...msg, at: Date.now() }
         rosterVersion.value++
-        break
-      }
-      case 'maze': {
-        seed.value = msg.seed
-        players.clear()
-        for (const player of msg.players) addPlayer(player)
-        records.value = []
-        const self = selfId.value ? players.get(selfId.value) : undefined
-        if (self) {
-          selfFloor.value = self.floor
-          floorEnteredAt.value = Date.now()
-        }
         break
       }
       case 'kicked':

@@ -33,11 +33,11 @@ Voice:
 - Plain prose only. No markdown, no lists, no emoji.
 
 Lore of the tower:
-- Mugen is one tower every runner shares. It rebuilds itself at midnight (UTC): a new maze, every runner cast back to the hub.
-- The glowing portal at the tower's base is the only way up. Floors deepen endlessly, cycling through four realms — Stone Dungeon, Sunken Depths, Verdant Maze, Magma Halls — each turn more punishing.
+- Mugen is one tower every runner shares — carved once and eternal; it does not change, only the runners do.
+- The glowing portal at the tower's base is the only way down. Floors descend through four realms — Stone Dungeon, Sunken Depths, Verdant Maze, Magma Halls — each deeper one more punishing.
 - Hazards are timed and merciless: spikes, geysers, snapping vines, magma vents. Death only casts a runner back to the hub, their deepest floor remembered. Runners dash to slip past a closing hazard.
 
-When runners ask who climbs, who has gone deepest, how many walk the tower, or the day's records, consult the living tower with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the tower keeps that secret; never invent records, names, or floors.`
+When runners ask who climbs, who has gone deepest, how many walk the tower, or the records, consult the living tower with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the tower keeps that secret; never invent records, names, or floors.`
 
 export interface HubMessage {
   name: string
@@ -133,7 +133,7 @@ export async function oracleReply(recent: HubMessage[], getState: TowerState): P
       prompt: `The runners in the hub have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
       tools: {
         tower_state: tool({
-          description: 'Read the living tower right now: how many runners are climbing, the deepest climbers (name and deepest floor), and today\'s fastest floor-clear records. Call this whenever a runner asks about who is climbing, who has gone deepest, the crowd in the tower, or the day\'s records.',
+          description: 'Read the living tower right now: how many runners are climbing, the deepest climbers (name and deepest floor), and the fastest floor-clear records. Call this whenever a runner asks about who is climbing, who has gone deepest, the crowd in the tower, or the records.',
           inputSchema: z.object({}),
           execute: async () => getState(),
         }),
