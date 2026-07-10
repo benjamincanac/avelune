@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The MUGEN wordmark with the live "N in the tower" line and its status dot —
+ * The TEMPEST wordmark with the live "N in the tower" line and its status dot —
  * shared by the main menu (atmospheric, over the portal) and the in-game HUD
  * (inside a card). This is purely presentational: the caller supplies the count
  * and the dot colour (connection status in-game, population liveness on the
@@ -23,12 +23,12 @@ withDefaults(defineProps<{
   <div class="flex items-center gap-2.5">
     <img
       src="/logo.svg"
-      alt="Mugen"
+      alt="Tempest"
       class="rounded-md"
       :class="size"
     >
     <div class="flex flex-col leading-tight">
-      <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">MUGEN</span>
+      <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">TEMPEST</span>
       <span
         v-if="count !== null"
         class="flex items-center gap-1 text-[11px] text-muted"

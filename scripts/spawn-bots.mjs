@@ -1,4 +1,4 @@
-// Spawn wandering bot players against a running Mugen server (local or prod).
+// Spawn wandering bot players against a running Tempest server (local or prod).
 //
 // Each bot mints a signed identity cookie via `POST /api/auth` (the same path
 // the onboarding flow uses), then opens an authenticated WebSocket to

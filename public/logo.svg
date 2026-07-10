@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- Mugen: the gate. A gothic archway around the portal into the tower. -->
+  <!-- Tempest: the great door. A stone archway around the glowing dungeon gate. -->
   <defs>
     <linearGradient id="portal" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7dffc8"/>
-      <stop offset="45%" stop-color="#00dc82"/>
-      <stop offset="100%" stop-color="#046d44"/>
+      <stop offset="0%" stop-color="#CCE9F6"/>
+      <stop offset="45%" stop-color="#93B9E8"/>
+      <stop offset="100%" stop-color="#2A4B6C"/>
     </linearGradient>
     <radialGradient id="halo" cx="50%" cy="42%" r="60%">
-      <stop offset="0%" stop-color="#00dc82" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#00dc82" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#93B9E8" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#93B9E8" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
@@ -18,7 +18,7 @@
   <!-- Portal halo spilling out of the gate. -->
   <ellipse cx="128" cy="140" rx="92" ry="98" fill="url(#halo)"/>
 
-  <!-- Stone frame: pointed gothic arch on a plinth. -->
+  <!-- Stone frame: pointed arch on a plinth. -->
   <path d="M 76 198 V 144 Q 76 92 128 58 Q 180 92 180 144 V 198 Z" fill="#e8ecf3"/>
   <rect x="62" y="198" width="132" height="16" rx="5" fill="#e8ecf3"/>
   <rect x="52" y="214" width="152" height="12" rx="5" fill="#c3cad6"/>
@@ -29,11 +29,13 @@
     <path d="M 82 112 H 100 M 156 112 H 174"/>
   </g>
 
-  <!-- The portal. -->
+  <!-- The dungeon gate. -->
   <path d="M 96 198 V 148 Q 96 110 128 86 Q 160 110 160 148 V 198 Z" fill="url(#portal)"/>
+  <!-- The glowing seam down the middle (the door ajar). -->
+  <rect x="125" y="92" width="6" height="106" rx="3" fill="#F7FCFC" opacity="0.85"/>
 
   <!-- A runner's spark, about to step through. -->
-  <circle cx="128" cy="166" r="9" fill="#eafff4"/>
-  <circle cx="128" cy="166" r="15" fill="none" stroke="#eafff4" stroke-width="3" opacity="0.45"/>
+  <circle cx="128" cy="170" r="8" fill="#F7FCFC"/>
+  <circle cx="128" cy="170" r="14" fill="none" stroke="#F7FCFC" stroke-width="3" opacity="0.45"/>
   </g>
 </svg>

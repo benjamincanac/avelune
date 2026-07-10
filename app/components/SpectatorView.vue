@@ -2,6 +2,7 @@
 import type { FloorPlan } from '#shared/utils/maze'
 import { BIOMES, HUB_FLOOR, TOWER_SEED, biomeIndex, generateFloor, occupancyGrid } from '#shared/utils/maze'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
+import { PALETTE } from '~/utils/palette'
 
 /**
  * The tower map: a live spectator view of every active floor.
@@ -108,7 +109,7 @@ function drawFloor(canvas: HTMLCanvasElement | null, entry: FloorEntry) {
   }
 
   if (isExplored(plan.exit.x, plan.exit.y)) {
-    ctx.fillStyle = entry.floor === HUB_FLOOR ? '#8b7bff' : '#00dc82'
+    ctx.fillStyle = entry.floor === HUB_FLOOR ? '#8b7bff' : PALETTE.slime
     ctx.beginPath()
     ctx.arc(plan.exit.x * SCALE, plan.exit.y * SCALE, SCALE * 1.4, 0, Math.PI * 2)
     ctx.fill()

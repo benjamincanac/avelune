@@ -89,10 +89,11 @@ import { makeBrickTexture, makeCobbleTexture, makeCrackTexture, makeGrassTexture
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
 import { buildBigDoor } from '~/utils/bigDoor'
+import { PALETTE } from '~/utils/palette'
 import type { Portal } from '~/utils/portal'
 
 /**
- * Mugen's 3D world, built imperatively with three.js inside the Tres context.
+ * Tempest's 3D world, built imperatively with three.js inside the Tres context.
  *
  * Tres provides the renderer, scene, camera, and render loop. Each floor's
  * walls go into a single InstancedMesh with procedural stone textures; the
@@ -709,7 +710,7 @@ function buildFloor() {
   // Exit portal: torus + beacon you can spot over the walls.
   const ring = new Mesh(
     new TorusGeometry(0.6, 0.06, 12, 48),
-    new MeshBasicMaterial({ color: '#00dc82' }),
+    new MeshBasicMaterial({ color: PALETTE.slime }),
   )
   ring.position.y = 1
   exitPortal.add(ring)
@@ -717,7 +718,7 @@ function buildFloor() {
   const beacon = new Mesh(
     new CylinderGeometry(0.1, 0.1, 18, 8, 1, true),
     new MeshBasicMaterial({
-      color: '#00dc82',
+      color: PALETTE.slime,
       transparent: true,
       opacity: 0.12,
       blending: AdditiveBlending,
@@ -728,13 +729,13 @@ function buildFloor() {
   beacon.position.y = 9
   exitPortal.add(beacon)
 
-  const glow = new PointLight('#00dc82', 6, 9)
+  const glow = new PointLight(PALETTE.slime, 6, 9)
   glow.position.y = 1
   exitPortal.add(glow)
 
   const pad = new Mesh(
     new RingGeometry(0.45, 0.7, 32),
-    new MeshBasicMaterial({ color: '#00dc82', transparent: true, opacity: 0.5, side: DoubleSide }),
+    new MeshBasicMaterial({ color: PALETTE.slime, transparent: true, opacity: 0.5, side: DoubleSide }),
   )
   pad.rotation.x = -Math.PI / 2
   pad.position.y = 0.03

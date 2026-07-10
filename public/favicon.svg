@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- Mugen favicon: the gate, simplified for tiny sizes. -->
+  <!-- Tempest favicon: the great door, simplified for tiny sizes. -->
   <defs>
     <linearGradient id="portal" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7dffc8"/>
-      <stop offset="50%" stop-color="#00dc82"/>
-      <stop offset="100%" stop-color="#058a55"/>
+      <stop offset="0%" stop-color="#CCE9F6"/>
+      <stop offset="50%" stop-color="#93B9E8"/>
+      <stop offset="100%" stop-color="#3A71A4"/>
     </linearGradient>
   </defs>
   <rect width="256" height="256" rx="56" fill="#0b0e15"/>
@@ -12,5 +12,6 @@
     <path d="M 72 202 V 142 Q 72 88 128 52 Q 184 88 184 142 V 202 Z" fill="#e8ecf3"/>
     <rect x="56" y="202" width="144" height="18" rx="6" fill="#c3cad6"/>
     <path d="M 96 202 V 148 Q 96 108 128 82 Q 160 108 160 148 V 202 Z" fill="url(#portal)"/>
+    <rect x="125" y="86" width="6" height="116" rx="3" fill="#F7FCFC" opacity="0.85"/>
   </g>
 </svg>

@@ -22,7 +22,7 @@ import floorsSeed from '#shared/data/floors.json'
  * the hub structure layer from its procedural composition via `seedStructure`,
  * so it's immediately editable and the first save IS the bake.
  */
-export const EDITOR_REENTER_KEY = 'mugen:editor-reenter'
+export const EDITOR_REENTER_KEY = 'tempest:editor-reenter'
 
 export type EditorLayer = 'props' | 'structure'
 export interface EditorPlacement extends HubPropPlacement {

@@ -14,6 +14,8 @@ import type { Player } from '#shared/types/game'
  * (HttpOnly) and can't forge a different id/name without the server secret.
  */
 
+// Kept as `mugen_id` through the Tempest rename on purpose: the signed cookie IS
+// each player's identity, so renaming it would log every existing runner out.
 export const COOKIE_NAME = 'mugen_id'
 
 export type Identity = Pick<Player, 'id' | 'name' | 'color' | 'character' | 'outfitColor'>

@@ -1,4 +1,4 @@
-// Two-client protocol test against the Mugen server (v3: z, jump, dash).
+// Two-client protocol test against the Tempest server (v3: z, jump, dash).
 const URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
 
 function connect(label) {

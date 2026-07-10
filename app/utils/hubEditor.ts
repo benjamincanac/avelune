@@ -18,6 +18,7 @@ import { watch } from 'vue'
 import type { Ref, WatchStopHandle } from 'vue'
 import type { Trap } from '#shared/utils/maze'
 import type { EditorPlacement, EditorSelection, EditorTool } from '~/composables/useEditor'
+import { PALETTE_HEX } from '~/utils/palette'
 
 /**
  * The slice of `useEditor()` the controller reads/writes. Kept structural so
@@ -100,7 +101,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   editorGroup.name = 'hubEditor'
   scene.add(editorGroup)
 
-  const box = new BoxHelper(editorGroup, 0x00DC82)
+  const box = new BoxHelper(editorGroup, PALETTE_HEX.slime)
   box.visible = false
   scene.add(box)
 

@@ -2,6 +2,7 @@
 import type { FloorPlan } from '#shared/utils/maze'
 import { BIOMES, HUB_FLOOR, TOWER_SEED, biomeIndex, generateFloor, occupancyGrid } from '#shared/utils/maze'
 import type { UseGame } from '~/composables/useGame'
+import { PALETTE } from '~/utils/palette'
 
 /**
  * WoW-style round minimap: north-up, centered on you, and fogged — only
@@ -82,7 +83,7 @@ function draw() {
   // The exit, only once discovered. Traps stay hidden.
   if (isExplored(plan.exit.x, plan.exit.y)) {
     const { x, y } = toScreen(plan.exit.x, plan.exit.y)
-    ctx.fillStyle = floor === HUB_FLOOR ? '#8b7bff' : '#00dc82'
+    ctx.fillStyle = floor === HUB_FLOOR ? '#8b7bff' : PALETTE.slime
     ctx.beginPath()
     ctx.arc(x, y, 4, 0, Math.PI * 2)
     ctx.fill()
