@@ -110,6 +110,12 @@ const height = computed({
   },
 })
 
+// Palette thumbnails live at /thumbnails/<kind>.png (rendered by
+// scripts/make_thumbnails). Hide the icon gracefully if one is missing.
+function onThumbError(e: Event) {
+  (e.target as HTMLImageElement).style.visibility = 'hidden'
+}
+
 function arm(kind: string) {
   editor.paletteKind.value = editor.paletteKind.value === kind ? null : kind
   editor.selected.value = null
@@ -295,11 +301,18 @@ function onExit() {
               v-for="kind in cat.names"
               :key="kind"
               type="button"
-              class="flex items-center justify-between gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors"
+              class="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] transition-colors"
               :class="editor.paletteKind.value === kind ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
               @click="arm(kind)"
             >
-              <span class="truncate">{{ kind }}</span>
+              <img
+                :src="`/thumbnails/${kind}.png`"
+                alt=""
+                loading="lazy"
+                class="size-8 shrink-0 rounded bg-black/20 object-contain"
+                @error="onThumbError"
+              >
+              <span class="flex-1 truncate">{{ kind }}</span>
               <UIcon
                 v-if="isSolidProp(kind)"
                 name="i-lucide-shield"
