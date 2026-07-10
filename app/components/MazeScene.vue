@@ -85,7 +85,7 @@ import { composeColosseum } from '~/utils/composeColosseum'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import type { StonePalette } from '~/utils/textures'
-import { makeBrickTexture, makeCobbleTexture, makeCrackTexture, makeGrassTexture } from '~/utils/textures'
+import { makeBrickTexture, makeCobbleTexture, makeCrackTexture, makeGrassTexture, makeRuneCircleTexture } from '~/utils/textures'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
 import { buildBigDoor } from '~/utils/bigDoor'
@@ -1156,6 +1156,15 @@ function buildColosseumHub(plan: FloorPlan) {
   sand.rotation.x = -Math.PI / 2
   sand.position.set(center.x, 0.02, center.y)
   floorGroup.add(sand)
+
+  // A glowing slime-blue rune circle inlaid in the sand, before the great door.
+  const runes = new Mesh(
+    new CircleGeometry(arenaRadius * 0.7, 64),
+    new MeshBasicMaterial({ map: makeRuneCircleTexture(4242), color: new Color(PALETTE.slime), transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false }),
+  )
+  runes.rotation.x = -Math.PI / 2
+  runes.position.set(center.x, 0.05, center.y)
+  floorGroup.add(runes)
 
   const backdrop = new Mesh(
     new CylinderGeometry(30, 30, 26, 48, 1, true),
