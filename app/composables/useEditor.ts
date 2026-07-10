@@ -93,6 +93,9 @@ function seedDocs(): EditorFloorDoc[] {
 interface FloorHistory {
   stack: EditorFloorDoc[]
   index: number
+  /** The stack index that matches the last save — the floor is dirty (unsaved)
+   *  exactly when `index !== savedIndex`, so undoing back to it clears dirty. */
+  savedIndex: number
 }
 
 export function useEditor() {
@@ -117,33 +120,47 @@ export function useEditor() {
   const tool = useState<EditorTool>('editor:tool', () => 'select')
   const paletteKind = useState<string | null>('editor:paletteKind', () => null)
   const saving = useState('editor:saving', () => false)
-  /** Floors with unsaved edits (a save writes every floor, clears the set). */
+  /** Floors with unsaved edits (index ≠ their saved snapshot) — drives the chip
+   *  dots. A save clears them all. Recomputed on every commit/undo/redo, so
+   *  undoing back to the saved state removes the floor from the set. */
   const dirtyFloors = useState<Set<number>>('editor:dirtyFloors', () => new Set())
-  const dirty = computed(() => dirtyFloors.value.size > 0)
+  /** A floor was added or removed since the last save (the floor set itself is
+   *  unsaved, independent of any one floor's edit history). */
+  const structuralDirty = useState('editor:structuralDirty', () => false)
+  const dirty = computed(() => dirtyFloors.value.size > 0 || structuralDirty.value)
   /** True once the hub structure layer exists (loaded from file, or seeded). */
   const structureReady = useState('editor:structureReady', () => (structureSeed as unknown[]).length > 0)
-  /** Bumped on any structural (add/remove/floor-switch) change so the scene rebuilds. */
+  /** Bumped on structural changes (floor switch, undo/redo, create/delete) so the
+   *  scene rebuilds. NOT used for the camera — that only re-seats on a switch. */
   const structureVersion = useState('editor:structureVersion', () => 0)
 
   // Undo/redo: an independent snapshot stack per floor (whole-doc clones).
   const MAX_HISTORY = 60
   const histories = useState<Record<number, FloorHistory>>('editor:histories', () => ({}))
   function history(): FloorHistory {
-    return (histories.value[currentFloor.value] ??= { stack: [cloneDoc(current.value)], index: 0 })
+    return (histories.value[currentFloor.value] ??= { stack: [cloneDoc(current.value)], index: 0, savedIndex: 0 })
   }
 
-  function markDirty() {
-    dirtyFloors.value = new Set(dirtyFloors.value).add(currentFloor.value)
+  /** Sync the current floor's dirty flag to whether it differs from its save. */
+  function refreshDirty() {
+    const h = history()
+    const next = new Set(dirtyFloors.value)
+    if (h.index === h.savedIndex) next.delete(currentFloor.value)
+    else next.add(currentFloor.value)
+    dirtyFloors.value = next
   }
 
   /** Snapshot the active floor as a new undo step (and mark it dirty). */
   function commit() {
-    markDirty()
     const h = history()
     h.stack = h.stack.slice(0, h.index + 1)
     h.stack.push(cloneDoc(current.value))
-    if (h.stack.length > MAX_HISTORY) h.stack.shift()
+    if (h.stack.length > MAX_HISTORY) {
+      h.stack.shift()
+      h.savedIndex -= 1 // the baseline shifted down with the dropped entry
+    }
     h.index = h.stack.length - 1
+    refreshDirty()
   }
 
   /** Replace the active doc with an undo/redo snapshot. */
@@ -155,7 +172,7 @@ export function useEditor() {
     docs.value.splice(i, 1, snap)
     if (selection.value?.type === 'placement' && selection.value.index >= snap.placements.length) selection.value = null
     if (selection.value?.type === 'trap' && selection.value.index >= snap.traps.length) selection.value = null
-    markDirty()
+    refreshDirty()
     structureVersion.value++
   }
   function undo() {
@@ -174,7 +191,7 @@ export function useEditor() {
 
   /** Reset the active floor's undo baseline (after seeding/loading). */
   function resetHistory() {
-    histories.value[currentFloor.value] = { stack: [cloneDoc(current.value)], index: 0 }
+    histories.value[currentFloor.value] = { stack: [cloneDoc(current.value)], index: 0, savedIndex: 0 }
   }
 
   /** Switch the active floor; the scene + controller rebuild off `structureVersion`. */
@@ -201,7 +218,9 @@ export function useEditor() {
     })
     docs.value.sort((a, b) => a.floor - b.floor)
     switchFloor(floor)
-    markDirty()
+    // A brand-new floor is unsaved until written (the floor set changed).
+    structuralDirty.value = true
+    dirtyFloors.value = new Set(dirtyFloors.value).add(floor)
     return floor
   }
 
@@ -212,11 +231,11 @@ export function useEditor() {
     docs.value = docs.value.filter(d => d.floor !== max)
     const { [max]: _dropped, ...rest } = histories.value
     histories.value = rest
-    // Force a save (the file must be rewritten without the removed floor).
     const next = new Set(dirtyFloors.value)
-    next.add(HUB_FLOOR)
     next.delete(max)
     dirtyFloors.value = next
+    // The floor set changed — a save must rewrite floors.json without it.
+    structuralDirty.value = true
     switchFloor(Math.max(HUB_FLOOR, max - 1))
   }
 
@@ -227,7 +246,8 @@ export function useEditor() {
     structureReady.value = true
     current.value.placements.push(...pieces.map(p => ({ ...clonePlacement(p), layer: 'structure' as const })))
     resetHistory()
-    markDirty()
+    // The seeded composition is the pre-bake state — unsaved until the first save.
+    structuralDirty.value = true
     structureVersion.value++
   }
 
@@ -252,7 +272,11 @@ export function useEditor() {
           placements: d.placements.map(strip),
         }))
       await $fetch('/api/editor/save', { method: 'POST', body: { hubProps, hubStructure, floors } })
+      // Everything on disk now matches the working copy: each floor's current
+      // index becomes its saved baseline, and nothing is dirty.
+      for (const h of Object.values(histories.value)) h.savedIndex = h.index
       dirtyFloors.value = new Set()
+      structuralDirty.value = false
       // All three files are in the module graph; the write reloads the dev
       // server — drop straight back into the editor on the same floor.
       sessionStorage.setItem(EDITOR_REENTER_KEY, String(currentFloor.value))

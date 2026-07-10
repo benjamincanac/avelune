@@ -2337,13 +2337,15 @@ if (import.meta.dev) {
       getSize: () => ed!.current.value.size,
     })
     editorCtl.rebuild()
-    // Rebuild the scene when the active floor changes (switch / create / undo of
-    // a structural edit). The controller re-clones off its own deep watch.
+    // Rebuild the scene on any structural change (switch / create / undo). The
+    // controller re-clones its placements off its own deep watch.
     watch(() => ed!.structureVersion.value, () => {
       currentPlan = editorPlan()
       buildFloor()
-      editorCtl?.focus()
     })
+    // Re-seat the fly camera ONLY on an actual floor switch — never on undo/redo,
+    // which would yank the camera away from where you're working.
+    watch(() => ed!.currentFloor.value, () => editorCtl?.focus())
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).__editor = ed
   })
