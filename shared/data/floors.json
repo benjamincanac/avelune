@@ -4,32 +4,164 @@
     "floor": 1,
     "size": 31,
     "biome": 0,
-    "start": { "x": 6, "y": 6 },
-    "exit": { "x": 25, "y": 25 },
+    "start": {
+      "x": 6,
+      "y": 6
+    },
+    "exit": {
+      "x": 25,
+      "y": 25
+    },
     "traps": [
-      { "x": 15, "y": 11, "period": 3, "duration": 1, "phase": 0 },
-      { "x": 15, "y": 19, "period": 3, "duration": 1, "phase": 1.5 }
+      {
+        "x": 15,
+        "y": 11,
+        "period": 3,
+        "duration": 1,
+        "phase": 0
+      },
+      {
+        "x": 15,
+        "y": 19,
+        "period": 3,
+        "duration": 1,
+        "phase": 1.5
+      }
     ],
     "placements": [
-      { "kind": "Dungeon_Wall_Modular", "x": 2, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 4, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 6, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 8, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 10, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 12, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 18, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 20, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 22, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 24, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 26, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Wall_Modular", "x": 28, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Arch", "x": 15, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Column", "x": 5, "y": 5, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Column", "x": 26, "y": 5, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Column", "x": 5, "y": 26, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Torch", "x": 13.2, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Torch", "x": 16.8, "y": 15, "rot": 0, "scale": 1 },
-      { "kind": "Dungeon_Chest", "x": 25, "y": 6, "rot": 3.14159, "scale": 1 }
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 2,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 4,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 6,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 8,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 10,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 12,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 18,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 20,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 22,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 24,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 26,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Wall_Modular",
+        "x": 28,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Arch",
+        "x": 15,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Column",
+        "x": 5,
+        "y": 5,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Column",
+        "x": 26,
+        "y": 5,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Column",
+        "x": 5,
+        "y": 26,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Torch",
+        "x": 13.2,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Torch",
+        "x": 16.8,
+        "y": 15,
+        "rot": 0,
+        "scale": 1
+      },
+      {
+        "kind": "Dungeon_Chest",
+        "x": 25,
+        "y": 6,
+        "rot": 3.142,
+        "scale": 1
+      }
     ]
   }
 ]

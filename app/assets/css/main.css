@@ -5,20 +5,17 @@
   --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, monospace;
 
-  /* The brand ramp — Nuxt UI's `primary` is `green`, so we override that token.
-   * The values are now the Tempest slime blues (see app/utils/palette.ts), not
-   * green: 400 is the slime `#93B9E8`, deepening to `#3A71A4` and beyond. */
-  --color-green-50: #F5F9FD;
-  --color-green-100: #E7F1FA;
-  --color-green-200: #CCE9F6;
-  --color-green-300: #B0D3EF;
-  --color-green-400: #93B9E8;
-  --color-green-500: #6E99D4;
-  --color-green-600: #4E7EBE;
-  --color-green-700: #3A71A4;
-  --color-green-800: #305C86;
-  --color-green-900: #2A4B6C;
-  --color-green-950: #1B2F45;
+  --color-blue-50: #F5F9FD;
+  --color-blue-100: #E7F1FA;
+  --color-blue-200: #CCE9F6;
+  --color-blue-300: #B0D3EF;
+  --color-blue-400: #93B9E8;
+  --color-blue-500: #6E99D4;
+  --color-blue-600: #4E7EBE;
+  --color-blue-700: #3A71A4;
+  --color-blue-800: #305C86;
+  --color-blue-900: #2A4B6C;
+  --color-blue-950: #1B2F45;
 }
 
 .dark {

@@ -7,10 +7,10 @@ import { HUB_LAYOUT } from '#shared/utils/maze'
  * pre-bake visual fallback and the seed the dev editor bakes into
  * `hub-structure.json`; after baking, pieces flow through `plan.props` instead.
  *
- * A gigantic ring colosseum centred on the arena: a low parapet around the sand,
- * a ground-level arcade of arches + columns, three raised seating tiers, an
- * arched upper wall crowned with flags and corner towers, and guardian statues
- * flanking the north door. All from the Ruins + Castle kits.
+ * A gigantic ring colosseum centred on the arena: a ground-level arcade of
+ * arches + columns around the sand, a continuous rake of stepped seating rising
+ * behind (and clear of) the arcade, an arched upper wall crowned with flags, and
+ * guardian statues flanking the north door. All from the Ruins + Castle kits.
  */
 
 const TAU = Math.PI * 2
@@ -37,39 +37,47 @@ export function composeColosseum(): HubPropPlacement[] {
     }
   }
 
-  // Parapet wall around the arena sand.
-  ring('Wall_Half', 12.8, 44, 0, 1)
-
-  // Ground arcade: arches, columns on the seams, torches, alternating banners.
+  // Ground arcade around the sand: arches, columns on the seams, torches,
+  // alternating banners. Sits at r 15, z 0 (the arena boundary is the tile ring).
   const BAYS = 22
   const half = TAU / BAYS / 2
-  ring('Arch_Round', 15.4, BAYS, 0, 1.7)
-  ring('Column_Round', 15.4, BAYS, 0, 1.7, half)
-  ring('Torch', 14.9, BAYS, 2.4, 1.1, half)
+  ring('Arch_Round', 15, BAYS, 0, 1.7)
+  ring('Column_Round', 15, BAYS, 0, 1.7, half)
+  ring('Torch', 14.6, BAYS, 2.4, 1.1, half)
   for (let i = 0; i < BAYS; i += 2) {
     const a = (i / BAYS) * TAU
-    emit('Flag_Wall', cx + Math.cos(a) * 15.1, 3, cz + Math.sin(a) * 15.1, faceIn(Math.cos(a), Math.sin(a)), 1.4)
+    emit('Flag_Wall', cx + Math.cos(a) * 14.9, 3, cz + Math.sin(a) * 14.9, faceIn(Math.cos(a), Math.sin(a)), 1.4)
   }
 
-  // Three raised seating tiers: a rake of stairs up to each flat ring of slabs.
-  const tiers = [{ r: 17.4, z: 1.4 }, { r: 19.2, z: 2.8 }, { r: 21, z: 4.2 }]
-  for (const t of tiers) {
-    const n = Math.round(t.r * 2.3)
-    ring('Floor_Standard', t.r, n, t.z, 1.1)
-    ring('Stairs_2', t.r - 0.9, n, t.z - 0.7, 1)
+  // Seating: a continuous rake of stepped stone slabs rising up-and-back BEHIND
+  // the arcade (first tier's inner edge clears the r~15.6 columns), each ring one
+  // step higher and one step further out so consecutive rings overlap into a rake.
+  const TIERS = 6
+  const SLAB = 1.25 // uniform scale → ~2.5-unit slab, wider than the 1.15 r-step (overlap)
+  let topR = 0
+  let topZ = 0
+  for (let i = 0; i < TIERS; i++) {
+    const r = 17 + i * 1.15
+    const z = 1.1 + i * 1.0
+    ring('Floor_Standard', r, Math.round(r * 2.5), z, SLAB)
+    topR = r
+    topZ = z
   }
-  ring('Rail_Straight', 21.9, 52, 4.2, 1)
+  // Parapet rail along the top row of seats.
+  ring('Rail_Straight', topR + 0.6, Math.round(topR * 2.6), topZ, 1)
 
-  // Arched upper wall crowned with flags; quartered corner watchtowers behind.
-  const UP = 30
-  ring('Wall_ArchRound', 22.6, UP, 5.4, 1.4)
+  // Arched upper wall crowning the stands, with flags; corner watchtowers behind.
+  const wallR = topR + 1.4
+  const wallZ = topZ + 1.2
+  const UP = 32
+  ring('Wall_ArchRound', wallR, UP, wallZ, 1.4)
   for (let i = 0; i < UP; i += 3) {
     const a = (i / UP) * TAU
-    emit('Flag_GothicArch', cx + Math.cos(a) * 22.4, 7.6, cz + Math.sin(a) * 22.4, faceIn(Math.cos(a), Math.sin(a)), 1.2)
+    emit('Flag_GothicArch', cx + Math.cos(a) * (wallR - 0.2), wallZ + 2.2, cz + Math.sin(a) * (wallR - 0.2), faceIn(Math.cos(a), Math.sin(a)), 1.2)
   }
   for (let q = 0; q < 4; q++) {
     const a = Math.PI / 4 + q * (Math.PI / 2)
-    emit('Castle_Watchtower', cx + Math.cos(a) * 24, 0, cz + Math.sin(a) * 24, faceIn(Math.cos(a), Math.sin(a)), 2.2)
+    emit('Castle_Watchtower', cx + Math.cos(a) * (wallR + 1.5), 0, cz + Math.sin(a) * (wallR + 1.5), faceIn(Math.cos(a), Math.sin(a)), 2.2)
   }
 
   // Guardian statues flanking the north door.

@@ -20,20 +20,21 @@ const emit = defineEmits<{ play: [], create: [], spectate: [], edit: [] }>()
 
 // The prop editor is a dev-only tool (its save route only exists in dev).
 const isDev = import.meta.dev
-
-// A cool atmospheric backdrop in the brand's slime blue.
-const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(147,185,232,0.26), transparent 68%), linear-gradient(180deg, #0a1024 0%, #070b16 55%, #05070d 100%)'
 </script>
 
 <template>
   <div class="pointer-events-auto absolute inset-0 z-40 overflow-hidden bg-[#05070d] text-white">
-    <!-- Fixed atmospheric backdrop. -->
-    <div
-      class="absolute inset-0"
-      :style="{ background: backdrop }"
+    <!-- Looping background video. -->
+    <video
+      class="absolute inset-0 size-full object-cover"
+      src="/login.mp4"
+      autoplay
+      loop
+      muted
+      playsinline
     />
 
-    <!-- Vignette for depth. -->
+    <!-- Vignette for depth + text legibility over the video. -->
     <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_42%,transparent_38%,#05070daa_92%)]" />
 
     <!-- Brand + live population (dot lit while anyone's climbing). -->
@@ -88,8 +89,7 @@ const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(147,185,232,0
         </template>
         <UButton
           v-else
-          label="Create your runner"
-          color="neutral"
+          label="Login"
           size="lg"
           block
           @click="emit('create')"
