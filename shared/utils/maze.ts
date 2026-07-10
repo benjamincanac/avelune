@@ -278,60 +278,53 @@ export function createRng(seed: number): () => number {
  * Footprint spans are kept to 4/6/8 tiles so the renderer can cap each house
  * with a matching Medieval-Village gable roof (`Roof_RoundTiles_WxD`).
  */
-export interface HubHouse {
-  x0: number
-  y0: number
-  x1: number
-  y1: number
-  front: 0 | 1 | 2 | 3
-}
-
 /**
- * The village hub layout, shared so `generateHub` (which fills the collision
- * tiles) and the client renderer (which places the tower, houses, roads, and
- * portal meshes) never drift apart. World coords in tiles (1 tile = 1 unit).
+ * The colosseum hub layout, shared so `generateHub` (collision tiles) and the
+ * client renderer (arena sand, stands, the great door) never drift apart. World
+ * coords in tiles (1 tile = 1 unit).
  *
- * The village: a gigantic tower dead-center on a cobbled plaza, timber-frame
- * houses fronting the plaza and the main street, a market corner, the spawn
- * just inside the south gate, and the portal on the plaza before the tower.
- * All collision lives in the tiles + solid props; roads are cosmetic but are
- * shared here so the daily scatter keeps off them on every client.
+ * A gigantic colosseum: players spawn on the open arena sand in the middle; a
+ * solid ring of tiles under the tiered stands walls the arena in (the parapet
+ * visuals sit on top of it). A single notch in the north wall opens onto the
+ * monumental door — the exit trigger — the only way down into the dungeon.
+ * Everything visible is a hand-placed kit piece (baked into hub-structure.json);
+ * only the sand, the ring, and the door channel are procedural.
  */
 export const HUB_LAYOUT = {
-  size: 40,
-  /** Solid disc of wall tiles; players can't enter — the portal is the way up. */
-  tower: { x: 20, y: 20, radius: 4 },
-  /** Cobbled plaza disc around the tower. */
-  plazaRadius: 9.5,
-  /** Main street: from the plaza rim south to the village gate. */
-  street: { x: 20, halfW: 1.6, y1: 37.5 },
-  /** Village gate arch across the street, at the south tree line. */
-  gate: { x: 20, y: 37 },
-  /** Vertical portal + teleport trigger, on the plaza south of the tower. */
-  exit: { x: 20, y: 26 },
-  /** Spawn, on the main street just inside the gate. */
-  start: { x: 20, y: 35 },
-  /** Market stall corner on the south-west plaza rim. */
-  market: { x: 13.5, y: 26.5 },
-  houses: [
-    // Two grand plaza-front halls flanking the tower.
-    { x0: 5, y0: 16, x1: 10, y1: 21, front: 1 },
-    { x0: 29, y0: 16, x1: 34, y1: 21, front: 3 },
-    // The north row behind the plaza.
-    { x0: 9, y0: 6, x1: 14, y1: 9, front: 2 },
-    { x0: 25, y0: 6, x1: 30, y1: 9, front: 2 },
-    { x0: 17, y0: 4, x1: 22, y1: 7, front: 2 },
-    // Two houses flanking the main street by the gate.
-    { x0: 12, y0: 28, x1: 15, y1: 33, front: 1 },
-    { x0: 24, y0: 28, x1: 27, y1: 33, front: 3 },
-  ] as HubHouse[],
+  size: 56,
+  center: { x: 28, y: 28 },
+  /** Open arena radius — players roam freely inside this. */
+  arenaRadius: 12,
+  /** The solid stands ring begins here (tiles at radius ≥ this are wall). */
+  wallInner: 13,
+  /** The great door, set into the north wall. */
+  door: { x: 28, y: 13 },
+  /** Exit trigger, in the door channel at the arena's north rim. */
+  exit: { x: 28, y: 13 },
+  /** Spawn, on the sand just south of centre. */
+  start: { x: 28, y: 32 },
 }
+
+/** Half-width and y-span of the walkable channel cut through the north wall to
+ *  the door, so the arena connects out to the exit trigger. */
+const DOOR_NOTCH = { halfW: 2.5, y0: 10, y1: 16 }
 
 function generateHub(daySeed: number): FloorPlan {
   const size = HUB_LAYOUT.size
-  const tiles = new Uint8Array(size * size).fill(0)
+  const { center, wallInner, door } = HUB_LAYOUT
+  const tiles = new Uint8Array(size * size)
 
-  // Border wall ring (hidden behind the tree line client-side).
+  // Solid stands ring: every tile outside the arena is wall, except the north
+  // door channel that lets you walk from the sand out to the great door.
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x + 0.5 - center.x, y + 0.5 - center.y)
+      const inNotch = Math.abs(x + 0.5 - door.x) <= DOOR_NOTCH.halfW
+        && y + 0.5 >= DOOR_NOTCH.y0 && y + 0.5 <= DOOR_NOTCH.y1
+      if (d >= wallInner && !inNotch) tiles[y * size + x] = 1
+    }
+  }
+  // Explicit border ring (defensive — the arena annulus already covers the edges).
   for (let i = 0; i < size; i++) {
     tiles[i] = 1
     tiles[(size - 1) * size + i] = 1
@@ -339,57 +332,11 @@ function generateHub(daySeed: number): FloorPlan {
     tiles[i * size + size - 1] = 1
   }
 
-  // The gigantic central tower: a solid disc of wall tiles.
-  const { tower, houses } = HUB_LAYOUT
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (Math.hypot(x + 0.5 - tower.x, y + 0.5 - tower.y) <= tower.radius) {
-        tiles[y * size + x] = 1
-      }
-    }
-  }
-
-  // NOTE: houses are no longer stamped as solid tiles. Once the village is baked
-  // (dev prop editor → hub-structure.json), each ground-floor wall piece is a
-  // solid prop, so house collision follows the editable pieces. `houses` is still
-  // used below to keep the daily scatter off the building footprints.
-
-  // Village core: the cobbled plaza, the main street, the market, and a margin
-  // around every house stay tidy — daily scatter only lands in the meadow ring
-  // between the buildings and the border tree line.
-  const { plazaRadius, street, market } = HUB_LAYOUT
-  const inCore = (x: number, y: number) => {
-    if (Math.hypot(x - tower.x, y - tower.y) < plazaRadius + 2) return true
-    if (Math.abs(x - street.x) < street.halfW + 2 && y > tower.y) return true
-    if (Math.hypot(x - market.x, y - market.y) < 4) return true
-    return houses.some(h => x > h.x0 - 2 && x < h.x1 + 3 && y > h.y0 - 2 && y < h.y1 + 3)
-  }
-
-  // Solid clutter: trees, boulders, and market goods the player actually bumps
-  // into. These live in the shared plan (so the server simulates their collision
-  // the same way the client predicts it); small greenery stays client-side cosmetic.
+  // Every visible piece (arcade, columns, stands, statues) is a hand placement
+  // baked into the committed JSON — appended here, run through makeProp so the
+  // server simulates collision exactly as the client renders. `z`/`s3` are
+  // render-only extras carried onto the spec.
   const props: PropSpec[] = []
-  const rng = createRng((daySeed ^ 0x5f3a29c1) >>> 0)
-  const onOpenTile = (x: number, y: number) => tiles[Math.floor(y) * size + Math.floor(x)] === 0
-  const clear = (x: number, y: number, dist: number) => props.every(p => Math.hypot(p.x - x, p.y - y) >= dist)
-  const scatter = (kinds: string[], count: number, sMin: number, sMax: number, minDist: number) => {
-    for (let placed = 0, tries = 0; placed < count && tries < count * 60; tries++) {
-      const x = 2.5 + rng() * (size - 5)
-      const y = 2.5 + rng() * (size - 5)
-      if (!onOpenTile(x, y) || inCore(x, y) || !clear(x, y, minDist)) continue
-      props.push(makeProp(kinds[Math.floor(rng() * kinds.length)]!, x, y, rng() * Math.PI * 2, sMin + rng() * (sMax - sMin)))
-      placed++
-    }
-  }
-  scatter(['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2'], 18, 0.6, 0.95, 3)
-  scatter(['Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3'], 10, 0.6, 1, 2.4)
-  // Hand-placed props and baked village pieces come from committed JSON files,
-  // appended AFTER the daily scatter so the RNG stream — and thus the meadow
-  // layout — is identical no matter what's been placed/baked. `top`/`r` are
-  // derived through makeProp so the server simulates collision exactly as the
-  // client renders; `z` (elevation) and `s3` (per-axis scale) are render-only
-  // extras carried onto the spec. `hub-structure.json` is the exploded village
-  // (walls/roofs/etc.); `hub-props.json` is free-standing gameplay clutter.
   const placements = [...hubStructure, ...hubProps] as HubPropPlacement[]
   for (const p of placements) {
     props.push({ ...makeProp(p.kind, p.x, p.y, p.rot, p.scale, p.s3), hand: true, z: p.z, s3: p.s3 })
@@ -404,7 +351,6 @@ function generateHub(daySeed: number): FloorPlan {
     start: { ...HUB_LAYOUT.start },
     exit: { ...HUB_LAYOUT.exit },
     traps: [],
-    // Solid clutter is shared (above); small greenery is client-side cosmetic.
     props,
     biome: -1,
   }

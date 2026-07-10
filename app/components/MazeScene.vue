@@ -49,7 +49,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
-import type { AuthoredFloorData, FloorPlan, HubHouse, HubPropPlacement, PropSpec, Trap } from '#shared/utils/maze'
+import type { AuthoredFloorData, FloorPlan, HubPropPlacement, PropSpec, Trap } from '#shared/utils/maze'
 import {
   CELL_STRIDE,
   CELL_TILES,
@@ -81,6 +81,7 @@ import {
   VILLAGE_NAMES,
 } from '#shared/utils/propCatalog'
 import HUB_STRUCTURE from '#shared/data/hub-structure.json'
+import { composeColosseum } from '~/utils/composeColosseum'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import type { StonePalette } from '~/utils/textures'
@@ -607,7 +608,7 @@ function buildFloor() {
   // The hub is a bespoke village-in-nature scene: tower, portal, houses,
   // greenery — no dungeon walls, traps, torches, or scatter.
   if (isHub) {
-    buildVillageHub(plan)
+    buildColosseumHub(plan)
     tagShadows(floorGroup)
     // Re-sync the editor's own selectable clones (templates may have just
     // finished loading, so this runs after each build phase).
@@ -1130,13 +1131,8 @@ function placeChandeliers(plan: FloorPlan) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Nature-village hub                                                         */
+/* Colosseum hub                                                              */
 /* -------------------------------------------------------------------------- */
-
-/** Rotation so a kit wall/window (front faces -Z) points outward along (ox, oz). */
-function faceOut(ox: number, oz: number): number {
-  return Math.atan2(-ox, -oz)
-}
 
 /**
  * Build the hub: a gigantic stone tower dead-centre on a cobbled plaza, the
@@ -1146,45 +1142,39 @@ function faceOut(ox: number, oz: number): number {
  * roads, house shells, and greenery are cosmetic — their collision is the
  * shared tile stamps in `generateHub`.
  */
-function buildVillageHub(plan: FloorPlan) {
-  const { tower } = HUB_LAYOUT
+function buildColosseumHub(plan: FloorPlan) {
+  const { center, arenaRadius } = HUB_LAYOUT
 
-  // --- Procedural base (never editable): cobbled roads, the tower shaft, the
-  // portal. Everything else (tower cap, houses, market, gate, statues) is kit
-  // pieces that live in the editable, baked structure — see below.
-  buildHubRoads()
-
-  const TOWER_R = 3.6
-  const TOWER_H = 24
-  const towerTex = makeBrickTexture(9001, HUB_LOOK.wall)
-  towerTex.wrapS = towerTex.wrapT = RepeatWrapping
-  towerTex.repeat.set(8, 12)
-  const shaft = new Mesh(
-    new CylinderGeometry(TOWER_R * 0.9, TOWER_R, TOWER_H, 28, 1),
-    new MeshStandardMaterial({ map: towerTex, roughness: 0.95 }),
+  // --- Procedural base (never editable): the sand arena floor and a backdrop
+  // shell so the gaps between kit pieces never show raw sky. Everything else
+  // (arcade, columns, tiered stands, door statues) is editable baked pieces.
+  const sand = new Mesh(
+    new CircleGeometry(arenaRadius + 1.5, 56),
+    new MeshStandardMaterial({ color: new Color('#c2a878'), roughness: 1 }),
   )
-  shaft.position.set(tower.x, TOWER_H / 2, tower.y)
-  floorGroup.add(shaft)
+  sand.rotation.x = -Math.PI / 2
+  sand.position.set(center.x, 0.02, center.y)
+  floorGroup.add(sand)
 
-  // --- The vertical pulsing portal (the teleport) on the plaza south of the tower.
+  const backdrop = new Mesh(
+    new CylinderGeometry(30, 30, 26, 48, 1, true),
+    new MeshStandardMaterial({ color: new Color('#2b3038'), side: BackSide, roughness: 1 }),
+  )
+  backdrop.position.set(center.x, 13, center.y)
+  floorGroup.add(backdrop)
+
+  // --- The great door: the dungeon entrance / exit trigger at the north wall.
   buildHubPortal(plan.exit.x, plan.exit.y)
 
-  // --- Editable village kit pieces. Once baked (hub-structure.json), each piece
-  // is a `hand` prop in plan.props: rendered instanced here, or skipped so the
-  // editor can clone it as a selectable object. Before the first bake the file is
-  // empty, so fall back to rendering the procedural composition (non-selectable)
-  // just so the village is visible to bake.
-  // Normal play, pre-bake: show the procedural village (visual only, no
-  // collision until baked). In editor mode the village comes from the working
-  // copy (seeded on mount), so the controller's clones own it — skip here.
-  if (!props.editor && !HUB_STRUCTURE.length) renderComposed(composeVillage(plan))
+  // --- Editable colosseum kit pieces. Pre-bake, render the procedural
+  // composition (visual only, no collision until baked); once baked the pieces
+  // flow through plan.props. In editor mode the controller owns the seeded
+  // clones, so skip the fallback here.
+  if (!props.editor && !HUB_STRUCTURE.length) renderComposed(composeColosseum())
 
-  // --- Solid clutter, hand props, and baked structure from the shared plan,
-  // rendered exactly where the server simulates their footprints.
+  // --- Solid + hand-placed pieces from the shared plan, rendered exactly where
+  // the server simulates their footprints.
   renderPlanProps(plan)
-
-  // --- Cosmetic greenery (walk-through).
-  scatterHub(plan)
 }
 
 /**
@@ -1214,51 +1204,6 @@ function propMatrix(p: PropSpec): Matrix4 {
     : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale)
 }
 
-/**
- * The procedural village composition as a flat list of kit-piece placements
- * (`{kind, x, y, z (elevation), rot, scale, s3?}`). This is the single source
- * the dev editor bakes into `hub-structure.json`; after baking, the pieces flow
- * through `plan.props` instead and this is only the pre-bake fallback + bake input.
- */
-function composeVillage(plan: FloorPlan): HubPropPlacement[] {
-  const pieces: HubPropPlacement[] = []
-  // emit(kind, worldX, height, worldZ, rot, scale?, s3?) — arg order matches
-  // placementMatrix so the house math below is copied verbatim; stored as a
-  // placement (y = world Z, z = elevation).
-  const emit = (kind: string, x: number, height: number, worldZ: number, rot: number, scale = 1, s3?: [number, number, number]) =>
-    pieces.push({ kind, x, y: worldZ, z: height, rot, scale, s3 })
-
-  const { tower } = HUB_LAYOUT
-  const TOWER_R = 3.6
-  const TOWER_H = 24
-  const topR = TOWER_R * 0.9
-
-  // Tower cap: conical kit roof, windows spiralling up the shaft, banners, door.
-  emit('Roof_Tower_RoundTiles', tower.x, TOWER_H - 0.5, tower.y, 0, (topR * 2) / 5.65 * 1.2)
-  for (let i = 0; i < 10; i++) {
-    const a = i * 1.35
-    const h = 4 + i * 1.9
-    const r = (TOWER_R + (topR - TOWER_R) * (h / TOWER_H)) * (i % 2 === 0 ? 1.02 : 0.98)
-    emit('Window_Wide_Round1', tower.x + Math.cos(a) * r, h, tower.y + Math.sin(a) * r, faceOut(Math.cos(a), Math.sin(a)))
-  }
-  for (const da of [-0.55, 0.55]) {
-    const a = Math.PI / 2 + da
-    const r = TOWER_R - 0.36 * (9 / TOWER_H)
-    emit('Flag_Wall', tower.x + Math.cos(a) * r, 9, tower.y + Math.sin(a) * r, faceOut(Math.cos(a), Math.sin(a)), 1.4)
-  }
-  emit('Wall_UnevenBrick_Door_Round', tower.x, 0, tower.y + TOWER_R - 0.12, faceOut(0, 1))
-
-  // Guardian statues flanking the portal approach.
-  emit('Statue_Stag', 17.6, 0, 26.8, Math.PI / 2, 0.62)
-  emit('Statue_Fox', 22.4, 0, 26.8, -Math.PI / 2, 0.72)
-
-  // Houses, market stall, south gate.
-  HUB_LAYOUT.houses.forEach((house, i) => composeHouse(house, plan.seed, i, emit))
-  composeMarket(emit)
-  composeGate(emit)
-  return pieces
-}
-
 /** Render a composed piece list instanced (pre-bake fallback only). */
 function renderComposed(pieces: HubPropPlacement[]) {
   const byKind = new Map<string, Matrix4[]>()
@@ -1275,105 +1220,6 @@ function renderComposed(pieces: HubPropPlacement[]) {
   }
 }
 
-type EmitPiece = (kind: string, x: number, height: number, worldZ: number, rot: number, scale?: number, s3?: [number, number, number]) => void
-
-/** Grey village cobbles — distinct from the dungeon biomes' tinted stone. */
-let roadTexture: CanvasTexture | null = null
-function makeRoadMaterial(repeatX: number, repeatY: number): MeshStandardMaterial {
-  roadTexture ??= makeCobbleTexture(7300, { base: '#84868f', dark: '#696c75', mortar: '#4e5057', moss: '#5a7048', mossAmount: 0.08 })
-  const tex = roadTexture.clone()
-  tex.wrapS = tex.wrapT = RepeatWrapping
-  tex.repeat.set(repeatX, repeatY)
-  return new MeshStandardMaterial({ map: tex, roughness: 1 })
-}
-
-/**
- * The cobbled ground network: a plaza disc around the tower, the main street
- * south to the gate, a short spur from every house door, and kit curb pieces
- * edging the plaza, street, and tower base. Purely cosmetic (flat, no collision);
- * the shared `generateHub` keeps its daily scatter off these same shapes.
- */
-function buildHubRoads() {
-  const { tower, plazaRadius, street, houses } = HUB_LAYOUT
-  const flat = (mesh: Mesh, x: number, y: number, z: number, spin = 0) => {
-    mesh.rotation.x = -Math.PI / 2
-    mesh.rotation.z = spin
-    mesh.position.set(x, y, z)
-    floorGroup.add(mesh)
-  }
-
-  // Plaza disc + main street (the street tucks under the plaza rim).
-  flat(new Mesh(new CircleGeometry(plazaRadius, 56), makeRoadMaterial(plazaRadius / 1.4, plazaRadius / 1.4)), tower.x, 0.04, tower.y)
-  const streetTop = tower.y + plazaRadius - 1
-  const streetLen = street.y1 - streetTop
-  const streetW = street.halfW * 2 + 0.8
-  flat(new Mesh(new PlaneGeometry(streetW, streetLen), makeRoadMaterial(streetW / 1.4, streetLen / 1.4)), street.x, 0.02, streetTop + streetLen / 2)
-
-  // A path from every door, out until it meets the plaza or the street.
-  for (const house of houses) {
-    const [fx, fz] = FRONT_DIR[house.front]
-    const door = doorWorld(house)
-    let len = 1.2
-    for (; len < 7; len += 0.25) {
-      const px = door.x + fx * len
-      const pz = door.z + fz * len
-      if (Math.hypot(px - tower.x, pz - tower.y) < plazaRadius - 0.3) break
-      if (Math.abs(px - street.x) < street.halfW && pz > streetTop) break
-    }
-    flat(
-      new Mesh(new PlaneGeometry(1.5, len + 0.8), makeRoadMaterial(1.1, (len + 0.8) / 1.4)),
-      door.x + fx * (len / 2 + 0.1), 0.03, door.z + fz * (len / 2 + 0.1),
-      house.front % 2 === 1 ? Math.PI / 2 : 0,
-    )
-  }
-
-  // Curbs: along the street, around the plaza rim, and ringing the tower base.
-  const curbs: Matrix4[] = []
-  for (let y = streetTop + 1.4; y < street.y1 - 0.6; y += 2.06) {
-    curbs.push(placementMatrix(street.x - street.halfW - 0.5, 0, y, Math.PI / 2, 1))
-    curbs.push(placementMatrix(street.x + street.halfW + 0.5, 0, y, -Math.PI / 2, 1))
-  }
-  const ring = (radius: number, skipStreetMouth: boolean) => {
-    const count = Math.floor((Math.PI * 2 * radius) / 2.05)
-    for (let i = 0; i < count; i++) {
-      const a = (i / count) * Math.PI * 2
-      if (skipStreetMouth && Math.abs(a - Math.PI / 2) < 0.26) continue
-      curbs.push(placementMatrix(tower.x + Math.cos(a) * radius, 0, tower.y + Math.sin(a) * radius, -a - Math.PI / 2, 1))
-    }
-  }
-  ring(plazaRadius + 0.3, true)
-  ring(tower.radius + 0.6, false)
-  const group = instantiateModule('Prop_ExteriorBorder_Straight1', curbs, '#ffffff')
-  if (group) floorGroup.add(group)
-}
-
-/**
- * The market: a wooden canopy stall on the south-west plaza rim. The wagon,
- * crates, and barrels beside it come from the shared plan (they collide).
- */
-function composeMarket(emit: EmitPiece) {
-  const { market } = HUB_LAYOUT
-  for (const [sx, sz] of [[-1.1, -0.8], [1.1, -0.8], [-1.1, 0.8], [1.1, 0.8]] as const) {
-    emit('Prop_Support', market.x + sx, 0, market.y + sz, 0)
-  }
-  emit('Roof_Wooden_2x1', market.x, 2.05, market.y, 0, 1, [1.4, 1, 1.9])
-}
-
-/**
- * The village gate: a scaled arch spanning the street's south end with brick
- * posts, and a wooden fence line running out to the border tree line on both
- * sides. Cosmetic — the real boundary is the border wall ring behind the trees.
- */
-function composeGate(emit: EmitPiece) {
-  const { gate, street, size } = HUB_LAYOUT
-  emit('Wall_Arch', gate.x, 0, gate.y, 0, 1, [(street.halfW * 2 + 1) / 2, 1.15, 1])
-  for (const s of [-1, 1]) emit('Corner_Exterior_Brick', gate.x + s * (street.halfW + 0.5), 0, gate.y, 0, 1.15)
-  for (let x = 2.4; x < size - 2; x += 2.06) {
-    if (Math.abs(x - gate.x) < street.halfW + 1.4) continue
-    emit('Prop_WoodenFence_Single', x, 0, gate.y, 0)
-  }
-}
-
 /**
  * A ruined stone rune-gate framing a Solo-Leveling-style energy rift: a
  * receding swirl tunnel, a hot pulsing core, a glowing rim, rune circles
@@ -1386,175 +1232,6 @@ function buildHubPortal(ex: number, ey: number) {
   hubPortal = buildPortal({ light: true })
   hubPortal.root.position.set(ex, 0, ey)
   floorGroup.add(hubPortal.root)
-}
-
-/** Wall panel height (kit walls are 2.0 wide × 3.12 tall). */
-const STOREY = 3.12
-/** How far the timbered upper floor overhangs the stone ground floor. */
-const JETTY = 0.3
-/** Outward direction per house `front` (0=N 1=E 2=S 3=W). */
-const FRONT_DIR = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const
-/** Height of the Roof_Front_BrickN gable-end triangles, by span. */
-const GABLE_RISE: Record<number, number> = { 4: 2.94, 6: 4.38 }
-
-/** World position of a house's ground-floor door (centre panel of the front). */
-function doorWorld(house: HubHouse): { x: number, z: number } {
-  const x0 = house.x0
-  const z0 = house.y0
-  const x1 = house.x1 + 1
-  const z1 = house.y1 + 1
-  const [fx, fz] = FRONT_DIR[house.front]
-  const n = (house.front % 2 === 0 ? x1 - x0 : z1 - z0) / 2
-  const doorAt = (n - 1) >> 1
-  const along = (house.front % 2 === 0 ? x0 : z0) + 1 + doorAt * 2
-  return house.front % 2 === 0
-    ? { x: along, z: fz > 0 ? z1 : z0 }
-    : { x: fx > 0 ? x1 : x0, z: along }
-}
-
-/**
- * Assemble a two-storey timber-framed house from kit modules: an uneven-stone
- * ground floor with the door + wide windows on its `front` side, a jettied
- * plaster/timber upper floor with shuttered windows, a footprint-matched gable
- * roof (`Roof_RoundTiles_WxD`, ridge along the front axis so the brick gable
- * ends face front and back), a balcony over the door, a chimney, and trailing
- * vines. Deterministic per (seed, salt) so every client agrees.
- */
-function composeHouse(house: HubHouse, seed: number, salt: number, emit: EmitPiece) {
-  const x0 = house.x0
-  const z0 = house.y0
-  const x1 = house.x1 + 1
-  const z1 = house.y1 + 1
-  const cx = (x0 + x1) / 2
-  const cz = (z0 + z1) / 2
-  const w = x1 - x0
-  const d = z1 - z0
-  const [fx, fz] = FRONT_DIR[house.front]
-
-  const push = (kind: string, x: number, y: number, z: number, rotY: number) => emit(kind, x, y, z, rotY)
-  // Offset a point by (lx, lz) in the local frame of a wall rotated rotY.
-  const local = (x: number, z: number, rotY: number, lx: number, lz: number) =>
-    [x + lx * Math.cos(rotY) + lz * Math.sin(rotY), z - lx * Math.sin(rotY) + lz * Math.cos(rotY)] as const
-
-  // Four sides, each with 2-unit panel centres along it.
-  for (let face = 0; face < 4; face++) {
-    const [ox, oz] = FRONT_DIR[face as 0 | 1 | 2 | 3]
-    const isFront = face === house.front
-    const rotY = faceOut(ox, oz)
-    const n = (face % 2 === 0 ? w : d) / 2
-    const doorAt = isFront ? (n - 1) >> 1 : -1
-    for (let j = 0; j < n; j++) {
-      const along = (face % 2 === 0 ? x0 : z0) + 1 + j * 2
-      const px = face % 2 === 0 ? along : (ox > 0 ? x1 : x0)
-      const pz = face % 2 === 0 ? (oz > 0 ? z1 : z0) : along
-      // Ground floor: uneven stone; the front gets the door + wide windows,
-      // the other sides the odd window in otherwise solid masonry.
-      let g = 'Wall_UnevenBrick_Straight'
-      if (isFront) g = j === doorAt ? 'Wall_UnevenBrick_Door_Round' : 'Wall_UnevenBrick_Window_Wide_Round'
-      else if (placementHash(seed, px * 13 + salt, pz * 7, 11) < 0.25) g = 'Wall_UnevenBrick_Window_Wide_Round'
-      push(g, px, 0, pz, rotY)
-      if (isFront && j === doorAt) {
-        // Hang the door leaf in the doorway (the wall module is just the frame).
-        const [dxp, dzp] = local(px, pz, rotY, -0.52, 0.04)
-        push('Door_1_Round', dxp, 0, dzp, rotY)
-      }
-      // Upper floor: jettied timber frame with shuttered windows — the front
-      // gets them everywhere, sides/back by deterministic chance.
-      const windowed = isFront || placementHash(seed, px * 7 + salt, pz * 13, 12) < 0.5
-      const ux = px + ox * JETTY
-      const uz = pz + oz * JETTY
-      push(windowed ? 'Wall_Plaster_Window_Wide_Round' : 'Wall_Plaster_WoodGrid', ux, STOREY, uz, rotY)
-      if (windowed) push('WindowShutters_Wide_Round_Open', ux, STOREY, uz, rotY)
-    }
-  }
-
-  // Corners: stone posts on the ground floor, wood on the jettied upper floor.
-  for (const [px, pz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] as const) {
-    push('Corner_Exterior_Brick', px, 0, pz, 0)
-    push('Corner_Exterior_Wood', px + Math.sign(px - cx) * JETTY, STOREY, pz + Math.sign(pz - cz) * JETTY, 0)
-  }
-
-  // Gable roof matched to the footprint: ridge along the front axis, so the
-  // brick gable triangles close the front and back faces. Native roofs span
-  // their gable across X — rotate when the ridge runs along world X instead.
-  const ridgeAlongX = house.front % 2 === 1
-  const gableSpan = ridgeAlongX ? d : w
-  const ridgeLen = ridgeAlongX ? w : d
-  push(`Roof_RoundTiles_${gableSpan}x${ridgeLen}`, cx, 2 * STOREY + 0.15, cz, ridgeAlongX ? Math.PI / 2 : 0)
-  const gx = ridgeAlongX ? w / 2 + JETTY : 0
-  const gz = ridgeAlongX ? 0 : d / 2 + JETTY
-  push(`Roof_Front_Brick${gableSpan}`, cx + gx, 2 * STOREY, cz + gz, faceOut(Math.sign(gx), Math.sign(gz)))
-  push(`Roof_Front_Brick${gableSpan}`, cx - gx, 2 * STOREY, cz - gz, faceOut(-Math.sign(gx), -Math.sign(gz)))
-
-  // Balcony over the door (its rail projects +Z, so face +Z outward), on most
-  // houses; a chimney by the ridge; vines trailing down a flank.
-  const door = doorWorld(house)
-  if (placementHash(seed, salt, 5, 21) < 0.7) {
-    push('Balcony_Simple_Straight', door.x + fx * JETTY, STOREY, door.z + fz * JETTY, Math.atan2(fx, fz))
-  }
-  const rise = GABLE_RISE[gableSpan] ?? 3
-  const rdx = ridgeAlongX ? 1 : 0
-  const rdz = ridgeAlongX ? 0 : 1
-  const chimneySide = placementHash(seed, salt, 7, 22) < 0.5 ? -1 : 1
-  push('Prop_Chimney2', cx + rdx * chimneySide * ridgeLen * 0.22, 2 * STOREY + rise * 0.45, cz + rdz * chimneySide * ridgeLen * 0.22, 0)
-  const vineFace = ((house.front + (placementHash(seed, salt, 9, 23) < 0.5 ? 1 : 3)) % 4) as 0 | 1 | 2 | 3
-  const [vx, vz] = FRONT_DIR[vineFace]
-  const vine = ['Prop_Vine1', 'Prop_Vine2', 'Prop_Vine4'][(placementHash(seed, salt, 11, 24) * 3) | 0]!
-  push(vine, cx + vx * (Math.abs(vx) * w / 2 + Math.abs(vz) * d / 2), 1.6, cz + vz * (Math.abs(vx) * w / 2 + Math.abs(vz) * d / 2), faceOut(vx, vz))
-}
-
-/**
- * Cosmetic-only scatter (walk-through): a dense tree line over the border wall
- * tiles (those collide as walls), and low ground cover across the meadow —
- * kept off the cobbled plaza, street, and market so the village core stays
- * tidy. Solid trees/boulders/market goods come from `plan.props`.
- */
-function scatterHub(plan: FloorPlan) {
-  const size = plan.width
-  const { tower, plazaRadius, street, market } = HUB_LAYOUT
-  const buckets = new Map<string, Matrix4[]>()
-  const push = (kind: string, x: number, z: number, rotY: number, scale: number) => {
-    const arr = buckets.get(kind) ?? []
-    arr.push(placementMatrix(x, 0, z, rotY, scale))
-    buckets.set(kind, arr)
-  }
-  const hash = (x: number, y: number, salt: number) => placementHash(plan.seed, x, y, salt)
-  const TREES = ['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2']
-  const COVER = ['Bush_Common', 'Bush_Common_Flowers', 'Grass_Common_Tall', 'Grass_Wispy_Tall', 'Fern_1', 'Clover_1', 'Flower_3_Group', 'Plant_1', 'Mushroom_Common']
-  const COVER_SCALE: Record<string, number> = { Fern_1: 0.35, Flower_3_Group: 0.8, Clover_1: 1, Mushroom_Common: 1, Plant_1: 1, Grass_Common_Tall: 1, Grass_Wispy_Tall: 1, Bush_Common: 0.9, Bush_Common_Flowers: 0.9 }
-  const onRoad = (x: number, z: number) =>
-    Math.hypot(x - tower.x, z - tower.y) < plazaRadius + 0.6
-    || (Math.abs(x - street.x) < street.halfW + 1 && z > tower.y + plazaRadius - 2)
-    || Math.hypot(x - market.x, z - market.y) < 3.5
-
-  // Tree line over the border tiles (backed by the wall ring, so it collides).
-  for (let i = 0; i < size; i++) {
-    for (const [x, z] of [[i, 0], [i, size - 1], [0, i], [size - 1, i]] as const) {
-      if (hash(x, z, 1) > 0.7) continue
-      const kind = TREES[(hash(x, z, 2) * TREES.length) | 0]!
-      const jx = x + 0.5 + (hash(x, z, 3) - 0.5) * 0.8
-      const jz = z + 0.5 + (hash(x, z, 4) - 0.5) * 0.8
-      push(kind, jx, jz, hash(x, z, 5) * Math.PI * 2, 0.5 + hash(x, z, 6) * 0.4)
-    }
-  }
-
-  // Ground cover on open tiles, keeping the cobbles clean.
-  for (let z = 1; z < size - 1; z++) {
-    for (let x = 1; x < size - 1; x++) {
-      if (plan.tiles[z * size + x]) continue
-      if (onRoad(x + 0.5, z + 0.5)) continue
-      if (hash(x, z, 13) > 0.28) continue
-      const kind = COVER[(hash(x, z, 14) * COVER.length) | 0]!
-      const px = x + 0.3 + hash(x, z, 15) * 0.4
-      const pz = z + 0.3 + hash(x, z, 16) * 0.4
-      push(kind, px, pz, hash(x, z, 17) * Math.PI * 2, (COVER_SCALE[kind] ?? 1) * (0.8 + hash(x, z, 18) * 0.5))
-    }
-  }
-
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
-  for (const [kind, mats] of buckets) add(instantiateModule(kind, mats, '#ffffff'))
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2637,7 +2314,7 @@ if (import.meta.dev) {
     // procedural composition so every kit piece is immediately selectable and
     // the first save writes hub-structure.json (the bake).
     if (ed.currentFloor.value === HUB_FLOOR && !HUB_STRUCTURE.length) {
-      ed.seedStructure(composeVillage(currentPlan))
+      ed.seedStructure(composeColosseum())
     }
     // Build the editor's active floor (persisted across a save-reload).
     currentPlan = editorPlan()
