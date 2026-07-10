@@ -15,10 +15,10 @@ import {
   TOWER_SEED,
   TRAP_MAX_Z,
   TRAP_RADIUS,
-  biomeIndex,
   floorSpeed,
   generateFloor,
   isTrapActive,
+  maxAuthoredFloor,
   stepBody,
 } from '#shared/utils/maze'
 import type { Identity } from './session'
@@ -183,7 +183,8 @@ function tick() {
         Math.hypot(t.x - player.x, t.y - player.y) < TRAP_RADIUS && isTrapActive(t, now),
       )
       if (trap) {
-        const cause = BIOMES[biomeIndex(player.floor)]!.cause
+        // The floor's authored biome drives the flavor of death.
+        const cause = BIOMES[plan.biome]?.cause ?? 'slain in the dark'
         player.deaths++
         // Fall dead on the spot; the hub respawn is deferred (see top of loop)
         // so the death clip can play. `moved` pushes the death pose out at once.
@@ -201,11 +202,17 @@ function tick() {
     if (Math.hypot(plan.exit.x - player.x, plan.exit.y - player.y) < trigger) {
       const cleared = player.floor
       const ms = now - session.floorEnteredAt
-      // From the hub, the portal resumes you at your deepest floor today (or
-      // floor 1 if you've yet to climb); a floor's exit drops to the next one.
-      const dest = cleared === HUB_FLOOR ? Math.max(HUB_FLOOR + 1, player.best) : cleared + 1
+      // The dungeon is a finite, hand-authored descent. From the hub, the door
+      // resumes you at your deepest floor (capped at the last authored one, or
+      // floor 1 if you've yet to climb). A floor's exit drops one deeper — unless
+      // it's the deepest authored floor, which returns you to the hub.
+      const last = maxAuthoredFloor()
+      const dest = cleared === HUB_FLOOR
+        ? Math.min(Math.max(HUB_FLOOR + 1, player.best), last)
+        : (cleared >= last ? HUB_FLOOR : cleared + 1)
       Object.assign(player, spawnAt(dest))
-      player.best = Math.max(player.best, player.floor)
+      // `best` is the deepest floor reached — the hub isn't a "depth".
+      if (dest !== HUB_FLOOR) player.best = Math.max(player.best, dest)
       progress.set(player.id, player.best)
       session.floorEnteredAt = now
 

@@ -1,7 +1,7 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { ClientMessage, FloorRecord, MoveInput, Player, ServerMessage } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
-import { TOWER_SEED, generateFloor } from '#shared/utils/maze'
+import { HUB_FLOOR, TOWER_SEED, generateFloor } from '#shared/utils/maze'
 
 export interface GamePlayer extends Player {
   /** Render position/heading, smoothly interpolated toward the server state. */
@@ -338,6 +338,11 @@ export function useGame(): UseGame {
             ...records.value.filter((r: FloorRecord) => r.floor !== msg.floor),
             { floor: msg.floor, name: msg.name, ms: msg.ms },
           ].sort((a: FloorRecord, b: FloorRecord) => a.floor - b.floor)
+        }
+        // Clearing a floor whose exit sends you back to the hub means you reached
+        // the bottom of the authored dungeon (server clamps depth).
+        if (msg.id === selfId.value && msg.to === HUB_FLOOR && msg.floor > HUB_FLOOR) {
+          announce('You have conquered the deepest floor. The dungeon returns you to the colosseum — for now.')
         }
         lastClear.value = { ...msg, at: Date.now() }
         rosterVersion.value++
