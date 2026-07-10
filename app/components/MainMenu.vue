@@ -21,21 +21,19 @@ const emit = defineEmits<{ play: [], create: [], spectate: [], edit: [] }>()
 // The prop editor is a dev-only tool (its save route only exists in dev).
 const isDev = import.meta.dev
 
-// A cool atmospheric backdrop tuned to the teleport's blue glow.
-const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(47,107,255,0.28), transparent 68%), linear-gradient(180deg, #0a1024 0%, #070b16 55%, #05070d 100%)'
+// A cool atmospheric backdrop in the brand's slime blue.
+const backdrop = 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(147,185,232,0.26), transparent 68%), linear-gradient(180deg, #0a1024 0%, #070b16 55%, #05070d 100%)'
 </script>
 
 <template>
   <div class="pointer-events-auto absolute inset-0 z-40 overflow-hidden bg-[#05070d] text-white">
-    <!-- Fixed atmospheric backdrop behind the teleport. -->
+    <!-- Fixed atmospheric backdrop. -->
     <div
       class="absolute inset-0"
       :style="{ background: backdrop }"
     />
 
-    <!-- The hub's spinning rune teleport (transparent canvas over the backdrop). -->
-    <MenuPortal class="absolute inset-0" />
-    <!-- Vignette for depth (transparent center keeps the character crisp). -->
+    <!-- Vignette for depth. -->
     <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_42%,transparent_38%,#05070daa_92%)]" />
 
     <!-- Brand + live population (dot lit while anyone's climbing). -->
