@@ -43,6 +43,30 @@ function removeFloor() {
   if (confirm(`Delete Floor ${maxFloor.value}? This can't be undone after saving.`)) editor.deleteFloor()
 }
 
+// Tools (dungeon floors only): place/select props, drop traps, drag spawn/exit.
+const tool = editor.tool
+const tools = [
+  { value: 'select' as const, label: 'Select', icon: 'i-lucide-mouse-pointer-2' },
+  { value: 'trap' as const, label: 'Trap', icon: 'i-lucide-circle-dot' },
+  { value: 'marker' as const, label: 'Spawn / Exit', icon: 'i-lucide-flag' },
+]
+
+/** The selected trap, when a trap is the current selection. */
+const selTrap = computed(() => {
+  const s = editor.selection.value
+  return s?.type === 'trap' ? editor.traps.value[s.index] ?? null : null
+})
+function touchTrap() {
+  editor.commit()
+}
+function removeTrap() {
+  const s = editor.selection.value
+  if (s?.type !== 'trap') return
+  editor.traps.value.splice(s.index, 1)
+  editor.selection.value = null
+  editor.commit()
+}
+
 // Palette filtered by the search box; empty categories drop out.
 const categories = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -228,6 +252,27 @@ function onExit() {
       </template>
     </div>
 
+    <!-- Tool selector (dungeon floors): place props, drop traps, drag markers. -->
+    <div
+      v-if="!isHub"
+      class="pointer-events-auto absolute left-1/2 top-28 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-black/45 px-1.5 py-1 backdrop-blur"
+    >
+      <button
+        v-for="t in tools"
+        :key="t.value"
+        type="button"
+        class="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors"
+        :class="tool === t.value ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
+        @click="tool = t.value"
+      >
+        <UIcon
+          :name="t.icon"
+          class="size-3"
+        />
+        {{ t.label }}
+      </button>
+    </div>
+
     <!-- Left: prop palette. -->
     <div class="pointer-events-auto absolute bottom-4 left-4 top-4 flex w-60 flex-col gap-2 rounded-lg bg-black/45 p-3 backdrop-blur">
       <UInput
@@ -355,6 +400,101 @@ function onExit() {
         variant="soft"
         block
         @click="removeSelected"
+      />
+    </div>
+
+    <!-- Right: inspector for the selected trap (timed hazard). -->
+    <div
+      v-else-if="selTrap"
+      class="pointer-events-auto absolute right-4 top-4 flex w-52 flex-col gap-3 rounded-lg bg-black/45 p-3 backdrop-blur"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <span class="truncate text-sm font-semibold">Trap</span>
+        <UBadge
+          color="error"
+          variant="subtle"
+          size="sm"
+        >
+          Hazard
+        </UBadge>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <UFormField
+          label="X"
+          size="xs"
+        >
+          <UInputNumber
+            v-model="selTrap.x"
+            :step="0.5"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Y"
+          size="xs"
+        >
+          <UInputNumber
+            v-model="selTrap.y"
+            :step="0.5"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Cycle (s)"
+          size="xs"
+          help="Full period"
+        >
+          <UInputNumber
+            v-model="selTrap.period"
+            :step="0.5"
+            :min="0.5"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Active (s)"
+          size="xs"
+          help="Lethal window"
+        >
+          <UInputNumber
+            v-model="selTrap.duration"
+            :step="0.25"
+            :min="0.1"
+            :max="selTrap.period"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Phase (s)"
+          size="xs"
+          help="Cycle offset"
+        >
+          <UInputNumber
+            v-model="selTrap.phase"
+            :step="0.25"
+            :min="0"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+      </div>
+      <UButton
+        label="Delete trap"
+        icon="i-lucide-trash-2"
+        size="xs"
+        color="error"
+        variant="soft"
+        block
+        @click="removeTrap"
       />
     </div>
 

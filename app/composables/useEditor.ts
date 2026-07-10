@@ -268,6 +268,8 @@ export function useEditor() {
     currentFloor,
     placements,
     traps,
+    /** The active floor's spawn/exit markers (the reactive doc objects). */
+    getMarkers: () => ({ start: current.value.start, exit: current.value.exit }),
     selection,
     selected,
     tool,
