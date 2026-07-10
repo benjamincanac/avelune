@@ -93,6 +93,64 @@ export const FANTASY_NAMES = [
   'Anvil', 'Workbench', 'Cage_Small', 'Vase_2', 'Potion_1', 'Scroll_1', 'Table_Large',
 ] as const
 
+/**
+ * Quaternius "Modular Dungeon" (2019, CC0) interior kit, converted from .blend
+ * to prefixed GLB by scripts/convert_new_kits.py. Every filename carries the
+ * `Dungeon_` prefix so its kind can't collide with the Ruins/Fantasy kinds
+ * (Torch, Barrel, Crate, Chest, Column, Wall, Skull, Coin_Pile, …). Loaded from
+ * /models/dungeon.
+ */
+export const DUNGEON_NAMES = [
+  'Dungeon_Arch', 'Dungeon_Arch_Door', 'Dungeon_Arch_Door_bottompivot', 'Dungeon_Arch_bars',
+  'Dungeon_Bag_Coins', 'Dungeon_Bag_Standing', 'Dungeon_Banner', 'Dungeon_Banner_wall',
+  'Dungeon_Barrel', 'Dungeon_Barrel2', 'Dungeon_Brick', 'Dungeon_Bucket',
+  'Dungeon_Chair', 'Dungeon_Chest', 'Dungeon_Chest_Gold', 'Dungeon_Cobweb',
+  'Dungeon_Cobweb2', 'Dungeon_Coin_Pile', 'Dungeon_Column', 'Dungeon_Column2',
+  'Dungeon_Crate', 'Dungeon_Decorative_Wall', 'Dungeon_Fence_90_Modular', 'Dungeon_Fence_End_Modular',
+  'Dungeon_Fence_Straight_Modular', 'Dungeon_Floor_BricksSeparate', 'Dungeon_Floor_BricksSeparate2', 'Dungeon_Floor_Modular',
+  'Dungeon_Pedestal', 'Dungeon_Pedestal2', 'Dungeon_Skull', 'Dungeon_Spikes',
+  'Dungeon_Stairs_Modular', 'Dungeon_Stairs_SideCover', 'Dungeon_Stairs_SideCoverWall', 'Dungeon_Statue_Horse',
+  'Dungeon_Sword_WallMount', 'Dungeon_Table_Big', 'Dungeon_Table_Small', 'Dungeon_Torch',
+  'Dungeon_Trap_empty', 'Dungeon_Trap_spikes', 'Dungeon_Trapdoor', 'Dungeon_Trapdoor_open',
+  'Dungeon_Vase', 'Dungeon_WallCover_Modular', 'Dungeon_Wall_Modular', 'Dungeon_Woodfire',
+] as const
+
+/**
+ * Quaternius "Modular Medieval Buildings" (2017, CC0) exterior fortification
+ * kit — towers, wall panels, gatehouse entrance pieces — converted to prefixed
+ * GLB by scripts/convert_new_kits.py. Loaded from /models/castle.
+ */
+export const CASTLE_NAMES = [
+  'Castle_Banner', 'Castle_Bridge', 'Castle_Door', 'Castle_Dummy',
+  'Castle_LargeSimpleTower', 'Castle_LargeSquareTower', 'Castle_LargeSquareTowerBricks', 'Castle_LargeTower',
+  'Castle_PointyTower', 'Castle_SimpleTowerBricks', 'Castle_Simpletower', 'Castle_SmallSquareTower',
+  'Castle_SmallSquareTowerBricks', 'Castle_SmallTower', 'Castle_TallWall', 'Castle_TallWallBricks',
+  'Castle_TallWallEntrance', 'Castle_Target', 'Castle_TargetWithArrows', 'Castle_Tower',
+  'Castle_Tunnel', 'Castle_Wall', 'Castle_WallBricks', 'Castle_WallEntrance',
+  'Castle_WallEntranceBricks', 'Castle_WatchTowerWRoof', 'Castle_Watchtower', 'Castle_Well',
+  'Castle_WindowGothic', 'Castle_WindowSquare',
+] as const
+
+/**
+ * Quaternius "Modular Medieval Buildings" (2018, CC0) crypt interior kit —
+ * modular stone walls, columns, sarcophagus/entrance framing, bones, potions —
+ * converted to prefixed GLB by scripts/convert_new_kits.py. Loaded from
+ * /models/crypt.
+ */
+export const CRYPT_NAMES = [
+  'Crypt_Barrel', 'Crypt_Bars', 'Crypt_Bones', 'Crypt_Bones2',
+  'Crypt_Book2', 'Crypt_Book3', 'Crypt_Book_Open', 'Crypt_Candelabrum',
+  'Crypt_Candelabrum_tall', 'Crypt_Candle', 'Crypt_Carpet', 'Crypt_Chest',
+  'Crypt_Chest_gold', 'Crypt_Column', 'Crypt_Column_Broken', 'Crypt_Column_Broken2',
+  'Crypt_Entrance', 'Crypt_Entrance2', 'Crypt_ModularColumn_bottom', 'Crypt_ModularColumn_middle',
+  'Crypt_ModularColumn_top', 'Crypt_ModularFloor', 'Crypt_ModularStoneWall', 'Crypt_ModularStoneWall_EntranceTop',
+  'Crypt_ModularStoneWall_top', 'Crypt_Potion', 'Crypt_Potion2', 'Crypt_Potion3',
+  'Crypt_Potion4', 'Crypt_Potion5', 'Crypt_Potion6', 'Crypt_Rock1',
+  'Crypt_Rock2', 'Crypt_Rock3', 'Crypt_Rock4', 'Crypt_Rock5',
+  'Crypt_Stairs', 'Crypt_Torch', 'Crypt_Torch_wall', 'Crypt_WallRocks',
+  'Crypt_Window',
+] as const
+
 /** A palette section: a human label + the model dir + the kinds it offers. */
 export interface PropCategory {
   label: string
@@ -111,6 +169,9 @@ export const PROP_CATALOG: PropCategory[] = [
   { label: 'Ruins', dir: 'props', names: PROP_NAMES },
   { label: 'Ruins decor', dir: 'props', names: PROP_DECOR_NAMES },
   { label: 'Fantasy', dir: 'fantasy', names: FANTASY_NAMES },
+  { label: 'Dungeon', dir: 'dungeon', names: DUNGEON_NAMES },
+  { label: 'Castle', dir: 'castle', names: CASTLE_NAMES },
+  { label: 'Crypt', dir: 'crypt', names: CRYPT_NAMES },
 ]
 
 /** Every valid prop kind — the allow-list the save route validates against. */
