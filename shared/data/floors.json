@@ -118,1358 +118,2328 @@
         "x": 4,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 6,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 16,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 18,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 20,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 22,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 24,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 26,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 28,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 30,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 32,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 34,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 36,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 38,
         "y": 3,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 32,
         "y": 7,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 34,
         "y": 7,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 16,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 18,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 20,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 22,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 28,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 30,
         "y": 11,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 4,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 6,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 20,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 22,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 24,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 26,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 28,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 30,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 32,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 34,
         "y": 15,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 16,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 18,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 32,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 34,
         "y": 19,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 4,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 6,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 24,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 26,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 28,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 30,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 36,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 38,
         "y": 23,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 16,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 18,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 20,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 22,
         "y": 27,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 4,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 6,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 24,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 26,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 32,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 34,
         "y": 31,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 16,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 18,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 20,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 22,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 28,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 30,
         "y": 35,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 4,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 6,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 8,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 10,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 12,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 14,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 16,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 18,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 20,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 22,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 24,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 26,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 28,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 30,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 32,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 34,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 36,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 38,
         "y": 39,
         "rot": 0,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 4,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 6,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 12,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 14,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 16,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 18,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 20,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 22,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 24,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 26,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 28,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 30,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 32,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 34,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 36,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 3,
         "y": 38,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 4,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 6,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 12,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 14,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 16,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 11,
         "y": 18,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 15,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 15,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 15,
         "y": 32,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 15,
         "y": 34,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 4,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 6,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 16,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 18,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 20,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 22,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 28,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 30,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 32,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 19,
         "y": 34,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 12,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 14,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 20,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 22,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 24,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 23,
         "y": 26,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 4,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 6,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 16,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 18,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 32,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 27,
         "y": 34,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 20,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 22,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 24,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 26,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 28,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 30,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 36,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 31,
         "y": 38,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 12,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 14,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 24,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 26,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 32,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 35,
         "y": 34,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 4,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 6,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 8,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 10,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 12,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 14,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 16,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 18,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 20,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 22,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 24,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 26,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 28,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 30,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 32,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 34,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 36,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Wall_Modular",
         "x": 39,
         "y": 38,
         "rot": 1.5707963267948966,
-        "scale": 1
+        "scale": 1,
+        "s3": [
+          1,
+          1.94,
+          1
+        ]
       },
       {
         "kind": "Dungeon_Torch",

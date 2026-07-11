@@ -36,6 +36,16 @@ const OFF = 3 // margin from the floor edge
 const SIZE = OFF * 2 + CELLS * PITCH + 1 // floor grid extent (43)
 const round = n => Math.round(n * 100) / 100
 
+// Dungeon_Wall_Modular is ~2.01 units tall, but the dungeon ceiling sits at
+// WALL_HEIGHT (3.8) in MazeScene — so panels at scale 1 stop well short of it.
+// Stretch every wall vertically (Y only, via s3) so it rises from the floor to
+// just past the ceiling; sx/sz stay 1, so the collision footprint is unchanged
+// (makeProp derives bx/by from sx/sz, top from sy). Keep CEIL in sync with
+// WALL_HEIGHT in app/components/MazeScene.vue.
+const CEIL = 3.8
+const PANEL_H = 2.01
+const WALL_SY = round((CEIL + 0.1) / PANEL_H)
+
 // Wall presence on each cell's south (h) and east (v) edge; perimeter always walled.
 const h = Array.from({ length: CELLS }, () => Array.from({ length: CELLS + 1 }, () => true)) // h[cx][cy] south edge of row cy
 const v = Array.from({ length: CELLS + 1 }, () => Array.from({ length: CELLS }, () => true)) // v[cx][cy] east edge of col cx
@@ -93,7 +103,7 @@ for (let cx = 0; cx < CELLS; cx++) {
 
 // --- Emit wall panels along every remaining wall edge (perimeter included) ---
 const placements = []
-const wall = (x, y, rot) => placements.push({ kind: 'Dungeon_Wall_Modular', x: round(x), y: round(y), rot, scale: 1 })
+const wall = (x, y, rot) => placements.push({ kind: 'Dungeon_Wall_Modular', x: round(x), y: round(y), rot, scale: 1, s3: [1, WALL_SY, 1] })
 // Two 2-wide panels fill each PITCH(4)-unit edge.
 const panelOffsets = [1, 3]
 
