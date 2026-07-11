@@ -5,10 +5,6 @@
       <stop offset="0%" stop-color="#4560D6"/>
       <stop offset="100%" stop-color="#181B45"/>
     </radialGradient>
-    <linearGradient id="slime" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#D9F3FF"/>
-      <stop offset="100%" stop-color="#93B9E8"/>
-    </linearGradient>
     <clipPath id="opening">
       <path d="M 80 206 V 140 A 48 48 0 0 1 176 140 V 206 Z"/>
     </clipPath>
