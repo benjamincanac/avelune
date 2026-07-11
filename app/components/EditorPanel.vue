@@ -285,14 +285,16 @@ function onExit() {
     </div>
 
     <!-- Left: prop palette. -->
-    <div class="pointer-events-auto absolute bottom-4 left-4 top-4 flex w-60 flex-col gap-2 rounded-lg bg-black/45 p-3 backdrop-blur">
+    <div class="pointer-events-auto absolute bottom-4 left-4 top-4 flex w-60 flex-col gap-3 rounded-lg bg-black/45 p-3 backdrop-blur">
       <UInput
         v-model="search"
         icon="i-lucide-search"
         placeholder="Search props…"
+        variant="soft"
+        color="neutral"
         autocomplete="off"
       />
-      <div class="-mr-1 flex flex-col gap-3 overflow-y-auto pr-1">
+      <div class="-mx-3 flex flex-col gap-3 overflow-y-auto px-3">
         <div
           v-for="cat in categories"
           :key="cat.label"
