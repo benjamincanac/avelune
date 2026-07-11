@@ -653,11 +653,15 @@ export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
 
 /**
  * A display-only wall grid for the minimap/spectator/fog: the tile grid plus
- * every wall-height solid prop rasterized in (round kinds as discs, oriented
- * kinds as rotated rects). Deterministic and cheap — computed per floor on the
- * client, never read by the server. Lets free-placed architecture (the hub's
- * buildings, an authored floor's walls) actually show up on the map, which
- * reading raw `tiles` (mostly open) would not.
+ * every wall-height solid prop rasterized in. Deterministic and cheap — computed
+ * per floor on the client, never read by the server. Lets free-placed
+ * architecture (the hub's buildings, an authored floor's maze walls) show up on
+ * the map, which reading raw `tiles` (mostly open) would not.
+ *
+ * Rasterized by tile-square OVERLAP with each prop's world-space AABB — not by
+ * whether a tile *centre* falls inside the footprint. Maze wall panels are only
+ * ~0.44 thick, so they slip between tile centres and a centre test would draw an
+ * empty room; overlap makes a thin wall register on the tiles it crosses.
  */
 const DISPLAY_WALL_TOP = 1.2
 export function occupancyGrid(plan: FloorPlan): Uint8Array {
@@ -665,26 +669,26 @@ export function occupancyGrid(plan: FloorPlan): Uint8Array {
   const grid = plan.tiles.slice()
   for (const prop of plan.props) {
     if (prop.top < DISPLAY_WALL_TOP) continue
-    const minX = Math.max(0, Math.floor(prop.x - prop.r))
-    const maxX = Math.min(width - 1, Math.ceil(prop.x + prop.r))
-    const minY = Math.max(0, Math.floor(prop.y - prop.r))
-    const maxY = Math.min(height - 1, Math.ceil(prop.y + prop.r))
-    const boxed = prop.bx != null && prop.by != null
-    const c = Math.cos(prop.rot)
-    const s = Math.sin(prop.rot)
+    // World-space AABB half-extents: exact for axis-aligned boxes, a slight
+    // over-estimate for diagonal ones (fine for a map). Circles use `r`.
+    let ax = prop.r
+    let ay = prop.r
+    if (prop.bx != null && prop.by != null) {
+      const c = Math.abs(Math.cos(prop.rot))
+      const s = Math.abs(Math.sin(prop.rot))
+      ax = prop.bx * c + prop.by * s
+      ay = prop.bx * s + prop.by * c
+    }
+    const minX = Math.max(0, Math.floor(prop.x - ax))
+    const maxX = Math.min(width - 1, Math.ceil(prop.x + ax))
+    const minY = Math.max(0, Math.floor(prop.y - ay))
+    const maxY = Math.min(height - 1, Math.ceil(prop.y + ay))
     for (let ty = minY; ty <= maxY; ty++) {
       for (let tx = minX; tx <= maxX; tx++) {
-        const dx = tx + 0.5 - prop.x
-        const dy = ty + 0.5 - prop.y
-        if (boxed) {
-          const lx = dx * c + dy * s
-          const ly = -dx * s + dy * c
-          if (Math.abs(lx) > prop.bx! || Math.abs(ly) > prop.by!) continue
+        // Does tile square [tx,tx+1]×[ty,ty+1] overlap the prop's AABB?
+        if (tx < prop.x + ax && tx + 1 > prop.x - ax && ty < prop.y + ay && ty + 1 > prop.y - ay) {
+          grid[ty * width + tx] = 1
         }
-        else if (Math.hypot(dx, dy) > prop.r) {
-          continue
-        }
-        grid[ty * width + tx] = 1
       }
     }
   }
