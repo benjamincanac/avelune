@@ -1,41 +1,65 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- Tempest: the great door. A stone archway around the glowing dungeon gate. -->
+  <!-- Tempest: the rift gate. The colosseum arch, the swirling portal, and
+       the slime at the threshold. -->
   <defs>
-    <linearGradient id="portal" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#CCE9F6"/>
-      <stop offset="45%" stop-color="#93B9E8"/>
-      <stop offset="100%" stop-color="#2A4B6C"/>
-    </linearGradient>
-    <radialGradient id="halo" cx="50%" cy="42%" r="60%">
-      <stop offset="0%" stop-color="#93B9E8" stop-opacity="0.6"/>
-      <stop offset="100%" stop-color="#93B9E8" stop-opacity="0"/>
+    <radialGradient id="halo" cx="50%" cy="45%" r="58%">
+      <stop offset="0%" stop-color="#6FB7FF" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#6FB7FF" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="rift" cx="50%" cy="48%" r="65%">
+      <stop offset="0%" stop-color="#3E58C9"/>
+      <stop offset="60%" stop-color="#2B2E7C"/>
+      <stop offset="100%" stop-color="#181B45"/>
+    </radialGradient>
+    <linearGradient id="slime" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D9F3FF"/>
+      <stop offset="100%" stop-color="#93B9E8"/>
+    </linearGradient>
+    <clipPath id="opening">
+      <path d="M 86 202 V 142 A 42 42 0 0 1 170 142 V 202 Z"/>
+    </clipPath>
   </defs>
 
-  <rect width="256" height="256" rx="56" fill="#0b0e15"/>
+  <rect width="256" height="256" rx="56" fill="#0A0F1D"/>
+  <ellipse cx="128" cy="142" rx="96" ry="96" fill="url(#halo)"/>
 
-  <g transform="translate(128 137) scale(1.12) translate(-128 -137)">
-  <!-- Portal halo spilling out of the gate. -->
-  <ellipse cx="128" cy="140" rx="92" ry="98" fill="url(#halo)"/>
+  <!-- Stone gate: round arch on stepped plinths. -->
+  <path d="M 66 202 V 138 A 62 62 0 0 1 190 138 V 202 Z" fill="#8FA0BE"/>
+  <rect x="54" y="202" width="148" height="14" rx="5" fill="#8FA0BE"/>
+  <rect x="44" y="216" width="168" height="11" rx="5" fill="#66779A"/>
 
-  <!-- Stone frame: pointed arch on a plinth. -->
-  <path d="M 76 198 V 144 Q 76 92 128 58 Q 180 92 180 144 V 198 Z" fill="#e8ecf3"/>
-  <rect x="62" y="198" width="132" height="16" rx="5" fill="#e8ecf3"/>
-  <rect x="52" y="214" width="152" height="12" rx="5" fill="#c3cad6"/>
-
-  <!-- Masonry seams. -->
-  <g stroke="#0b0e15" stroke-opacity="0.22" stroke-width="4" fill="none">
-    <path d="M 76 160 H 96 M 160 160 H 180"/>
-    <path d="M 82 112 H 100 M 156 112 H 174"/>
+  <!-- Glowing runes on the pylons. -->
+  <g fill="#8fe0ff">
+    <rect x="72" y="148" width="9" height="9" rx="2" transform="rotate(45 76.5 152.5)"/>
+    <rect x="72" y="170" width="9" height="9" rx="2" transform="rotate(45 76.5 174.5)" opacity="0.75"/>
+    <rect x="175" y="148" width="9" height="9" rx="2" transform="rotate(45 179.5 152.5)"/>
+    <rect x="175" y="170" width="9" height="9" rx="2" transform="rotate(45 179.5 174.5)" opacity="0.75"/>
   </g>
 
-  <!-- The dungeon gate. -->
-  <path d="M 96 198 V 148 Q 96 110 128 86 Q 160 110 160 148 V 198 Z" fill="url(#portal)"/>
-  <!-- The glowing seam down the middle (the door ajar). -->
-  <rect x="125" y="92" width="6" height="106" rx="3" fill="#F7FCFC" opacity="0.85"/>
+  <!-- The rift. -->
+  <path d="M 86 202 V 142 A 42 42 0 0 1 170 142 V 202 Z" fill="url(#rift)"/>
+  <g clip-path="url(#opening)">
+    <g fill="none" stroke-linecap="round">
+      <g transform="rotate(-30 128 146)">
+        <path d="M 128 115 a 31 31 0 1 1 -31 31" stroke="#79C6FF" stroke-width="10"/>
+      </g>
+      <g transform="rotate(100 128 146)">
+        <path d="M 128 126 a 20 20 0 1 1 -20 20" stroke="#A5DEFF" stroke-width="9"/>
+      </g>
+      <g transform="rotate(230 128 146)">
+        <path d="M 128 136 a 10 10 0 1 1 -10 10" stroke="#E9F8FF" stroke-width="8"/>
+      </g>
+    </g>
+    <circle cx="128" cy="146" r="6" fill="#F4FBFF"/>
+    <circle cx="104" cy="122" r="2.4" fill="#BFE8FF" opacity="0.9"/>
+    <circle cx="157" cy="170" r="2" fill="#BFE8FF" opacity="0.7"/>
+  </g>
 
-  <!-- A runner's spark, about to step through. -->
-  <circle cx="128" cy="170" r="8" fill="#F7FCFC"/>
-  <circle cx="128" cy="170" r="14" fill="none" stroke="#F7FCFC" stroke-width="3" opacity="0.45"/>
+  <!-- The slime, waiting at the threshold. -->
+  <path d="M 98 200 C 98 180 108 168 122 165 C 126 156 134 157 133 166 C 148 169 158 181 158 200 C 158 203 155 204 152 204 H 104 C 100 204 98 203 98 200 Z" fill="url(#slime)"/>
+  <ellipse cx="114" cy="180" rx="6.5" ry="9.5" transform="rotate(-24 114 180)" fill="#ffffff" opacity="0.55"/>
+  <g fill="none" stroke="#2E4A6B" stroke-width="2.6" stroke-linecap="round">
+    <path d="M 114 187 q 4.5 -4.5 9 0"/>
+    <path d="M 133 187 q 4.5 -4.5 9 0"/>
   </g>
 </svg>

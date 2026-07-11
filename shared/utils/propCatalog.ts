@@ -165,7 +165,7 @@ export interface PropCategory {
  */
 export const PROP_CATALOG: PropCategory[] = [
   { label: 'Nature', dir: 'nature', names: NATURE_NAMES },
-  { label: 'Village', dir: 'village', names: VILLAGE_NAMES },
+  // { label: 'Village', dir: 'village', names: VILLAGE_NAMES },
   { label: 'Ruins', dir: 'props', names: PROP_NAMES },
   { label: 'Ruins decor', dir: 'props', names: PROP_DECOR_NAMES },
   { label: 'Fantasy', dir: 'fantasy', names: FANTASY_NAMES },

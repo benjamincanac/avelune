@@ -263,7 +263,7 @@ export function useGame(): UseGame {
           // Greet once per session — reconnects re-send `welcome`, but silently.
           if (!greeted) {
             greeted = true
-            announce(`Welcome to Tempest, ${msg.self.name}. Step through the great door to begin your descent. Press Esc for the menu.`)
+            announce(`Welcome to Tempest, ${msg.self.name}. Step through the great door to begin your descent. Talk to the Oracle to learn the rules. Press Esc for the menu.`)
           }
         }
         break
