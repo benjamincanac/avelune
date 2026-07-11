@@ -3,6 +3,7 @@ import { HUB_FLOOR, HUB_LAYOUT } from '#shared/utils/maze'
 import propsSeed from '#shared/data/hub-props.json'
 import structureSeed from '#shared/data/hub-structure.json'
 import floorsSeed from '#shared/data/floors.json'
+import oracleSeed from '#shared/data/hub-oracle.json'
 
 /**
  * Shared state for the dev-only world editor.
@@ -33,11 +34,14 @@ export interface EditorPlacement extends HubPropPlacement {
 /** Active editor interaction mode. */
 export type EditorTool = 'select' | 'trap' | 'marker'
 
+/** A draggable point marker: the floor spawn/exit, or the hub Oracle. */
+export type MarkerKind = 'start' | 'exit' | 'oracle'
+
 /** What the inspector is editing. */
 export type EditorSelection
   = { type: 'placement', index: number }
     | { type: 'trap', index: number }
-    | { type: 'marker', which: 'start' | 'exit' }
+    | { type: 'marker', which: MarkerKind }
     | null
 
 /** One floor's editable working copy. Floor 0 is the hub (size/biome fixed). */
@@ -47,6 +51,8 @@ export interface EditorFloorDoc {
   biome: number
   start: { x: number, y: number }
   exit: { x: number, y: number }
+  /** Hub only: the Oracle NPC's position (a draggable marker). */
+  oracle?: { x: number, y: number }
   traps: Trap[]
   placements: EditorPlacement[]
 }
@@ -60,6 +66,7 @@ const cloneDoc = (d: EditorFloorDoc): EditorFloorDoc => ({
   ...d,
   start: { ...d.start },
   exit: { ...d.exit },
+  ...(d.oracle ? { oracle: { ...d.oracle } } : {}),
   traps: d.traps.map(cloneTrap),
   placements: d.placements.map(clonePlacement),
 })
@@ -72,6 +79,7 @@ function seedDocs(): EditorFloorDoc[] {
     biome: -1,
     start: { ...HUB_LAYOUT.start },
     exit: { ...HUB_LAYOUT.exit },
+    oracle: { x: (oracleSeed as [number, number])[0], y: (oracleSeed as [number, number])[1] },
     traps: [],
     placements: [
       ...(propsSeed as HubPropPlacement[]).map(p => ({ ...clonePlacement(p), layer: 'props' as const })),
@@ -271,7 +279,8 @@ export function useEditor() {
           traps: d.traps.map(cloneTrap),
           placements: d.placements.map(strip),
         }))
-      await $fetch('/api/editor/save', { method: 'POST', body: { hubProps, hubStructure, floors } })
+      const oracle: [number, number] | undefined = hub.oracle ? [hub.oracle.x, hub.oracle.y] : undefined
+      await $fetch('/api/editor/save', { method: 'POST', body: { hubProps, hubStructure, floors, oracle } })
       // Everything on disk now matches the working copy: each floor's current
       // index becomes its saved baseline, and nothing is dirty.
       for (const h of Object.values(histories.value)) h.savedIndex = h.index
@@ -292,8 +301,12 @@ export function useEditor() {
     currentFloor,
     placements,
     traps,
-    /** The active floor's spawn/exit markers (the reactive doc objects). */
-    getMarkers: () => ({ start: current.value.start, exit: current.value.exit }),
+    /** The active floor's draggable markers (the reactive doc objects). The hub
+     *  exposes only the Oracle; dungeon floors expose spawn + exit. */
+    getMarkers: (): Partial<Record<MarkerKind, { x: number, y: number }>> =>
+      current.value.floor === HUB_FLOOR
+        ? (current.value.oracle ? { oracle: current.value.oracle } : {})
+        : { start: current.value.start, exit: current.value.exit },
     selection,
     selected,
     tool,

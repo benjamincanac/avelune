@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { PROP_CATALOG } from '#shared/utils/propCatalog'
 import { BIOMES, HUB_FLOOR, isSolidProp } from '#shared/utils/maze'
+import type { EditorTool } from '~/composables/useEditor'
 
 /**
  * 2D overlay for the dev world editor. Pure HUD chrome over the live scene — a
@@ -43,13 +44,17 @@ function removeFloor() {
   if (confirm(`Delete Floor ${maxFloor.value}? This can't be undone after saving.`)) editor.deleteFloor()
 }
 
-// Tools (dungeon floors only): place/select props, drop traps, drag spawn/exit.
+// Tools: select/place props everywhere; drop traps + drag spawn/exit on dungeon
+// floors; drag the Oracle marker on the hub.
 const tool = editor.tool
-const tools = [
-  { value: 'select' as const, label: 'Select', icon: 'i-lucide-mouse-pointer-2' },
-  { value: 'trap' as const, label: 'Trap', icon: 'i-lucide-circle-dot' },
-  { value: 'marker' as const, label: 'Spawn / Exit', icon: 'i-lucide-flag' },
-]
+const tools = computed(() => {
+  const t: { value: EditorTool, label: string, icon: string }[] = [
+    { value: 'select', label: 'Select', icon: 'i-lucide-mouse-pointer-2' },
+  ]
+  if (!isHub.value) t.push({ value: 'trap', label: 'Trap', icon: 'i-lucide-circle-dot' })
+  t.push({ value: 'marker', label: isHub.value ? 'Oracle' : 'Spawn / Exit', icon: isHub.value ? 'i-lucide-sparkles' : 'i-lucide-flag' })
+  return t
+})
 
 /** The selected trap, when a trap is the current selection. */
 const selTrap = computed(() => {
@@ -258,9 +263,9 @@ function onExit() {
       </template>
     </div>
 
-    <!-- Tool selector (dungeon floors): place props, drop traps, drag markers. -->
+    <!-- Tool selector: select/place everywhere; trap + spawn/exit on floors;
+         the Oracle marker on the hub. -->
     <div
-      v-if="!isHub"
       class="pointer-events-auto absolute left-1/2 top-28 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-black/45 px-1.5 py-1 backdrop-blur"
     >
       <button
@@ -285,7 +290,6 @@ function onExit() {
         v-model="search"
         icon="i-lucide-search"
         placeholder="Search props…"
-        size="xs"
         autocomplete="off"
       />
       <div class="-mr-1 flex flex-col gap-3 overflow-y-auto pr-1">
@@ -296,26 +300,26 @@ function onExit() {
           <div class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
             {{ cat.label }}
           </div>
-          <div class="flex flex-col gap-0.5">
+          <div class="flex flex-col">
             <button
               v-for="kind in cat.names"
               :key="kind"
               type="button"
               class="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] transition-colors"
-              :class="editor.paletteKind.value === kind ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
+              :class="editor.paletteKind.value === kind ? 'bg-primary text-inverted' : 'hover:bg-white/5'"
               @click="arm(kind)"
             >
               <img
                 :src="`/thumbnails/${kind}.png`"
                 alt=""
                 loading="lazy"
-                class="size-8 shrink-0 rounded bg-black/20 object-contain"
+                class="size-6 shrink-0 rounded-md bg-black/20 object-contain"
                 @error="onThumbError"
               >
               <span class="flex-1 truncate">{{ kind }}</span>
               <UIcon
                 v-if="isSolidProp(kind)"
-                name="i-lucide-shield"
+                name="i-lucide-brick-wall"
                 class="size-3 shrink-0 opacity-60"
                 title="Solid (collides)"
               />

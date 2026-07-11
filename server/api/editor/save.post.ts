@@ -50,6 +50,9 @@ const Body = z.object({
   hubProps: z.array(Piece).max(2000),
   hubStructure: z.array(Piece).max(4000),
   floors: z.array(Floor).max(64),
+  /** The hub Oracle NPC position `[x, y]` (a top-level array — a top-level-object
+   *  JSON would crash the Nitro-beta dev worker). Optional. */
+  oracle: z.tuple([finite, finite]).optional(),
 })
 
 const normPiece = (p: z.infer<typeof Piece>) => ({
@@ -107,6 +110,10 @@ export default defineEventHandler(async (event) => {
     })),
     placements: f.placements.map(normPiece),
   })))
+  if (parsed.data.oracle) {
+    const [ox, oy] = parsed.data.oracle
+    await write('hub-oracle.json', [round3(ox), round3(oy)])
+  }
 
   return { ok: true as const, hubProps: hubProps.length, hubStructure: hubStructure.length, floors: sorted.length }
 })

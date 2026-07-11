@@ -17,7 +17,7 @@ import type { Object3D, PerspectiveCamera, Scene } from 'three'
 import { watch } from 'vue'
 import type { Ref, WatchStopHandle } from 'vue'
 import type { Trap } from '#shared/utils/maze'
-import type { EditorPlacement, EditorSelection, EditorTool } from '~/composables/useEditor'
+import type { EditorPlacement, EditorSelection, EditorTool, MarkerKind } from '~/composables/useEditor'
 import { PALETTE_HEX } from '~/utils/palette'
 
 /**
@@ -32,8 +32,9 @@ interface EditorState {
   tool: Ref<EditorTool>
   paletteKind: Ref<string | null>
   dirty: Ref<boolean>
-  /** The active floor's spawn/exit markers (reactive; mutated in the 'marker' tool). */
-  getMarkers: () => { start: { x: number, y: number }, exit: { x: number, y: number } }
+  /** The active floor's draggable markers (reactive; mutated in the 'marker'
+   *  tool). Hub exposes `oracle`; dungeon floors expose `start` + `exit`. */
+  getMarkers: () => Partial<Record<MarkerKind, { x: number, y: number }>>
   /** Snapshot the active floor as an undo step (also marks dirty). */
   commit: () => void
   undo: () => void
@@ -144,7 +145,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   type DragTarget
     = { kind: 'placement', index: number }
       | { kind: 'trap', index: number }
-      | { kind: 'marker', which: 'start' | 'exit' }
+      | { kind: 'marker', which: MarkerKind }
   let dragTarget: DragTarget | null = null
   let dragging = false
   let dragStartX = 0
@@ -214,8 +215,10 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       ring.position.set(x, 0.07, y)
       gizmoGroup.add(ring)
     }
-    marker(m.start.x, m.start.y, '#22c55e', sel?.type === 'marker' && sel.which === 'start')
-    marker(m.exit.x, m.exit.y, '#8b7bff', sel?.type === 'marker' && sel.which === 'exit')
+    const hex: Record<MarkerKind, string> = { start: '#22c55e', exit: '#8b7bff', oracle: '#7fd0ff' }
+    for (const [which, pos] of Object.entries(m) as [MarkerKind, { x: number, y: number }][]) {
+      marker(pos.x, pos.y, hex[which], sel?.type === 'marker' && sel.which === which)
+    }
   }
 
   /** Index of the trap within `r` tiles of a ground point, or null. */
@@ -232,13 +235,18 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     return best
   }
 
-  /** The spawn/exit marker within `r` tiles of a ground point, or null. */
-  function nearestMarker(g: { x: number, y: number }, r = 1.2): 'start' | 'exit' | null {
-    const m = editor.getMarkers()
-    const ds = (m.start.x - g.x) ** 2 + (m.start.y - g.y) ** 2
-    const de = (m.exit.x - g.x) ** 2 + (m.exit.y - g.y) ** 2
-    if (Math.min(ds, de) > r * r) return null
-    return ds <= de ? 'start' : 'exit'
+  /** The marker within `r` tiles of a ground point, or null (nearest wins). */
+  function nearestMarker(g: { x: number, y: number }, r = 1.2): MarkerKind | null {
+    let best: MarkerKind | null = null
+    let bestD = r * r
+    for (const [which, pos] of Object.entries(editor.getMarkers()) as [MarkerKind, { x: number, y: number }][]) {
+      const d = (pos.x - g.x) ** 2 + (pos.y - g.y) ** 2
+      if (d < bestD) {
+        bestD = d
+        best = which
+      }
+    }
+    return best
   }
 
   function rebuild() {

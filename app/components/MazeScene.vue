@@ -81,6 +81,7 @@ import {
   VILLAGE_NAMES,
 } from '#shared/utils/propCatalog'
 import HUB_STRUCTURE from '#shared/data/hub-structure.json'
+import HUB_ORACLE from '#shared/data/hub-oracle.json'
 import { composeColosseum } from '~/utils/composeColosseum'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
@@ -492,8 +493,14 @@ let hubPortal: Portal | null = null
 // Hub Oracle NPC — a monster (Quaternius Ultimate Monsters) as the tower's
 // ancient seer, standing just west of the portal. Declared here (before the
 // synchronous initial buildFloor) so buildFloor can reset it on floor changes.
-/** Where the Oracle stands, in tiles — on the plaza rim, SE of the hub portal (exit is 20,26). */
-const ORACLE_TILE = { x: 24.2, y: 28.6 }
+/** Where the Oracle stands, in tiles. Editable via the hub 'Oracle' marker: in
+ *  the editor it follows the live (draggable) marker; in play it's the saved
+ *  position from hub-oracle.json. */
+function oraclePos(): { x: number, y: number } {
+  if (props.editor && ed?.current.value.oracle) return ed.current.value.oracle
+  const [x, y] = HUB_ORACLE as [number, number]
+  return { x, y }
+}
 /** Within this many tiles the runner may consult it (drives the HUD prompt). */
 const ORACLE_NEAR = 7
 interface OracleRig {
@@ -1908,10 +1915,11 @@ function createOracleRig(): OracleRig | null {
     if (obj instanceof Mesh) obj.castShadow = true
   })
   group.add(model)
-  group.position.set(ORACLE_TILE.x, -raw.min.y * scale, ORACLE_TILE.y)
-  // Face south toward the plaza, watching runners come up from the spawn. (Flip
-  // by Math.PI if the source model turns out to face the other way.)
-  group.rotation.y = Math.atan2(HUB_LAYOUT.exit.x - ORACLE_TILE.x, HUB_LAYOUT.start.y - ORACLE_TILE.y)
+  const op = oraclePos()
+  group.position.set(op.x, -raw.min.y * scale, op.y)
+  // Face toward the arena centre, watching runners. (Flip by Math.PI if the
+  // source model turns out to face the other way.)
+  group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
 
   const mixer = new AnimationMixer(model)
   const idle = oracleClips.find(clip => clip.name === 'Idle') ?? oracleClips[0]
@@ -2270,8 +2278,14 @@ onBeforeRender(({ delta, elapsed }) => {
   // bubble when it speaks in chat, and track proximity (drives the hub hint).
   if (currentPlan.floor === HUB_FLOOR) {
     oracleRig ??= createOracleRig()
+    const op = oraclePos()
     if (oracleRig) {
       oracleRig.mixer.update(dt)
+      // Follow the editable Oracle marker (live while dragging in the editor;
+      // constant in play). Keep it facing the arena centre.
+      oracleRig.group.position.x = op.x
+      oracleRig.group.position.z = op.y
+      oracleRig.group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
       const speech = oracle.speech.value
       if (speech && speech.until > now) {
         if (oracleRig.bubbleText !== speech.text) {
@@ -2289,7 +2303,7 @@ onBeforeRender(({ delta, elapsed }) => {
         oracleRig.bubbleText = ''
       }
     }
-    const dist = self ? Math.hypot(local.x - ORACLE_TILE.x, local.y - ORACLE_TILE.y) : Infinity
+    const dist = self ? Math.hypot(local.x - op.x, local.y - op.y) : Infinity
     oracle.near.value = dist < ORACLE_NEAR
   }
   else if (oracle.near.value) {
