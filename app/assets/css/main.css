@@ -1,21 +1,36 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
 
-@theme {
+@theme static {
   --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, monospace;
 
-  --color-green-50: #EFFDF5;
-  --color-green-100: #D9FBE8;
-  --color-green-200: #B3F5D1;
-  --color-green-300: #75EDAE;
-  --color-green-400: #00DC82;
-  --color-green-500: #00C16A;
-  --color-green-600: #00A155;
-  --color-green-700: #007F45;
-  --color-green-800: #016538;
-  --color-green-900: #0A5331;
-  --color-green-950: #052E16;
+  --color-blue-50: #F5F9FD;
+  --color-blue-100: #E7F1FA;
+  --color-blue-200: #CCE9F6;
+  --color-blue-300: #B0D3EF;
+  --color-blue-400: #93B9E8;
+  --color-blue-500: #6E99D4;
+  --color-blue-600: #4E7EBE;
+  --color-blue-700: #3A71A4;
+  --color-blue-800: #305C86;
+  --color-blue-900: #2A4B6C;
+  --color-blue-950: #1B2F45;
+
+  --color-tempest-50: #EEF8FF;
+  --color-tempest-100: #D0E1F0;
+  --color-tempest-200: #A3B1C6;
+  --color-tempest-300: #5CC8E4;
+  --color-tempest-400: #00DDEB;
+  --color-tempest-500: #0681B4;
+  --color-tempest-600: #0A5C8A;
+  --color-tempest-700: #112A43;
+  --color-tempest-800: #0C1A2F;
+  --color-tempest-900: #071120;
+  --color-tempest-950: #040A14;
+
+  /* Custom Gradient Utility utilizing the scale */
+  --background-image-login-button: linear-gradient(180deg, var(--color-tempest-300) 0%, var(--color-tempest-500) 100%);
 }
 
 .dark {

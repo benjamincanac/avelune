@@ -1,4 +1,4 @@
-// Spawn wandering bot players against a running Mugen server (local or prod).
+// Spawn wandering bot players against a running Tempest server (local or prod).
 //
 // Each bot mints a signed identity cookie via `POST /api/auth` (the same path
 // the onboarding flow uses), then opens an authenticated WebSocket to
@@ -30,7 +30,7 @@ function flag(name, fallback) {
   return next && !next.startsWith('--') ? next : true
 }
 
-const BASE = String(flag('url', 'https://mugen-tower.vercel.app')).replace(/\/$/, '')
+const BASE = String(flag('url', 'https://tempest-tower.vercel.app')).replace(/\/$/, '')
 const WS_URL = BASE.replace(/^http/, 'ws') + '/api/ws'
 const COUNT = Math.max(1, Number(flag('count', 3)) || 3)
 const RADIUS = Number(flag('radius', 5)) || 5 // wander radius around spawn (tiles)
@@ -167,9 +167,9 @@ class Bot {
     })
     if (!res.ok) throw new Error(`auth ${res.status}`)
     const jar = res.headers.getSetCookie?.() ?? []
-    const mugen = jar.map(c => c.split(';')[0]).find(c => c.startsWith('mugen_id='))
-    if (!mugen) throw new Error('no mugen_id cookie')
-    this.cookie = mugen
+    const idCookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('tempest_id='))
+    if (!idCookie) throw new Error('no tempest_id cookie')
+    this.cookie = idCookie
     this.name = appearance.username
   }
 

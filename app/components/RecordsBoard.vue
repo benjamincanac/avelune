@@ -2,10 +2,10 @@
 import type { FloorRecord } from '#shared/types/game'
 
 /**
- * The "Fastest clears today" board — today's best clear time per floor. Shared
- * across the login gate, the in-game HUD, and the spectator view so all three
- * present records identically. Purely presentational: the caller supplies the
- * records (from `useGame().records` in-game, or `GET /api/records` on the gate).
+ * The "Fastest clears" board — the best clear time per floor. Shared across the
+ * login gate, the in-game HUD, and the spectator view so all three present
+ * records identically. Purely presentational: the caller supplies the records
+ * (from `useGame().records` in-game, or `GET /api/records` on the gate).
  */
 defineProps<{ records: FloorRecord[] }>()
 
@@ -22,7 +22,7 @@ function formatMs(ms: number): string {
         name="i-lucide-timer"
         class="size-3 text-[#ffd166]"
       />
-      Fastest clears today
+      Fastest clears
     </p>
     <p
       v-if="!records.length"

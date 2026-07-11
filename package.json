@@ -1,15 +1,15 @@
 {
-  "name": "mugen",
+  "name": "tempest",
   "private": true,
   "type": "module",
-  "description": "Mugen — a persistent 3D tower on Vercel WebSockets. An authoritative Nitro game loop simulating a shared daily tower, rendered with TresJS, over one realtime connection per player.",
+  "description": "Tempest — a multiplayer colosseum dungeon on Vercel WebSockets. An authoritative Nitro game loop simulating a shared, hand-built dungeon, rendered with TresJS, over one realtime connection per player.",
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=24"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benjamincanac/mugen.git"
+    "url": "git+https://github.com/benjamincanac/tempest.git"
   },
   "author": {
     "name": "Benjamin Canac",

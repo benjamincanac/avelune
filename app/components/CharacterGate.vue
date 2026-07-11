@@ -101,11 +101,11 @@ onMounted(() => input.value?.inputRef?.focus())
     <div class="absolute left-6 top-5 z-10 flex items-center gap-2.5">
       <img
         src="/logo.svg"
-        alt="Mugen"
+        alt="Tempest"
         class="size-9 rounded-md"
       >
       <div class="flex flex-col leading-tight">
-        <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">MUGEN</span>
+        <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">TEMPEST</span>
         <span class="text-[11px] text-muted">Create your runner</span>
       </div>
     </div>

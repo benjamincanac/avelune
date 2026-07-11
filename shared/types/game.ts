@@ -26,7 +26,7 @@ export interface Player {
   angle: number
   /** Current floor (0 = hub). */
   floor: number
-  /** Deepest floor reached today. */
+  /** Deepest floor reached. */
   best: number
   deaths: number
 }
@@ -84,10 +84,9 @@ export type ServerMessage
     /** A hazard killed someone; they're back in the hub. */
     | { t: 'death', id: string, floor: number, cause: string }
     /** Someone left `floor` for `to`: the next floor down, or — stepping onto
-     *  the hub portal — their deepest floor today, resuming their climb. */
+     *  the hub door — their deepest floor, resuming their climb (or the hub,
+     *  when they clear the deepest authored floor). */
     | { t: 'clear', id: string, name: string, floor: number, to: number, ms: number, best: number, record: boolean }
-    /** Midnight UTC rollover: a new tower, everyone back to the hub. */
-    | { t: 'maze', seed: number, players: Player[] }
     /** This identity connected from another tab/window and that newer socket
      *  took over — only one live session per player is allowed. The client
      *  shows the reason and stops reconnecting (a reconnect would kick the new

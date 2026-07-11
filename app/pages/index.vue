@@ -12,7 +12,7 @@ const oracle = useOracle()
 
 /** Set before a "play here" reload from the kicked overlay: on the next load
  *  the entry flow drops straight into the hub instead of the menu. */
-const PLAY_REENTER_KEY = 'mugen:play-reenter'
+const PLAY_REENTER_KEY = 'tempest:play-reenter'
 
 const gameRoot = useTemplateRef('gameRoot')
 const gameScene = useTemplateRef('gameScene')
@@ -54,12 +54,17 @@ onMounted(async () => {
   }
   view.value = 'menu'
 
-  // A save in the prop editor rewrites hub-props.json, which triggers a full
-  // dev reload; drop straight back into the editor so the round-trip is seamless.
-  if (import.meta.dev && sessionStorage.getItem(EDITOR_REENTER_KEY)) {
-    sessionStorage.removeItem(EDITOR_REENTER_KEY)
-    edit()
-    return
+  // A save in the world editor rewrites the layout JSON, which triggers a full
+  // dev reload; drop straight back into the editor on the same floor so the
+  // round-trip is seamless. The stored value is the floor index that was active.
+  if (import.meta.dev) {
+    const reenter = sessionStorage.getItem(EDITOR_REENTER_KEY)
+    if (reenter != null) {
+      sessionStorage.removeItem(EDITOR_REENTER_KEY)
+      useEditor().switchFloor(Number(reenter))
+      edit()
+      return
+    }
   }
 
   // "Play here" from the kicked overlay reloads to take the session back; drop
@@ -303,8 +308,8 @@ watch(game.lastClear, (clear: ClearEvent | null) => {
   if (isSelf && clear.floor === HUB_FLOOR) {
     game.announce(
       clear.to > HUB_FLOOR + 1
-        ? `The circle returns you to Floor ${clear.to}, ${BIOMES[biomeIndex(clear.to)]!.name} — right where you left off.`
-        : 'The circle takes you — Floor 1, Stone Dungeon. Find the green portal, and mind the spikes.',
+        ? `The door returns you to Floor ${clear.to}, ${BIOMES[biomeIndex(clear.to)]!.name} — right where you left off.`
+        : 'The door takes you — Floor 1, Stone Dungeon. Find the way down, and mind the spikes.',
     )
     return
   }
@@ -383,7 +388,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
           <span class="text-xs text-muted">
             <span v-if="floorTime">⏱ {{ floorTime }}</span>
             <span v-if="selfBest > 0"> · deepest: F{{ selfBest }}</span>
-            <span v-else> · step on the circle</span>
+            <span v-else> · step through the door</span>
           </span>
         </div>
       </header>

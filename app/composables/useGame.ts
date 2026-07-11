@@ -1,7 +1,7 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { ClientMessage, FloorRecord, MoveInput, Player, ServerMessage } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
-import { dateSeed, generateFloor } from '#shared/utils/maze'
+import { HUB_FLOOR, TOWER_SEED, generateFloor } from '#shared/utils/maze'
 
 export interface GamePlayer extends Player {
   /** Render position/heading, smoothly interpolated toward the server state. */
@@ -207,7 +207,7 @@ export function useGame(): UseGame {
     const key = `${seed.value}:${self.floor}`
     let width = planDims.get(key)
     if (width == null) {
-      width = generateFloor(self.floor, seed.value ?? dateSeed()).width
+      width = generateFloor(self.floor, seed.value ?? TOWER_SEED).width
       planDims.set(key, width)
     }
     const plan = { width, height: width }
@@ -263,7 +263,7 @@ export function useGame(): UseGame {
           // Greet once per session — reconnects re-send `welcome`, but silently.
           if (!greeted) {
             greeted = true
-            announce(`Welcome to the tower, ${msg.self.name}. Step onto the portal to begin your ascent. Press Esc for the menu.`)
+            announce(`Welcome to Tempest, ${msg.self.name}. Step through the great door to begin your descent. Talk to the Oracle to learn the rules. Press Esc for the menu.`)
           }
         }
         break
@@ -339,20 +339,13 @@ export function useGame(): UseGame {
             { floor: msg.floor, name: msg.name, ms: msg.ms },
           ].sort((a: FloorRecord, b: FloorRecord) => a.floor - b.floor)
         }
+        // Clearing a floor whose exit sends you back to the hub means you reached
+        // the bottom of the authored dungeon (server clamps depth).
+        if (msg.id === selfId.value && msg.to === HUB_FLOOR && msg.floor > HUB_FLOOR) {
+          announce('You have conquered the deepest floor. The dungeon returns you to the colosseum — for now.')
+        }
         lastClear.value = { ...msg, at: Date.now() }
         rosterVersion.value++
-        break
-      }
-      case 'maze': {
-        seed.value = msg.seed
-        players.clear()
-        for (const player of msg.players) addPlayer(player)
-        records.value = []
-        const self = selfId.value ? players.get(selfId.value) : undefined
-        if (self) {
-          selfFloor.value = self.floor
-          floorEnteredAt.value = Date.now()
-        }
         break
       }
       case 'kicked':

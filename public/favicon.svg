@@ -1,16 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- Mugen favicon: the gate, simplified for tiny sizes. -->
+  <!-- Tempest favicon: the rift gate, simplified for tiny sizes. -->
   <defs>
-    <linearGradient id="portal" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7dffc8"/>
-      <stop offset="50%" stop-color="#00dc82"/>
-      <stop offset="100%" stop-color="#058a55"/>
-    </linearGradient>
+    <radialGradient id="rift" cx="50%" cy="48%" r="65%">
+      <stop offset="0%" stop-color="#4560D6"/>
+      <stop offset="100%" stop-color="#181B45"/>
+    </radialGradient>
+    <clipPath id="opening">
+      <path d="M 80 206 V 140 A 48 48 0 0 1 176 140 V 206 Z"/>
+    </clipPath>
   </defs>
-  <rect width="256" height="256" rx="56" fill="#0b0e15"/>
-  <g transform="translate(128 134) scale(1.18) translate(-128 -134)">
-    <path d="M 72 202 V 142 Q 72 88 128 52 Q 184 88 184 142 V 202 Z" fill="#e8ecf3"/>
-    <rect x="56" y="202" width="144" height="18" rx="6" fill="#c3cad6"/>
-    <path d="M 96 202 V 148 Q 96 108 128 82 Q 160 108 160 148 V 202 Z" fill="url(#portal)"/>
+
+  <rect width="256" height="256" rx="56" fill="#0A0F1D"/>
+
+  <path d="M 58 206 V 136 A 70 70 0 0 1 198 136 V 206 Z" fill="#8FA0BE"/>
+  <rect x="44" y="206" width="168" height="18" rx="6" fill="#66779A"/>
+
+  <path d="M 80 206 V 140 A 48 48 0 0 1 176 140 V 206 Z" fill="url(#rift)"/>
+  <g clip-path="url(#opening)" fill="none" stroke-linecap="round">
+    <g transform="rotate(-30 128 146)">
+      <path d="M 128 110 a 36 36 0 1 1 -36 36" stroke="#79C6FF" stroke-width="14"/>
+    </g>
+    <g transform="rotate(140 128 146)">
+      <path d="M 128 126 a 20 20 0 1 1 -20 20" stroke="#E9F8FF" stroke-width="12"/>
+    </g>
   </g>
+  <circle cx="128" cy="146" r="9" fill="#F4FBFF"/>
 </svg>

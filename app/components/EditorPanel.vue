@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { PROP_CATALOG } from '#shared/utils/propCatalog'
-import { isSolidProp } from '#shared/utils/maze'
+import { BIOMES, HUB_FLOOR, isSolidProp } from '#shared/utils/maze'
+import type { EditorTool } from '~/composables/useEditor'
 
 /**
- * 2D overlay for the dev hub prop editor. Pure HUD chrome over the live scene —
- * the palette arms a kind for click-to-place, the inspector edits the selected
- * prop's transform, and Save writes the working copy to the repo's JSON. All 3D
- * interaction (fly camera, picking, drag) is handled by the scene controller
+ * 2D overlay for the dev world editor. Pure HUD chrome over the live scene — a
+ * floor switcher moves between the hub and each dungeon floor, the palette arms
+ * a kind for click-to-place, the inspector edits the selected prop, and Save
+ * writes every floor's working copy to the repo's JSON. All 3D interaction (fly
+ * camera, picking, drag) is handled by the scene controller
  * (`app/utils/hubEditor.ts`); this panel only reads/writes `useEditor` state.
  */
 const emit = defineEmits<{ exit: [] }>()
@@ -15,6 +17,60 @@ const editor = useEditor()
 const toast = useToast()
 
 const search = ref('')
+
+// Floor switcher: the hub plus each authored dungeon floor, in order.
+const isHub = computed(() => editor.currentFloor.value === HUB_FLOOR)
+const floors = computed(() => editor.docs.value.map(d => ({
+  floor: d.floor,
+  label: d.floor === HUB_FLOOR ? 'Hub' : `F${d.floor}`,
+  dirty: editor.dirtyFloors.value.has(d.floor),
+})))
+const maxFloor = computed(() => Math.max(...editor.docs.value.map(d => d.floor)))
+
+// Per-floor biome (dungeon floors only), edited live.
+const biomes = BIOMES.map((b, i) => ({ label: b.name, value: i }))
+const biome = computed({
+  get: () => editor.current.value.biome,
+  set: (v: number) => {
+    editor.current.value.biome = v
+    editor.commit()
+  },
+})
+
+function addFloor() {
+  editor.createFloor()
+}
+function removeFloor() {
+  if (confirm(`Delete Floor ${maxFloor.value}? This can't be undone after saving.`)) editor.deleteFloor()
+}
+
+// Tools: select/place props everywhere; drop traps + drag spawn/exit on dungeon
+// floors; drag the Oracle marker on the hub.
+const tool = editor.tool
+const tools = computed(() => {
+  const t: { value: EditorTool, label: string, icon: string }[] = [
+    { value: 'select', label: 'Select', icon: 'i-lucide-mouse-pointer-2' },
+  ]
+  if (!isHub.value) t.push({ value: 'trap', label: 'Trap', icon: 'i-lucide-circle-dot' })
+  t.push({ value: 'marker', label: isHub.value ? 'Oracle' : 'Spawn / Exit', icon: isHub.value ? 'i-lucide-sparkles' : 'i-lucide-flag' })
+  return t
+})
+
+/** The selected trap, when a trap is the current selection. */
+const selTrap = computed(() => {
+  const s = editor.selection.value
+  return s?.type === 'trap' ? editor.traps.value[s.index] ?? null : null
+})
+function touchTrap() {
+  editor.commit()
+}
+function removeTrap() {
+  const s = editor.selection.value
+  if (s?.type !== 'trap') return
+  editor.traps.value.splice(s.index, 1)
+  editor.selection.value = null
+  editor.commit()
+}
 
 // Palette filtered by the search box; empty categories drop out.
 const categories = computed(() => {
@@ -58,6 +114,12 @@ const height = computed({
     }
   },
 })
+
+// Palette thumbnails live at /thumbnails/<kind>.png (rendered by
+// scripts/make_thumbnails). Hide the icon gracefully if one is missing.
+function onThumbError(e: Event) {
+  (e.target as HTMLImageElement).style.visibility = 'hidden'
+}
 
 function arm(kind: string) {
   editor.paletteKind.value = editor.paletteKind.value === kind ? null : kind
@@ -148,16 +210,91 @@ function onExit() {
       />
     </div>
 
+    <!-- Floor switcher: hub + each dungeon floor, new-floor, per-floor biome. -->
+    <div class="pointer-events-auto absolute left-1/2 top-16 flex -translate-x-1/2 items-center gap-1.5 rounded-lg bg-black/45 px-2 py-1.5 backdrop-blur">
+      <button
+        v-for="f in floors"
+        :key="f.floor"
+        type="button"
+        class="relative rounded px-2 py-1 text-xs font-medium transition-colors"
+        :class="editor.currentFloor.value === f.floor ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
+        @click="editor.switchFloor(f.floor)"
+      >
+        {{ f.label }}
+        <span
+          v-if="f.dirty"
+          class="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
+          title="Unsaved"
+        />
+      </button>
+      <UButton
+        icon="i-lucide-plus"
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        title="New floor"
+        @click="addFloor"
+      />
+      <template v-if="!isHub">
+        <div class="mx-0.5 h-4 w-px bg-white/15" />
+        <select
+          class="rounded bg-black/40 px-1 py-0.5 text-[11px] text-white outline-none ring-1 ring-white/10"
+          :value="biome"
+          title="Biome"
+          @change="biome = Number(($event.target as HTMLSelectElement).value)"
+        >
+          <option
+            v-for="b in biomes"
+            :key="b.value"
+            :value="b.value"
+          >
+            {{ b.label }}
+          </option>
+        </select>
+        <UButton
+          v-if="editor.currentFloor.value === maxFloor"
+          icon="i-lucide-trash-2"
+          size="xs"
+          color="error"
+          variant="ghost"
+          title="Delete this (deepest) floor"
+          @click="removeFloor"
+        />
+      </template>
+    </div>
+
+    <!-- Tool selector: select/place everywhere; trap + spawn/exit on floors;
+         the Oracle marker on the hub. -->
+    <div
+      class="pointer-events-auto absolute left-1/2 top-28 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-black/45 px-1.5 py-1 backdrop-blur"
+    >
+      <button
+        v-for="t in tools"
+        :key="t.value"
+        type="button"
+        class="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors"
+        :class="tool === t.value ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
+        @click="tool = t.value"
+      >
+        <UIcon
+          :name="t.icon"
+          class="size-3"
+        />
+        {{ t.label }}
+      </button>
+    </div>
+
     <!-- Left: prop palette. -->
-    <div class="pointer-events-auto absolute bottom-4 left-4 top-4 flex w-60 flex-col gap-2 rounded-lg bg-black/45 p-3 backdrop-blur">
+    <div class="pointer-events-auto absolute bottom-4 left-4 top-4 flex w-60 flex-col gap-3 rounded-lg bg-black/45 p-3 backdrop-blur">
       <UInput
         v-model="search"
         icon="i-lucide-search"
         placeholder="Search props…"
-        size="xs"
+        variant="soft"
+        color="neutral"
         autocomplete="off"
       />
-      <div class="-mr-1 flex flex-col gap-3 overflow-y-auto pr-1">
+      <div class="-mx-3 flex flex-col gap-3 overflow-y-auto px-3">
         <div
           v-for="cat in categories"
           :key="cat.label"
@@ -165,19 +302,26 @@ function onExit() {
           <div class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
             {{ cat.label }}
           </div>
-          <div class="flex flex-col gap-0.5">
+          <div class="flex flex-col">
             <button
               v-for="kind in cat.names"
               :key="kind"
               type="button"
-              class="flex items-center justify-between gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors"
-              :class="editor.paletteKind.value === kind ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
+              class="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] transition-colors"
+              :class="editor.paletteKind.value === kind ? 'bg-primary text-inverted' : 'hover:bg-white/5'"
               @click="arm(kind)"
             >
-              <span class="truncate">{{ kind }}</span>
+              <img
+                :src="`/thumbnails/${kind}.png`"
+                alt=""
+                loading="lazy"
+                class="size-6 shrink-0 rounded-md bg-black/20 object-contain"
+                @error="onThumbError"
+              >
+              <span class="flex-1 truncate">{{ kind }}</span>
               <UIcon
                 v-if="isSolidProp(kind)"
-                name="i-lucide-shield"
+                name="i-lucide-brick-wall"
                 class="size-3 shrink-0 opacity-60"
                 title="Solid (collides)"
               />
@@ -275,6 +419,101 @@ function onExit() {
         variant="soft"
         block
         @click="removeSelected"
+      />
+    </div>
+
+    <!-- Right: inspector for the selected trap (timed hazard). -->
+    <div
+      v-else-if="selTrap"
+      class="pointer-events-auto absolute right-4 top-4 flex w-52 flex-col gap-3 rounded-lg bg-black/45 p-3 backdrop-blur"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <span class="truncate text-sm font-semibold">Trap</span>
+        <UBadge
+          color="error"
+          variant="subtle"
+          size="sm"
+        >
+          Hazard
+        </UBadge>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <UFormField
+          label="X"
+          size="xs"
+        >
+          <UInputNumber
+            v-model="selTrap.x"
+            :step="0.5"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Y"
+          size="xs"
+        >
+          <UInputNumber
+            v-model="selTrap.y"
+            :step="0.5"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Cycle (s)"
+          size="xs"
+          help="Full period"
+        >
+          <UInputNumber
+            v-model="selTrap.period"
+            :step="0.5"
+            :min="0.5"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Active (s)"
+          size="xs"
+          help="Lethal window"
+        >
+          <UInputNumber
+            v-model="selTrap.duration"
+            :step="0.25"
+            :min="0.1"
+            :max="selTrap.period"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+        <UFormField
+          label="Phase (s)"
+          size="xs"
+          help="Cycle offset"
+        >
+          <UInputNumber
+            v-model="selTrap.phase"
+            :step="0.25"
+            :min="0"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+            @update:model-value="touchTrap"
+          />
+        </UFormField>
+      </div>
+      <UButton
+        label="Delete trap"
+        icon="i-lucide-trash-2"
+        size="xs"
+        color="error"
+        variant="soft"
+        block
+        @click="removeTrap"
       />
     </div>
 

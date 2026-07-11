@@ -1,6 +1,6 @@
-# Mugen — endless multiplayer tower
+# Tempest — multiplayer colosseum dungeon
 
-[![License: MIT](https://img.shields.io/github/license/benjamincanac/mugen?color=black)](https://github.com/benjamincanac/mugen/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/github/license/benjamincanac/tempest?color=black)](https://github.com/benjamincanac/tempest/blob/main/LICENSE)
 [![Nuxt](https://img.shields.io/badge/Nuxt-black?logo=nuxt&logoColor=00DC82)](https://nuxt.com)
 
 An endless multiplayer dungeon-crawl tower built with **Nuxt** and **[TresJS](https://tresjs.org)** on the [Vercel Functions WebSockets](https://vercel.com/docs/functions/websockets). Spawn in the hub plaza, gather your party, step onto the glowing teleport circle, and descend: every floor is a biome — weathered stone, sunken depths, verdant maze, magma halls — with its own hazards, rising difficulty, and a daily leaderboard chasing **depth**. Die to a trap and you're back in the hub, starting over.
@@ -12,7 +12,7 @@ Everything is simulated by an **authoritative game loop inside a Vercel Function
 
 ## Deploy
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Fmugen&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=mugen&repository-name=mugen)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest)
 
 ## Run it
 

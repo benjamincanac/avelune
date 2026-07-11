@@ -1,6 +1,6 @@
-# Mugen
+# Tempest
 
-Endless multiplayer dungeon-crawl tower. **Nuxt** (nightly) + **TresJS** (three.js) on the client, **Nitro v3 native WebSockets** on the server, deployed to **Vercel**. One shared tower per UTC day, regenerated deterministically so no geometry ever travels over the wire — only players.
+Multiplayer colosseum dungeon-crawl. **Nuxt** (nightly) + **TresJS** (three.js) on the client, **Nitro v3 native WebSockets** on the server, deployed to **Vercel**. One shared, hand-authored dungeon (no daily reset) loaded from bundled floor data, so no geometry ever travels over the wire — only players.
 
 Roadmap / status is [.claude/ROADMAP.md](.claude/ROADMAP.md) — the source of truth for what's done and next. Keep it current as work lands.
 

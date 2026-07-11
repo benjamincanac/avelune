@@ -2,21 +2,21 @@
 // useSiteSeo(), but every value here is static, so it lives in the build-time
 // head config instead of a runtime composable.
 const site = {
-  name: 'Mugen',
-  title: 'Mugen — endless multiplayer tower on Vercel WebSockets',
+  name: 'Tempest',
+  title: 'Tempest — a multiplayer colosseum dungeon on Vercel WebSockets',
   description:
-    'An endless multiplayer tower on the Vercel Functions WebSocket beta. Spawn in the hub, step into the teleport circle, and descend through biome floors — stone, sunken, verdant, magma — dodging hazards for depth on the daily leaderboard. Authoritative Nitro game loop, TresJS rendering, one WebSocket per runner.',
+    'A multiplayer dungeon crawl on the Vercel Functions WebSocket beta. Spawn in a colosseum arena, step through the great door, and descend the hand-built dungeon — stone, sunken, verdant, magma — dodging hazards for depth on the leaderboard. Authoritative Nitro game loop, TresJS rendering, one WebSocket per runner.',
   tagline: 'Nuxt × Vercel WebSockets',
-  repo: 'https://github.com/benjamincanac/mugen',
+  repo: 'https://github.com/benjamincanac/tempest',
   deployUrl:
-    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Fmugen&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=mugen&repository-name=mugen',
+    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest',
   ogImage: '/og.png',
   twitter: '@vercel',
 }
 
 // Canonical origin. Set NUXT_PUBLIC_SITE_URL in the deploy environment; the
 // fallback is only used for local/preview builds — change it to the real domain.
-const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://mugen-tower.vercel.app').replace(/\/$/, '')
+const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://tempest-tower.vercel.app').replace(/\/$/, '')
 const canonical = `${siteUrl}/`
 const ogImage = `${siteUrl}${site.ogImage}`
 
@@ -32,7 +32,7 @@ export default defineNuxtConfig({
       viewport: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no',
       title: site.title,
       meta: [
-        { name: 'theme-color', content: '#00dc82' },
+        { name: 'theme-color', content: '#93B9E8' },
         { name: 'color-scheme', content: 'light dark' },
         { name: 'robots', content: 'index, follow' },
         { name: 'description', content: site.description },

@@ -1,5 +1,5 @@
-// Mugen run-driver: launch headless Chromium, onboard a runner, drive the 3D game,
-// screenshot, and report console/page errors. Mugen is a Nuxt + TresJS/three.js
+// Tempest run-driver: launch headless Chromium, onboard a runner, drive the 3D game,
+// screenshot, and report console/page errors. Tempest is a Nuxt + TresJS/three.js
 // WebGL game — there is no server-rendered "page" to assert on; you must drive the
 // live canvas. This is the harness the /run-mmo skill points at.
 //
@@ -32,11 +32,11 @@ async function detectUrl() {
     try {
       const res = await fetch(`http://localhost:${p}/`, { signal: AbortSignal.timeout(1500) })
       const html = await res.text()
-      if (res.ok && /Mugen/i.test(html)) return `http://localhost:${p}`
+      if (res.ok && /Tempest/i.test(html)) return `http://localhost:${p}`
     }
     catch { /* port closed — keep probing */ }
   }
-  throw new Error('No Mugen dev server found on :3000-3010. Start one (see SKILL.md) or set MMO_URL.')
+  throw new Error('No Tempest dev server found on :3000-3010. Start one (see SKILL.md) or set MMO_URL.')
 }
 
 const url = await detectUrl()
@@ -77,7 +77,7 @@ if (!(await click(/enter the tower|^play$|^enter$|climb/i))) {
 await page.waitForTimeout(8000)
 
 // Health check: confirm we actually reached the playing view (a sized canvas +
-// HUD header). Some stale/other Mugen instances answer 200 but never connect the
+// HUD header). Some stale/other Tempest instances answer 200 but never connect the
 // socket, leaving a 0x0 canvas and a black shot — fail loudly instead.
 let live = false
 for (let i = 0; i < 12; i++) {
@@ -100,11 +100,12 @@ if (!live) {
 }
 
 if (mode === 'floor') {
-  // Spawn faces the portal; hold forward to walk onto it → teleport to Floor 1.
-  // Keys are global keydown listeners, but click the canvas first to focus it.
+  // Spawn faces the great door across the arena; hold forward to walk to it →
+  // teleport to Floor 1. Keys are global keydown listeners, but click the canvas
+  // first to focus it. (The colosseum arena is a longer walk than the old hub.)
   await page.locator('canvas').click({ position: { x: 640, y: 400 } }).catch(() => {})
   await page.keyboard.down('KeyW')
-  await page.waitForTimeout(4500)
+  await page.waitForTimeout(8000)
   await page.keyboard.up('KeyW')
   // Poll the HUD header until it leaves "The Hub".
   for (let i = 0; i < 12; i++) {

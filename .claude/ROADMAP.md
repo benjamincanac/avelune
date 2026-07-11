@@ -1,4 +1,4 @@
-# Mugen — Roadmap
+# Tempest — Roadmap
 
 > Endless multiplayer dungeon-crawl tower. Nuxt + TresJS + Vercel WebSockets.
 > This file is the source of truth for what's done and what's next — update it as work lands.
@@ -19,7 +19,7 @@
 - [x] Protocol test suite (`scripts/ws-test.mjs`)
 
 ### Identity, onboarding & app shell
-- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `mugen_id` cookie) replacing per-connection random identity; `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
+- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie) replacing per-connection random identity; `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
 - [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, runner name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
 - [x] **Main-menu app shell** (`index.vue` state machine: `checking → menu → creating → playing → spectating`). Socket opens on demand, not on load. Returning player sees name + Enter; new visitor creates a runner; everyone can spectate. `MainMenu` + 3D `CharacterLineup` backdrop
 - [x] **Spectator mode**: `?spectate=1` read-only socket (`registerSpectator`, no cookie, never simulated/counted), full-tower reveal-all map
@@ -47,7 +47,7 @@
   - **Exploded village**: the whole procedural village (`composeVillage` — every wall/roof/corner/statue/fence as a piece) is editable. Pieces bake into `shared/data/hub-structure.json` (first save = bake); free-standing clutter stays in `hub-props.json`. Both append to `plan.props` (`hand:true`) through `makeProp` **after** the scatter (RNG untouched). Placements carry `z` (elevation) + `s3` (per-axis scale), render-only. House collision moved from tile stamps to **per-piece solid footprints** (ground wall/corner kinds added to `SOLID_PROPS`; doorways passable); tower/roads/portal stay procedural
 
 ### Ship
-- [x] `git init`, `benjamincanac/mugen` repo created & pushed *(was §1)*
+- [x] `git init`, `benjamincanac/tempest` repo created & pushed *(was §1)*
 
 ## Next up (prioritized)
 
@@ -137,6 +137,6 @@ The game's first HP/damage system: fight monsters, loot chests, and a full inven
 - Blender 5.1.2 at `/Applications/Blender.app/Contents/MacOS/Blender` — asset scripts run headless (`--background --python scripts/<x>.py -- <args>`); kit conversion uses `npx @gltf-transform/cli optimize`
 - Quaternius packs download from Google Drive folders linked on quaternius.com pack pages (`gdown --folder`); the Universal characters + Modular Fantasy Outfits are itch.io-only behind Cloudflare (manual download, then run `convert_universal_characters.py`)
 - Protocol testing: two `WebSocket` clients from Node against `/api/ws` — assert `welcome/state/clear/death/chat` frames (`node scripts/ws-test.mjs ws://localhost:<port>/api/ws`)
-- Repo: `github.com/benjamincanac/mugen` (branch `main`)
+- Repo: `github.com/benjamincanac/tempest` (branch `main`)
 - **Shared-code invariant:** anything affecting gameplay position/collision/hazards must live in `shared/utils/maze.ts` so server and prediction agree; client-only code renders it
 - Domain subagents live in `.claude/agents/` (`world-sim`, `server-net`, `scene-3d`, `game-ui`, `oracle-ai`, `assets`); see `CLAUDE.md`

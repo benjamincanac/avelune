@@ -1,2732 +1,3850 @@
 [
   {
-    "kind": "Roof_Tower_RoundTiles",
-    "x": 20,
-    "y": 20,
-    "rot": 0,
-    "scale": 1.376,
-    "z": 23.5
-  },
-  {
-    "kind": "Window_Wide_Round1",
-    "x": 23.611,
-    "y": 20,
+    "kind": "Wall_Half",
+    "x": 40.8,
+    "y": 28,
     "rot": 4.712,
     "scale": 1,
-    "z": 4
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 20.754,
-    "y": 23.358,
-    "rot": 3.362,
+    "kind": "Wall_Half",
+    "x": 40.67,
+    "y": 29.822,
+    "rot": 4.57,
     "scale": 1,
-    "z": 5.9
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 16.788,
-    "y": 21.518,
-    "rot": 2.012,
+    "kind": "Wall_Half",
+    "x": 40.282,
+    "y": 31.606,
+    "rot": 4.427,
     "scale": 1,
-    "z": 7.8
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 17.918,
-    "y": 17.331,
-    "rot": 0.662,
+    "kind": "Wall_Half",
+    "x": 39.643,
+    "y": 33.317,
+    "rot": 4.284,
     "scale": 1,
-    "z": 9.7
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 22.218,
-    "y": 17.3,
-    "rot": 5.596,
+    "kind": "Wall_Half",
+    "x": 38.768,
+    "y": 34.92,
+    "rot": 4.141,
     "scale": 1,
-    "z": 11.6
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 22.973,
-    "y": 21.498,
-    "rot": 4.246,
+    "kind": "Wall_Half",
+    "x": 37.674,
+    "y": 36.382,
+    "rot": 3.998,
     "scale": 1,
-    "z": 13.5
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 19.163,
-    "y": 23.333,
-    "rot": 2.896,
+    "kind": "Wall_Half",
+    "x": 36.382,
+    "y": 37.674,
+    "rot": 3.856,
     "scale": 1,
-    "z": 15.4
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 16.727,
-    "y": 19.917,
-    "rot": 1.546,
+    "kind": "Wall_Half",
+    "x": 34.92,
+    "y": 38.768,
+    "rot": 3.713,
     "scale": 1,
-    "z": 17.3
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 19.344,
-    "y": 16.686,
-    "rot": 0.196,
+    "kind": "Wall_Half",
+    "x": 33.317,
+    "y": 39.643,
+    "rot": 3.57,
     "scale": 1,
-    "z": 19.2
+    "z": 0
   },
   {
-    "kind": "Window_Wide_Round1",
-    "x": 22.943,
-    "y": 18.699,
-    "rot": 5.129,
+    "kind": "Wall_Half",
+    "x": 31.606,
+    "y": 40.282,
+    "rot": 3.427,
     "scale": 1,
-    "z": 21.1
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 29.822,
+    "y": 40.67,
+    "rot": 3.284,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 28,
+    "y": 40.8,
+    "rot": 3.142,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 26.178,
+    "y": 40.67,
+    "rot": 2.999,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 24.394,
+    "y": 40.282,
+    "rot": 2.856,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 22.683,
+    "y": 39.643,
+    "rot": 2.713,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 21.08,
+    "y": 38.768,
+    "rot": 2.57,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 19.618,
+    "y": 37.674,
+    "rot": 2.428,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 18.326,
+    "y": 36.382,
+    "rot": 2.285,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 17.232,
+    "y": 34.92,
+    "rot": 2.142,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 16.357,
+    "y": 33.317,
+    "rot": 1.999,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 15.718,
+    "y": 31.606,
+    "rot": 1.856,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 15.33,
+    "y": 29.822,
+    "rot": 1.714,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 15.2,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 15.33,
+    "y": 26.178,
+    "rot": 1.428,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 15.718,
+    "y": 24.394,
+    "rot": 1.285,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 16.357,
+    "y": 22.683,
+    "rot": 1.142,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 17.232,
+    "y": 21.08,
+    "rot": 1,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 18.326,
+    "y": 19.618,
+    "rot": 0.857,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 19.618,
+    "y": 18.326,
+    "rot": 0.714,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 21.08,
+    "y": 17.232,
+    "rot": 0.571,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 22.683,
+    "y": 16.357,
+    "rot": 0.428,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 24.394,
+    "y": 15.718,
+    "rot": 0.286,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 26.178,
+    "y": 15.33,
+    "rot": 0.143,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 28,
+    "y": 15.2,
+    "rot": 0,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 29.822,
+    "y": 15.33,
+    "rot": 6.14,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 31.606,
+    "y": 15.718,
+    "rot": 5.998,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 33.317,
+    "y": 16.357,
+    "rot": 5.855,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 34.92,
+    "y": 17.232,
+    "rot": 5.712,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 36.382,
+    "y": 18.326,
+    "rot": 5.569,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 37.674,
+    "y": 19.618,
+    "rot": 5.426,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 38.768,
+    "y": 21.08,
+    "rot": 5.284,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 39.643,
+    "y": 22.683,
+    "rot": 5.141,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 40.282,
+    "y": 24.394,
+    "rot": 4.998,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Wall_Half",
+    "x": 40.67,
+    "y": 26.178,
+    "rot": 4.855,
+    "scale": 1,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 43.4,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 42.776,
+    "y": 32.339,
+    "rot": 4.427,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 40.955,
+    "y": 36.326,
+    "rot": 4.141,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 38.085,
+    "y": 39.639,
+    "rot": 3.856,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 34.397,
+    "y": 42.008,
+    "rot": 3.57,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 30.192,
+    "y": 43.243,
+    "rot": 3.284,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 25.808,
+    "y": 43.243,
+    "rot": 2.999,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 21.603,
+    "y": 42.008,
+    "rot": 2.713,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 17.915,
+    "y": 39.639,
+    "rot": 2.428,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 15.045,
+    "y": 36.326,
+    "rot": 2.142,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 13.224,
+    "y": 32.339,
+    "rot": 1.856,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 12.6,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 13.224,
+    "y": 23.661,
+    "rot": 1.285,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 15.045,
+    "y": 19.674,
+    "rot": 1,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 17.915,
+    "y": 16.361,
+    "rot": 0.714,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 21.603,
+    "y": 13.992,
+    "rot": 0.428,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 25.808,
+    "y": 12.757,
+    "rot": 0.143,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 30.192,
+    "y": 12.757,
+    "rot": 6.14,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 34.397,
+    "y": 13.992,
+    "rot": 5.855,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 38.085,
+    "y": 16.361,
+    "rot": 5.569,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 40.955,
+    "y": 19.674,
+    "rot": 5.284,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Arch_Round",
+    "x": 42.776,
+    "y": 23.661,
+    "rot": 4.998,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 43.243,
+    "y": 30.192,
+    "rot": 4.57,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 42.008,
+    "y": 34.397,
+    "rot": 4.284,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 39.639,
+    "y": 38.085,
+    "rot": 3.998,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 36.326,
+    "y": 40.955,
+    "rot": 3.713,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 32.339,
+    "y": 42.776,
+    "rot": 3.427,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 28,
+    "y": 43.4,
+    "rot": 3.142,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 23.661,
+    "y": 42.776,
+    "rot": 2.856,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 19.674,
+    "y": 40.955,
+    "rot": 2.57,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 16.361,
+    "y": 38.085,
+    "rot": 2.285,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 13.992,
+    "y": 34.397,
+    "rot": 1.999,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 12.757,
+    "y": 30.192,
+    "rot": 1.714,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 12.757,
+    "y": 25.808,
+    "rot": 1.428,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 13.992,
+    "y": 21.603,
+    "rot": 1.142,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 16.361,
+    "y": 17.915,
+    "rot": 0.857,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 19.674,
+    "y": 15.045,
+    "rot": 0.571,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 23.661,
+    "y": 13.224,
+    "rot": 0.286,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 28,
+    "y": 12.6,
+    "rot": 0,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 32.339,
+    "y": 13.224,
+    "rot": 5.998,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 36.326,
+    "y": 15.045,
+    "rot": 5.712,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 39.639,
+    "y": 17.915,
+    "rot": 5.426,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 42.008,
+    "y": 21.603,
+    "rot": 5.141,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Column_Round",
+    "x": 43.243,
+    "y": 25.808,
+    "rot": 4.855,
+    "scale": 1.7,
+    "z": 0
+  },
+  {
+    "kind": "Torch",
+    "x": 42.748,
+    "y": 30.12,
+    "rot": 4.57,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 41.554,
+    "y": 34.19,
+    "rot": 4.284,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 39.261,
+    "y": 37.757,
+    "rot": 3.998,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 36.056,
+    "y": 40.535,
+    "rot": 3.713,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 32.198,
+    "y": 42.296,
+    "rot": 3.427,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 28,
+    "y": 42.9,
+    "rot": 3.142,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 23.802,
+    "y": 42.296,
+    "rot": 2.856,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 19.944,
+    "y": 40.535,
+    "rot": 2.57,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 16.739,
+    "y": 37.757,
+    "rot": 2.285,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 14.446,
+    "y": 34.19,
+    "rot": 1.999,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 13.252,
+    "y": 30.12,
+    "rot": 1.714,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 13.252,
+    "y": 25.88,
+    "rot": 1.428,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 14.446,
+    "y": 21.81,
+    "rot": 1.142,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 16.739,
+    "y": 18.243,
+    "rot": 0.857,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 19.944,
+    "y": 15.465,
+    "rot": 0.571,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 23.802,
+    "y": 13.704,
+    "rot": 0.286,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 28,
+    "y": 13.1,
+    "rot": 0,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 32.198,
+    "y": 13.704,
+    "rot": 5.998,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 36.056,
+    "y": 15.465,
+    "rot": 5.712,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 39.261,
+    "y": 18.243,
+    "rot": 5.426,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 41.554,
+    "y": 21.81,
+    "rot": 5.141,
+    "scale": 1.1,
+    "z": 2.4
+  },
+  {
+    "kind": "Torch",
+    "x": 42.748,
+    "y": 25.88,
+    "rot": 4.855,
+    "scale": 1.1,
+    "z": 2.4
   },
   {
     "kind": "Flag_Wall",
-    "x": 21.811,
-    "y": 22.954,
-    "rot": 3.692,
+    "x": 43.1,
+    "y": 28,
+    "rot": 4.712,
     "scale": 1.4,
-    "z": 9
+    "z": 3
   },
   {
     "kind": "Flag_Wall",
-    "x": 18.189,
-    "y": 22.954,
-    "rot": 2.592,
+    "x": 40.703,
+    "y": 36.164,
+    "rot": 4.141,
     "scale": 1.4,
-    "z": 9
+    "z": 3
   },
   {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 20,
-    "y": 23.48,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
+    "kind": "Flag_Wall",
+    "x": 34.273,
+    "y": 41.735,
+    "rot": 3.57,
+    "scale": 1.4,
+    "z": 3
   },
   {
-    "kind": "Statue_Stag",
-    "x": 17.6,
-    "y": 26.8,
-    "rot": 1.571,
-    "scale": 0.62,
-    "z": 0
+    "kind": "Flag_Wall",
+    "x": 25.851,
+    "y": 42.946,
+    "rot": 2.999,
+    "scale": 1.4,
+    "z": 3
   },
   {
-    "kind": "Statue_Fox",
-    "x": 22.4,
-    "y": 26.8,
+    "kind": "Flag_Wall",
+    "x": 18.112,
+    "y": 39.412,
+    "rot": 2.428,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Flag_Wall",
+    "x": 13.512,
+    "y": 32.254,
+    "rot": 1.856,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Flag_Wall",
+    "x": 13.512,
+    "y": 23.746,
+    "rot": 1.285,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Flag_Wall",
+    "x": 18.112,
+    "y": 16.588,
+    "rot": 0.714,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Flag_Wall",
+    "x": 25.851,
+    "y": 13.054,
+    "rot": 0.143,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Flag_Wall",
+    "x": 34.273,
+    "y": 14.265,
+    "rot": 5.855,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Flag_Wall",
+    "x": 40.703,
+    "y": 19.836,
+    "rot": 5.284,
+    "scale": 1.4,
+    "z": 3
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 45.4,
+    "y": 28,
     "rot": 4.712,
-    "scale": 0.72,
-    "z": 0
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 6,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Floor_Standard",
+    "x": 45.186,
+    "y": 30.722,
+    "rot": 4.555,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 6,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Floor_Standard",
+    "x": 44.548,
+    "y": 33.377,
+    "rot": 4.398,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 6,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Floor_Standard",
+    "x": 43.504,
+    "y": 35.899,
+    "rot": 4.241,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 8,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Floor_Standard",
+    "x": 42.077,
+    "y": 38.227,
+    "rot": 4.084,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 8,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Floor_Standard",
+    "x": 40.304,
+    "y": 40.304,
+    "rot": 3.927,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 10,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Floor_Standard",
+    "x": 38.227,
+    "y": 42.077,
+    "rot": 3.77,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 10,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Floor_Standard",
+    "x": 35.899,
+    "y": 43.504,
+    "rot": 3.613,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 10,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Floor_Standard",
+    "x": 33.377,
+    "y": 44.548,
+    "rot": 3.456,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 11,
-    "y": 17,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
+    "kind": "Floor_Standard",
+    "x": 30.722,
+    "y": 45.186,
+    "rot": 3.299,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 11.3,
-    "y": 17,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 11.3,
-    "y": 17,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 11,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Door_1_Round",
-    "x": 10.96,
-    "y": 18.48,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 11.3,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 11.3,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 11,
-    "y": 21,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 11.3,
-    "y": 21,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 11.3,
-    "y": 21,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 6,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 6,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 6,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 8,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 8,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 10,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 10,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 10,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 5,
-    "y": 17,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 4.7,
-    "y": 17,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 4.7,
-    "y": 17,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 5,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 4.7,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 5,
-    "y": 21,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 4.7,
-    "y": 21,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 4.7,
-    "y": 21,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 5,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 4.7,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 11,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 11.3,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 5,
-    "y": 22,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 4.7,
-    "y": 22.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 11,
-    "y": 22,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 11.3,
-    "y": 22.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x6",
-    "x": 8,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.39
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 11.3,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 4.7,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Balcony_Simple_Straight",
-    "x": 11.3,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Prop_Chimney2",
-    "x": 6.68,
-    "y": 19,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine4",
-    "x": 8,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 30,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 30,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 32,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 32,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 34,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 34,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 35,
-    "y": 17,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 35.3,
-    "y": 17,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 35,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 35.3,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 35,
-    "y": 21,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 35.3,
-    "y": 21,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 30,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 30,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 32,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 32,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 32,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 34,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 34,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 34,
-    "y": 22.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 29,
-    "y": 17,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 28.7,
-    "y": 17,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 28.7,
-    "y": 17,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 29,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Door_1_Round",
-    "x": 29.04,
-    "y": 19.52,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 28.7,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 28.7,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 29,
-    "y": 21,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 28.7,
-    "y": 21,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 28.7,
-    "y": 21,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 29,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 28.7,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 35,
-    "y": 16,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 35.3,
-    "y": 15.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 29,
-    "y": 22,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 28.7,
-    "y": 22.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 35,
-    "y": 22,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 35.3,
-    "y": 22.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x6",
-    "x": 32,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.39
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 35.3,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 28.7,
-    "y": 19,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Balcony_Simple_Straight",
-    "x": 28.7,
-    "y": 19,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Prop_Chimney2",
-    "x": 30.68,
-    "y": 19,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine2",
-    "x": 32,
-    "y": 22,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 10,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 10,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 12,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 12,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 14,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 14,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 15,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 15.3,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 15.3,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 15,
-    "y": 9,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 15.3,
-    "y": 9,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 10,
-    "y": 10,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 10,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 10,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 12,
-    "y": 10,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Door_1_Round",
-    "x": 12.52,
-    "y": 9.96,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 12,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 12,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 14,
-    "y": 10,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 14,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 14,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 9,
-    "y": 7,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 8.7,
-    "y": 7,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 9,
-    "y": 9,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 8.7,
-    "y": 9,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 8.7,
-    "y": 9,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 9,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 8.7,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 15,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 15.3,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 9,
-    "y": 10,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 8.7,
-    "y": 10.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 15,
-    "y": 10,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 15.3,
-    "y": 10.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x4",
-    "x": 12,
-    "y": 8,
-    "rot": 0,
-    "scale": 1,
-    "z": 6.39
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 12,
-    "y": 10.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 12,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Balcony_Simple_Straight",
-    "x": 12,
-    "y": 10.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Prop_Chimney2",
-    "x": 12,
-    "y": 8.88,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine2",
-    "x": 15,
-    "y": 8,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 26,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 26,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
+    "kind": "Floor_Standard",
     "x": 28,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "y": 45.4,
+    "rot": 3.142,
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
+    "kind": "Floor_Standard",
+    "x": 25.278,
+    "y": 45.186,
+    "rot": 2.985,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 22.623,
+    "y": 44.548,
+    "rot": 2.827,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 20.101,
+    "y": 43.504,
+    "rot": 2.67,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 17.773,
+    "y": 42.077,
+    "rot": 2.513,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 15.696,
+    "y": 40.304,
+    "rot": 2.356,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 13.923,
+    "y": 38.227,
+    "rot": 2.199,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 12.496,
+    "y": 35.899,
+    "rot": 2.042,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 11.452,
+    "y": 33.377,
+    "rot": 1.885,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 10.814,
+    "y": 30.722,
+    "rot": 1.728,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 10.6,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 10.814,
+    "y": 25.278,
+    "rot": 1.414,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 11.452,
+    "y": 22.623,
+    "rot": 1.257,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 12.496,
+    "y": 20.101,
+    "rot": 1.1,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 13.923,
+    "y": 17.773,
+    "rot": 0.942,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 15.696,
+    "y": 15.696,
+    "rot": 0.785,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 17.773,
+    "y": 13.923,
+    "rot": 0.628,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 20.101,
+    "y": 12.496,
+    "rot": 0.471,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 22.623,
+    "y": 11.452,
+    "rot": 0.314,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 25.278,
+    "y": 10.814,
+    "rot": 0.157,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
     "x": 28,
-    "y": 5.7,
+    "y": 10.6,
     "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "scale": 1.1,
+    "z": 1.4
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
+    "kind": "Floor_Standard",
+    "x": 30.722,
+    "y": 10.814,
+    "rot": 6.126,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 33.377,
+    "y": 11.452,
+    "rot": 5.969,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 35.899,
+    "y": 12.496,
+    "rot": 5.812,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 38.227,
+    "y": 13.923,
+    "rot": 5.655,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 40.304,
+    "y": 15.696,
+    "rot": 5.498,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 42.077,
+    "y": 17.773,
+    "rot": 5.341,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 43.504,
+    "y": 20.101,
+    "rot": 5.184,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 44.548,
+    "y": 22.623,
+    "rot": 5.027,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 45.186,
+    "y": 25.278,
+    "rot": 4.869,
+    "scale": 1.1,
+    "z": 1.4
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 44.5,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 44.297,
+    "y": 30.581,
+    "rot": 4.555,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 43.692,
+    "y": 33.099,
+    "rot": 4.398,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 42.702,
+    "y": 35.491,
+    "rot": 4.241,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 41.349,
+    "y": 37.698,
+    "rot": 4.084,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 39.667,
+    "y": 39.667,
+    "rot": 3.927,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 37.698,
+    "y": 41.349,
+    "rot": 3.77,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 35.491,
+    "y": 42.702,
+    "rot": 3.613,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 33.099,
+    "y": 43.692,
+    "rot": 3.456,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 30.581,
+    "y": 44.297,
+    "rot": 3.299,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
     "x": 28,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 30,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 30,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 30,
-    "y": 5.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 31,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 31.3,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 31.3,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 31,
-    "y": 9,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 31.3,
-    "y": 9,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 31.3,
-    "y": 9,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 26,
-    "y": 10,
+    "y": 44.5,
     "rot": 3.142,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 26,
-    "y": 10.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 25.419,
+    "y": 44.297,
+    "rot": 2.985,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 26,
-    "y": 10.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 22.901,
+    "y": 43.692,
+    "rot": 2.827,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 28,
-    "y": 10,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 20.509,
+    "y": 42.702,
+    "rot": 2.67,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Door_1_Round",
-    "x": 28.52,
-    "y": 9.96,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 18.302,
+    "y": 41.349,
+    "rot": 2.513,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 28,
-    "y": 10.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 16.333,
+    "y": 39.667,
+    "rot": 2.356,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 28,
-    "y": 10.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 14.651,
+    "y": 37.698,
+    "rot": 2.199,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 30,
-    "y": 10,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 13.298,
+    "y": 35.491,
+    "rot": 2.042,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 30,
-    "y": 10.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 12.308,
+    "y": 33.099,
+    "rot": 1.885,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 30,
-    "y": 10.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 11.703,
+    "y": 30.581,
+    "rot": 1.728,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 25,
-    "y": 7,
+    "kind": "Stairs_2",
+    "x": 11.5,
+    "y": 28,
     "rot": 1.571,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 24.7,
-    "y": 7,
-    "rot": 1.571,
+    "kind": "Stairs_2",
+    "x": 11.703,
+    "y": 25.419,
+    "rot": 1.414,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 24.7,
-    "y": 7,
-    "rot": 1.571,
+    "kind": "Stairs_2",
+    "x": 12.308,
+    "y": 22.901,
+    "rot": 1.257,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 25,
-    "y": 9,
-    "rot": 1.571,
+    "kind": "Stairs_2",
+    "x": 13.298,
+    "y": 20.509,
+    "rot": 1.1,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 24.7,
-    "y": 9,
-    "rot": 1.571,
+    "kind": "Stairs_2",
+    "x": 14.651,
+    "y": 18.302,
+    "rot": 0.942,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 24.7,
-    "y": 9,
-    "rot": 1.571,
+    "kind": "Stairs_2",
+    "x": 16.333,
+    "y": 16.333,
+    "rot": 0.785,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 25,
-    "y": 6,
-    "rot": 0,
+    "kind": "Stairs_2",
+    "x": 18.302,
+    "y": 14.651,
+    "rot": 0.628,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Corner_Exterior_Wood",
-    "x": 24.7,
-    "y": 5.7,
-    "rot": 0,
+    "kind": "Stairs_2",
+    "x": 20.509,
+    "y": 13.298,
+    "rot": 0.471,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 31,
-    "y": 6,
-    "rot": 0,
+    "kind": "Stairs_2",
+    "x": 22.901,
+    "y": 12.308,
+    "rot": 0.314,
     "scale": 1,
-    "z": 0
+    "z": 0.7
   },
   {
-    "kind": "Corner_Exterior_Wood",
-    "x": 31.3,
-    "y": 5.7,
-    "rot": 0,
+    "kind": "Stairs_2",
+    "x": 25.419,
+    "y": 11.703,
+    "rot": 0.157,
     "scale": 1,
-    "z": 3.12
+    "z": 0.7
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 25,
-    "y": 10,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 24.7,
-    "y": 10.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 31,
-    "y": 10,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 31.3,
-    "y": 10.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x4",
+    "kind": "Stairs_2",
     "x": 28,
-    "y": 8,
+    "y": 11.5,
     "rot": 0,
     "scale": 1,
-    "z": 6.39
+    "z": 0.7
   },
   {
-    "kind": "Roof_Front_Brick6",
+    "kind": "Stairs_2",
+    "x": 30.581,
+    "y": 11.703,
+    "rot": 6.126,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 33.099,
+    "y": 12.308,
+    "rot": 5.969,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 35.491,
+    "y": 13.298,
+    "rot": 5.812,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 37.698,
+    "y": 14.651,
+    "rot": 5.655,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 39.667,
+    "y": 16.333,
+    "rot": 5.498,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 41.349,
+    "y": 18.302,
+    "rot": 5.341,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 42.702,
+    "y": 20.509,
+    "rot": 5.184,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 43.692,
+    "y": 22.901,
+    "rot": 5.027,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 44.297,
+    "y": 25.419,
+    "rot": 4.869,
+    "scale": 1,
+    "z": 0.7
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 47.2,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 47.005,
+    "y": 30.732,
+    "rot": 4.57,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 46.422,
+    "y": 33.409,
+    "rot": 4.427,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 45.465,
+    "y": 35.976,
+    "rot": 4.284,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 44.152,
+    "y": 38.38,
+    "rot": 4.141,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 42.51,
+    "y": 40.573,
+    "rot": 3.998,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 40.573,
+    "y": 42.51,
+    "rot": 3.856,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 38.38,
+    "y": 44.152,
+    "rot": 3.713,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 35.976,
+    "y": 45.465,
+    "rot": 3.57,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 33.409,
+    "y": 46.422,
+    "rot": 3.427,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 30.732,
+    "y": 47.005,
+    "rot": 3.284,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
     "x": 28,
-    "y": 10.3,
+    "y": 47.2,
     "rot": 3.142,
-    "scale": 1,
-    "z": 6.24
+    "scale": 1.1,
+    "z": 2.8
   },
   {
-    "kind": "Roof_Front_Brick6",
+    "kind": "Floor_Standard",
+    "x": 25.268,
+    "y": 47.005,
+    "rot": 2.999,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 22.591,
+    "y": 46.422,
+    "rot": 2.856,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 20.024,
+    "y": 45.465,
+    "rot": 2.713,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 17.62,
+    "y": 44.152,
+    "rot": 2.57,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 15.427,
+    "y": 42.51,
+    "rot": 2.428,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 13.49,
+    "y": 40.573,
+    "rot": 2.285,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 11.848,
+    "y": 38.38,
+    "rot": 2.142,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 10.535,
+    "y": 35.976,
+    "rot": 1.999,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 9.578,
+    "y": 33.409,
+    "rot": 1.856,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 8.995,
+    "y": 30.732,
+    "rot": 1.714,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 8.8,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 8.995,
+    "y": 25.268,
+    "rot": 1.428,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 9.578,
+    "y": 22.591,
+    "rot": 1.285,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 10.535,
+    "y": 20.024,
+    "rot": 1.142,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 11.848,
+    "y": 17.62,
+    "rot": 1,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 13.49,
+    "y": 15.427,
+    "rot": 0.857,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 15.427,
+    "y": 13.49,
+    "rot": 0.714,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 17.62,
+    "y": 11.848,
+    "rot": 0.571,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 20.024,
+    "y": 10.535,
+    "rot": 0.428,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 22.591,
+    "y": 9.578,
+    "rot": 0.286,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 25.268,
+    "y": 8.995,
+    "rot": 0.143,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
     "x": 28,
-    "y": 5.7,
+    "y": 8.8,
     "rot": 0,
-    "scale": 1,
-    "z": 6.24
+    "scale": 1.1,
+    "z": 2.8
   },
   {
-    "kind": "Prop_Chimney2",
+    "kind": "Floor_Standard",
+    "x": 30.732,
+    "y": 8.995,
+    "rot": 6.14,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 33.409,
+    "y": 9.578,
+    "rot": 5.998,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 35.976,
+    "y": 10.535,
+    "rot": 5.855,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 38.38,
+    "y": 11.848,
+    "rot": 5.712,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 40.573,
+    "y": 13.49,
+    "rot": 5.569,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 42.51,
+    "y": 15.427,
+    "rot": 5.426,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 44.152,
+    "y": 17.62,
+    "rot": 5.284,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 45.465,
+    "y": 20.024,
+    "rot": 5.141,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 46.422,
+    "y": 22.591,
+    "rot": 4.998,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 47.005,
+    "y": 25.268,
+    "rot": 4.855,
+    "scale": 1.1,
+    "z": 2.8
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 46.3,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 46.114,
+    "y": 30.604,
+    "rot": 4.57,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 45.559,
+    "y": 33.156,
+    "rot": 4.427,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 44.646,
+    "y": 35.602,
+    "rot": 4.284,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 43.395,
+    "y": 37.894,
+    "rot": 4.141,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 41.83,
+    "y": 39.984,
+    "rot": 3.998,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 39.984,
+    "y": 41.83,
+    "rot": 3.856,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 37.894,
+    "y": 43.395,
+    "rot": 3.713,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 35.602,
+    "y": 44.646,
+    "rot": 3.57,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 33.156,
+    "y": 45.559,
+    "rot": 3.427,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 30.604,
+    "y": 46.114,
+    "rot": 3.284,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
     "x": 28,
-    "y": 8.88,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine2",
-    "x": 31,
-    "y": 8,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 18,
-    "y": 4,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 18,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 20,
-    "y": 4,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 20,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 20,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 22,
-    "y": 4,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 22,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 22,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 23,
-    "y": 5,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 23.3,
-    "y": 5,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 23.3,
-    "y": 5,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 23,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 23.3,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 23.3,
-    "y": 7,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 18,
-    "y": 8,
+    "y": 46.3,
     "rot": 3.142,
     "scale": 1,
-    "z": 0
+    "z": 2.1
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 18,
-    "y": 8.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 25.396,
+    "y": 46.114,
+    "rot": 2.999,
     "scale": 1,
-    "z": 3.12
+    "z": 2.1
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 18,
-    "y": 8.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 22.844,
+    "y": 45.559,
+    "rot": 2.856,
     "scale": 1,
-    "z": 3.12
+    "z": 2.1
   },
   {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 20,
-    "y": 8,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 20.398,
+    "y": 44.646,
+    "rot": 2.713,
     "scale": 1,
-    "z": 0
+    "z": 2.1
   },
   {
-    "kind": "Door_1_Round",
-    "x": 20.52,
-    "y": 7.96,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 18.106,
+    "y": 43.395,
+    "rot": 2.57,
     "scale": 1,
-    "z": 0
+    "z": 2.1
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 20,
-    "y": 8.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 16.016,
+    "y": 41.83,
+    "rot": 2.428,
     "scale": 1,
-    "z": 3.12
+    "z": 2.1
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 20,
-    "y": 8.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 14.17,
+    "y": 39.984,
+    "rot": 2.285,
     "scale": 1,
-    "z": 3.12
+    "z": 2.1
   },
   {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 22,
-    "y": 8,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 12.605,
+    "y": 37.894,
+    "rot": 2.142,
     "scale": 1,
-    "z": 0
+    "z": 2.1
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 22,
-    "y": 8.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 11.354,
+    "y": 35.602,
+    "rot": 1.999,
     "scale": 1,
-    "z": 3.12
+    "z": 2.1
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 22,
-    "y": 8.3,
-    "rot": 3.142,
+    "kind": "Stairs_2",
+    "x": 10.441,
+    "y": 33.156,
+    "rot": 1.856,
     "scale": 1,
-    "z": 3.12
+    "z": 2.1
   },
   {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 17,
-    "y": 5,
+    "kind": "Stairs_2",
+    "x": 9.886,
+    "y": 30.604,
+    "rot": 1.714,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 9.7,
+    "y": 28,
     "rot": 1.571,
     "scale": 1,
-    "z": 0
+    "z": 2.1
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
+    "kind": "Stairs_2",
+    "x": 9.886,
+    "y": 25.396,
+    "rot": 1.428,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 10.441,
+    "y": 22.844,
+    "rot": 1.285,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 11.354,
+    "y": 20.398,
+    "rot": 1.142,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 12.605,
+    "y": 18.106,
+    "rot": 1,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 14.17,
+    "y": 16.016,
+    "rot": 0.857,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 16.016,
+    "y": 14.17,
+    "rot": 0.714,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 18.106,
+    "y": 12.605,
+    "rot": 0.571,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 20.398,
+    "y": 11.354,
+    "rot": 0.428,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 22.844,
+    "y": 10.441,
+    "rot": 0.286,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 25.396,
+    "y": 9.886,
+    "rot": 0.143,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 28,
+    "y": 9.7,
+    "rot": 0,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 30.604,
+    "y": 9.886,
+    "rot": 6.14,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 33.156,
+    "y": 10.441,
+    "rot": 5.998,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 35.602,
+    "y": 11.354,
+    "rot": 5.855,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 37.894,
+    "y": 12.605,
+    "rot": 5.712,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 39.984,
+    "y": 14.17,
+    "rot": 5.569,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 41.83,
+    "y": 16.016,
+    "rot": 5.426,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 43.395,
+    "y": 18.106,
+    "rot": 5.284,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 44.646,
+    "y": 20.398,
+    "rot": 5.141,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 45.559,
+    "y": 22.844,
+    "rot": 4.998,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 46.114,
+    "y": 25.396,
+    "rot": 4.855,
+    "scale": 1,
+    "z": 2.1
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 49,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 48.82,
+    "y": 30.741,
+    "rot": 4.581,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 48.284,
+    "y": 33.435,
+    "rot": 4.451,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 47.401,
+    "y": 36.036,
+    "rot": 4.32,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 46.187,
+    "y": 38.5,
+    "rot": 4.189,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 44.66,
+    "y": 40.784,
+    "rot": 4.058,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 42.849,
+    "y": 42.849,
+    "rot": 3.927,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 40.784,
+    "y": 44.66,
+    "rot": 3.796,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 38.5,
+    "y": 46.187,
+    "rot": 3.665,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 36.036,
+    "y": 47.401,
+    "rot": 3.534,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 33.435,
+    "y": 48.284,
+    "rot": 3.403,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 30.741,
+    "y": 48.82,
+    "rot": 3.272,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 28,
+    "y": 49,
+    "rot": 3.142,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 25.259,
+    "y": 48.82,
+    "rot": 3.011,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 22.565,
+    "y": 48.284,
+    "rot": 2.88,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 19.964,
+    "y": 47.401,
+    "rot": 2.749,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 17.5,
+    "y": 46.187,
+    "rot": 2.618,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 15.216,
+    "y": 44.66,
+    "rot": 2.487,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 13.151,
+    "y": 42.849,
+    "rot": 2.356,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 11.34,
+    "y": 40.784,
+    "rot": 2.225,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 9.813,
+    "y": 38.5,
+    "rot": 2.094,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 8.599,
+    "y": 36.036,
+    "rot": 1.963,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 7.716,
+    "y": 33.435,
+    "rot": 1.833,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 7.18,
+    "y": 30.741,
+    "rot": 1.702,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 7,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 7.18,
+    "y": 25.259,
+    "rot": 1.44,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 7.716,
+    "y": 22.565,
+    "rot": 1.309,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 8.599,
+    "y": 19.964,
+    "rot": 1.178,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 9.813,
+    "y": 17.5,
+    "rot": 1.047,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 11.34,
+    "y": 15.216,
+    "rot": 0.916,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 13.151,
+    "y": 13.151,
+    "rot": 0.785,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 15.216,
+    "y": 11.34,
+    "rot": 0.654,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 17.5,
+    "y": 9.813,
+    "rot": 0.524,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 19.964,
+    "y": 8.599,
+    "rot": 0.393,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 22.565,
+    "y": 7.716,
+    "rot": 0.262,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 25.259,
+    "y": 7.18,
+    "rot": 0.131,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 28,
+    "y": 7,
+    "rot": 0,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 30.741,
+    "y": 7.18,
+    "rot": 6.152,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 33.435,
+    "y": 7.716,
+    "rot": 6.021,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 36.036,
+    "y": 8.599,
+    "rot": 5.89,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 38.5,
+    "y": 9.813,
+    "rot": 5.76,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 40.784,
+    "y": 11.34,
+    "rot": 5.629,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 42.849,
+    "y": 13.151,
+    "rot": 5.498,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 44.66,
+    "y": 15.216,
+    "rot": 5.367,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 46.187,
+    "y": 17.5,
+    "rot": 5.236,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 47.401,
+    "y": 19.964,
+    "rot": 5.105,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 48.284,
+    "y": 22.565,
+    "rot": 4.974,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Floor_Standard",
+    "x": 48.82,
+    "y": 25.259,
+    "rot": 4.843,
+    "scale": 1.1,
+    "z": 4.2
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 48.1,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 47.928,
+    "y": 30.624,
+    "rot": 4.581,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 47.415,
+    "y": 33.202,
+    "rot": 4.451,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 46.57,
+    "y": 35.692,
+    "rot": 4.32,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 45.407,
+    "y": 38.05,
+    "rot": 4.189,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 43.946,
+    "y": 40.236,
+    "rot": 4.058,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 42.213,
+    "y": 42.213,
+    "rot": 3.927,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 40.236,
+    "y": 43.946,
+    "rot": 3.796,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 38.05,
+    "y": 45.407,
+    "rot": 3.665,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 35.692,
+    "y": 46.57,
+    "rot": 3.534,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 33.202,
+    "y": 47.415,
+    "rot": 3.403,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 30.624,
+    "y": 47.928,
+    "rot": 3.272,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 28,
+    "y": 48.1,
+    "rot": 3.142,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 25.376,
+    "y": 47.928,
+    "rot": 3.011,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 22.798,
+    "y": 47.415,
+    "rot": 2.88,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 20.308,
+    "y": 46.57,
+    "rot": 2.749,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 17.95,
+    "y": 45.407,
+    "rot": 2.618,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 15.764,
+    "y": 43.946,
+    "rot": 2.487,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 13.787,
+    "y": 42.213,
+    "rot": 2.356,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 12.054,
+    "y": 40.236,
+    "rot": 2.225,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 10.593,
+    "y": 38.05,
+    "rot": 2.094,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 9.43,
+    "y": 35.692,
+    "rot": 1.963,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 8.585,
+    "y": 33.202,
+    "rot": 1.833,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 8.072,
+    "y": 30.624,
+    "rot": 1.702,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 7.9,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 8.072,
+    "y": 25.376,
+    "rot": 1.44,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 8.585,
+    "y": 22.798,
+    "rot": 1.309,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 9.43,
+    "y": 20.308,
+    "rot": 1.178,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 10.593,
+    "y": 17.95,
+    "rot": 1.047,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 12.054,
+    "y": 15.764,
+    "rot": 0.916,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 13.787,
+    "y": 13.787,
+    "rot": 0.785,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 15.764,
+    "y": 12.054,
+    "rot": 0.654,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 17.95,
+    "y": 10.593,
+    "rot": 0.524,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 20.308,
+    "y": 9.43,
+    "rot": 0.393,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 22.798,
+    "y": 8.585,
+    "rot": 0.262,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 25.376,
+    "y": 8.072,
+    "rot": 0.131,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 28,
+    "y": 7.9,
+    "rot": 0,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 30.624,
+    "y": 8.072,
+    "rot": 6.152,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 33.202,
+    "y": 8.585,
+    "rot": 6.021,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 35.692,
+    "y": 9.43,
+    "rot": 5.89,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 38.05,
+    "y": 10.593,
+    "rot": 5.76,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 40.236,
+    "y": 12.054,
+    "rot": 5.629,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 42.213,
+    "y": 13.787,
+    "rot": 5.498,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 43.946,
+    "y": 15.764,
+    "rot": 5.367,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 45.407,
+    "y": 17.95,
+    "rot": 5.236,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 46.57,
+    "y": 20.308,
+    "rot": 5.105,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 47.415,
+    "y": 22.798,
+    "rot": 4.974,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Stairs_2",
+    "x": 47.928,
+    "y": 25.376,
+    "rot": 4.843,
+    "scale": 1,
+    "z": 3.5
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 49.9,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 49.74,
+    "y": 30.64,
+    "rot": 4.592,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 49.264,
+    "y": 33.241,
+    "rot": 4.471,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 48.477,
+    "y": 35.766,
+    "rot": 4.35,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 47.391,
+    "y": 38.177,
+    "rot": 4.229,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 46.023,
+    "y": 40.441,
+    "rot": 4.108,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 44.392,
+    "y": 42.522,
+    "rot": 3.987,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 42.522,
+    "y": 44.392,
+    "rot": 3.867,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 40.441,
+    "y": 46.023,
+    "rot": 3.746,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 38.177,
+    "y": 47.391,
+    "rot": 3.625,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 35.766,
+    "y": 48.477,
+    "rot": 3.504,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 33.241,
+    "y": 49.264,
+    "rot": 3.383,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 30.64,
+    "y": 49.74,
+    "rot": 3.262,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 28,
+    "y": 49.9,
+    "rot": 3.142,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 25.36,
+    "y": 49.74,
+    "rot": 3.021,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 22.759,
+    "y": 49.264,
+    "rot": 2.9,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 20.234,
+    "y": 48.477,
+    "rot": 2.779,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 17.823,
+    "y": 47.391,
+    "rot": 2.658,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 15.559,
+    "y": 46.023,
+    "rot": 2.537,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 13.478,
+    "y": 44.392,
+    "rot": 2.417,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 11.608,
+    "y": 42.522,
+    "rot": 2.296,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 9.977,
+    "y": 40.441,
+    "rot": 2.175,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 8.609,
+    "y": 38.177,
+    "rot": 2.054,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 7.523,
+    "y": 35.766,
+    "rot": 1.933,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 6.736,
+    "y": 33.241,
+    "rot": 1.812,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 6.26,
+    "y": 30.64,
+    "rot": 1.692,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 6.1,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 6.26,
+    "y": 25.36,
+    "rot": 1.45,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 6.736,
+    "y": 22.759,
+    "rot": 1.329,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 7.523,
+    "y": 20.234,
+    "rot": 1.208,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 8.609,
+    "y": 17.823,
+    "rot": 1.087,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 9.977,
+    "y": 15.559,
+    "rot": 0.967,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 11.608,
+    "y": 13.478,
+    "rot": 0.846,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 13.478,
+    "y": 11.608,
+    "rot": 0.725,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 15.559,
+    "y": 9.977,
+    "rot": 0.604,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 17.823,
+    "y": 8.609,
+    "rot": 0.483,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 20.234,
+    "y": 7.523,
+    "rot": 0.362,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 22.759,
+    "y": 6.736,
+    "rot": 0.242,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 25.36,
+    "y": 6.26,
+    "rot": 0.121,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 28,
+    "y": 6.1,
+    "rot": 0,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 30.64,
+    "y": 6.26,
+    "rot": 6.162,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 33.241,
+    "y": 6.736,
+    "rot": 6.042,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 35.766,
+    "y": 7.523,
+    "rot": 5.921,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 38.177,
+    "y": 8.609,
+    "rot": 5.8,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 40.441,
+    "y": 9.977,
+    "rot": 5.679,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 42.522,
+    "y": 11.608,
+    "rot": 5.558,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 44.392,
+    "y": 13.478,
+    "rot": 5.437,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 46.023,
+    "y": 15.559,
+    "rot": 5.317,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 47.391,
+    "y": 17.823,
+    "rot": 5.196,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 48.477,
+    "y": 20.234,
+    "rot": 5.075,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 49.264,
+    "y": 22.759,
+    "rot": 4.954,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Rail_Straight",
+    "x": 49.74,
+    "y": 25.36,
+    "rot": 4.833,
+    "scale": 1,
+    "z": 4.2
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 50.6,
+    "y": 28,
+    "rot": 4.712,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 50.106,
+    "y": 32.699,
+    "rot": 4.503,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 48.646,
+    "y": 37.192,
+    "rot": 4.294,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 46.284,
+    "y": 41.284,
+    "rot": 4.084,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 43.122,
+    "y": 44.795,
+    "rot": 3.875,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 39.3,
+    "y": 47.572,
+    "rot": 3.665,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 34.984,
+    "y": 49.494,
+    "rot": 3.456,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 30.362,
+    "y": 50.476,
+    "rot": 3.246,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 25.638,
+    "y": 50.476,
+    "rot": 3.037,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 21.016,
+    "y": 49.494,
+    "rot": 2.827,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
     "x": 16.7,
-    "y": 5,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
+    "y": 47.572,
+    "rot": 2.618,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
+    "kind": "Wall_ArchRound",
+    "x": 12.878,
+    "y": 44.795,
+    "rot": 2.409,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 9.716,
+    "y": 41.284,
+    "rot": 2.199,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 7.354,
+    "y": 37.192,
+    "rot": 1.99,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 5.894,
+    "y": 32.699,
+    "rot": 1.78,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 5.4,
+    "y": 28,
+    "rot": 1.571,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 5.894,
+    "y": 23.301,
+    "rot": 1.361,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 7.354,
+    "y": 18.808,
+    "rot": 1.152,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 9.716,
+    "y": 14.716,
+    "rot": 0.942,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
+    "x": 12.878,
+    "y": 11.205,
+    "rot": 0.733,
+    "scale": 1.4,
+    "z": 5.4
+  },
+  {
+    "kind": "Wall_ArchRound",
     "x": 16.7,
-    "y": 5,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
+    "y": 8.428,
+    "rot": 0.524,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 17,
-    "y": 7,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
+    "kind": "Wall_ArchRound",
+    "x": 21.016,
+    "y": 6.506,
+    "rot": 0.314,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 16.7,
-    "y": 7,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Wall_ArchRound",
+    "x": 25.638,
+    "y": 5.524,
+    "rot": 0.105,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 17,
-    "y": 4,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Wall_ArchRound",
+    "x": 30.362,
+    "y": 5.524,
+    "rot": 6.178,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Wood",
-    "x": 16.7,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Wall_ArchRound",
+    "x": 34.984,
+    "y": 6.506,
+    "rot": 5.969,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 23,
-    "y": 4,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Wall_ArchRound",
+    "x": 39.3,
+    "y": 8.428,
+    "rot": 5.76,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Wood",
-    "x": 23.3,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Wall_ArchRound",
+    "x": 43.122,
+    "y": 11.205,
+    "rot": 5.55,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 17,
-    "y": 8,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Wall_ArchRound",
+    "x": 46.284,
+    "y": 14.716,
+    "rot": 5.341,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Wood",
-    "x": 16.7,
-    "y": 8.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Wall_ArchRound",
+    "x": 48.646,
+    "y": 18.808,
+    "rot": 5.131,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Brick",
-    "x": 23,
-    "y": 8,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "kind": "Wall_ArchRound",
+    "x": 50.106,
+    "y": 23.301,
+    "rot": 4.922,
+    "scale": 1.4,
+    "z": 5.4
   },
   {
-    "kind": "Corner_Exterior_Wood",
-    "x": 23.3,
-    "y": 8.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x4",
-    "x": 20,
-    "y": 6,
-    "rot": 0,
-    "scale": 1,
-    "z": 6.39
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 20,
-    "y": 8.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 20,
-    "y": 3.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Prop_Chimney2",
-    "x": 20,
-    "y": 5.12,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine1",
-    "x": 17,
-    "y": 6,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 13,
+    "kind": "Flag_GothicArch",
+    "x": 50.4,
     "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
+    "rot": 4.712,
+    "scale": 1.2,
+    "z": 7.6
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 13,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Flag_GothicArch",
+    "x": 46.122,
+    "y": 41.166,
+    "rot": 4.084,
+    "scale": 1.2,
+    "z": 7.6
   },
   {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 13,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
+    "kind": "Flag_GothicArch",
+    "x": 34.922,
+    "y": 49.304,
+    "rot": 3.456,
+    "scale": 1.2,
+    "z": 7.6
   },
   {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 15,
+    "kind": "Flag_GothicArch",
+    "x": 21.078,
+    "y": 49.304,
+    "rot": 2.827,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Flag_GothicArch",
+    "x": 9.878,
+    "y": 41.166,
+    "rot": 2.199,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Flag_GothicArch",
+    "x": 5.6,
     "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 15,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 16,
-    "y": 29,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 16.3,
-    "y": 29,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 16.3,
-    "y": 29,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 16,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Door_1_Round",
-    "x": 15.96,
-    "y": 30.48,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 16.3,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 16.3,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 16,
-    "y": 33,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 16.3,
-    "y": 33,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 16.3,
-    "y": 33,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 13,
-    "y": 34,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 13,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 15,
-    "y": 34,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 15,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 15,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 12,
-    "y": 29,
     "rot": 1.571,
-    "scale": 1,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Flag_GothicArch",
+    "x": 9.878,
+    "y": 14.834,
+    "rot": 0.942,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Flag_GothicArch",
+    "x": 21.078,
+    "y": 6.696,
+    "rot": 0.314,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Flag_GothicArch",
+    "x": 34.922,
+    "y": 6.696,
+    "rot": 5.969,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Flag_GothicArch",
+    "x": 46.122,
+    "y": 14.834,
+    "rot": 5.341,
+    "scale": 1.2,
+    "z": 7.6
+  },
+  {
+    "kind": "Castle_Watchtower",
+    "x": 44.971,
+    "y": 44.971,
+    "rot": 3.927,
+    "scale": 2.2,
     "z": 0
   },
   {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 11.7,
-    "y": 29,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 12,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
+    "kind": "Castle_Watchtower",
+    "x": 11.029,
+    "y": 44.971,
+    "rot": 2.356,
+    "scale": 2.2,
     "z": 0
   },
   {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 11.7,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 12,
-    "y": 33,
-    "rot": 1.571,
-    "scale": 1,
+    "kind": "Castle_Watchtower",
+    "x": 11.029,
+    "y": 11.029,
+    "rot": 0.785,
+    "scale": 2.2,
     "z": 0
   },
   {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 11.7,
-    "y": 33,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 11.7,
-    "y": 33,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 12,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 11.7,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 16,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 16.3,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 12,
-    "y": 34,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 11.7,
-    "y": 34.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 16,
-    "y": 34,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 16.3,
-    "y": 34.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x4",
-    "x": 14,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.39
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 16.3,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 11.7,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Balcony_Simple_Straight",
-    "x": 16.3,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Prop_Chimney2",
-    "x": 13.12,
-    "y": 31,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine2",
-    "x": 14,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 25,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 25,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 27,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 27,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 27,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 28,
-    "y": 29,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_WoodGrid",
-    "x": 28.3,
-    "y": 29,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 28,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 28.3,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 28.3,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 28,
-    "y": 33,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 28.3,
-    "y": 33,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 28.3,
-    "y": 33,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 25,
-    "y": 34,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 25,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 25,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Straight",
-    "x": 27,
-    "y": 34,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 27,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 27,
-    "y": 34.3,
-    "rot": 3.142,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 24,
-    "y": 29,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 23.7,
-    "y": 29,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 23.7,
-    "y": 29,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Door_Round",
-    "x": 24,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Door_1_Round",
-    "x": 24.04,
-    "y": 31.52,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 23.7,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 23.7,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Wall_UnevenBrick_Window_Wide_Round",
-    "x": 24,
-    "y": 33,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Wall_Plaster_Window_Wide_Round",
-    "x": 23.7,
-    "y": 33,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "WindowShutters_Wide_Round_Open",
-    "x": 23.7,
-    "y": 33,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 24,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 23.7,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 28,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 28.3,
-    "y": 27.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 24,
-    "y": 34,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 23.7,
-    "y": 34.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 28,
-    "y": 34,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Wood",
-    "x": 28.3,
-    "y": 34.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Roof_RoundTiles_6x4",
-    "x": 26,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.39
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 28.3,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Roof_Front_Brick6",
-    "x": 23.7,
-    "y": 31,
-    "rot": 1.571,
-    "scale": 1,
-    "z": 6.24
-  },
-  {
-    "kind": "Balcony_Simple_Straight",
-    "x": 23.7,
-    "y": 31,
-    "rot": 4.712,
-    "scale": 1,
-    "z": 3.12
-  },
-  {
-    "kind": "Prop_Chimney2",
-    "x": 26.88,
-    "y": 31,
-    "rot": 0,
-    "scale": 1,
-    "z": 8.211
-  },
-  {
-    "kind": "Prop_Vine4",
-    "x": 26,
-    "y": 28,
-    "rot": 0,
-    "scale": 1,
-    "z": 1.6
-  },
-  {
-    "kind": "Prop_Support",
-    "x": 12.4,
-    "y": 25.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_Support",
-    "x": 14.6,
-    "y": 25.7,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_Support",
-    "x": 12.4,
-    "y": 27.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_Support",
-    "x": 14.6,
-    "y": 27.3,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Roof_Wooden_2x1",
-    "x": 13.5,
-    "y": 26.5,
-    "rot": 0,
-    "scale": 1,
-    "z": 2.05,
-    "s3": [
-      1.4,
-      1,
-      1.9
-    ]
-  },
-  {
-    "kind": "Wall_Arch",
-    "x": 20,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0,
-    "s3": [
-      2.1,
-      1.15,
-      1
-    ]
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 17.9,
-    "y": 37,
-    "rot": 0,
-    "scale": 1.15,
-    "z": 0
-  },
-  {
-    "kind": "Corner_Exterior_Brick",
-    "x": 22.1,
-    "y": 37,
-    "rot": 0,
-    "scale": 1.15,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 2.4,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 4.46,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 6.52,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 8.58,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 10.64,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 12.7,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 14.76,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 16.82,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 25.06,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 27.12,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 29.18,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 31.24,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 33.3,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 35.36,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
-    "z": 0
-  },
-  {
-    "kind": "Prop_WoodenFence_Single",
-    "x": 37.42,
-    "y": 37,
-    "rot": 0,
-    "scale": 1,
+    "kind": "Castle_Watchtower",
+    "x": 44.971,
+    "y": 11.029,
+    "rot": 5.498,
+    "scale": 2.2,
     "z": 0
   }
 ]

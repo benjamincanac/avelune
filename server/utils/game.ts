@@ -12,13 +12,13 @@ import {
   JUMP_VELOCITY,
   PLAYER_SPEED,
   PORTAL_RADIUS,
+  TOWER_SEED,
   TRAP_MAX_Z,
   TRAP_RADIUS,
-  biomeIndex,
-  dateSeed,
   floorSpeed,
   generateFloor,
   isTrapActive,
+  maxAuthoredFloor,
   stepBody,
 } from '#shared/utils/maze'
 import type { Identity } from './session'
@@ -37,17 +37,18 @@ import { oracleReply } from './oracle'
  * leaderboard can't be faked.
  *
  * One shared instance hosts every player across every floor — floors are
- * just a property of a player, and each floor's geometry is derived on
- * demand from (day seed, floor index). Scores and positions live in
- * instance memory; the tower itself is reproducible from the date, so the
- * world is effectively persistent while nothing is stored anywhere.
+ * just a property of a player, and each floor's geometry is loaded on demand
+ * from bundled authored data (keyed by the constant TOWER_SEED). Scores and
+ * positions live in instance memory; the world itself is fixed and eternal,
+ * so it's effectively persistent while nothing is stored anywhere. (Records
+ * and progress are all-time and in-memory — they reset only on redeploy.)
  */
 
 /** Simulation rate: 20 ticks per second. */
 const TICK_MS = 50
 /** Fan out a state snapshot every N ticks (10 per second). */
 const BROADCAST_EVERY = 2
-/** Sweep stale sessions and check the date rollover every N ticks (5 seconds). */
+/** Sweep stale sessions every N ticks (5 seconds). */
 const SWEEP_EVERY = 100
 /** Drop players whose client stopped heartbeating (e.g. their tab crashed). */
 const STALE_TIMEOUT = 60_000
@@ -79,15 +80,14 @@ interface Spectator {
   close: () => void
 }
 
-let daySeed = dateSeed()
 const floorCache = new Map<number, FloorPlan>()
 const sessions = new Map<string, Session>()
 const spectators = new Map<string, Spectator>()
-/** Best clear time per floor today. */
+/** Best clear time per floor (all-time; in-memory, resets on redeploy). */
 const records = new Map<number, FloorRecord>()
-/** Deepest floor reached per player today, keyed by their stable identity id.
+/** Deepest floor reached per player, keyed by their stable identity id.
  * Outlives a socket (a refresh drops the connection but not the climb) so the
- * hub portal can resume you where you left off; cleared on the daily rollover. */
+ * hub door can resume you where you left off. */
 const progress = new Map<string, number>()
 
 let loop: ReturnType<typeof setInterval> | undefined
@@ -96,7 +96,7 @@ let tickCount = 0
 function getFloor(floor: number): FloorPlan {
   let plan = floorCache.get(floor)
   if (!plan) {
-    plan = generateFloor(floor, daySeed)
+    plan = generateFloor(floor, TOWER_SEED)
     floorCache.set(floor, plan)
   }
   return plan
@@ -119,23 +119,8 @@ function broadcast(msg: ServerMessage, exceptId?: string) {
     if (id === exceptId) continue
     session.send(data)
   }
-  // Spectators receive every frame (join/leave/state/chat/death/clear/maze).
+  // Spectators receive every frame (join/leave/state/chat/death/clear).
   for (const spectator of spectators.values()) spectator.send(data)
-}
-
-/** Midnight UTC passed: a fresh tower, everyone back to the hub. */
-function rolloverTower() {
-  daySeed = dateSeed()
-  floorCache.clear()
-  records.clear()
-  progress.clear()
-  for (const session of sessions.values()) {
-    Object.assign(session.player, spawnAt(HUB_FLOOR))
-    session.player.best = 0
-    session.floorEnteredAt = Date.now()
-    session.moved = false
-  }
-  broadcast({ t: 'maze', seed: daySeed, players: [...sessions.values()].map(s => s.player) })
 }
 
 function tick() {
@@ -198,7 +183,8 @@ function tick() {
         Math.hypot(t.x - player.x, t.y - player.y) < TRAP_RADIUS && isTrapActive(t, now),
       )
       if (trap) {
-        const cause = BIOMES[biomeIndex(player.floor)]!.cause
+        // The floor's authored biome drives the flavor of death.
+        const cause = BIOMES[plan.biome]?.cause ?? 'slain in the dark'
         player.deaths++
         // Fall dead on the spot; the hub respawn is deferred (see top of loop)
         // so the death clip can play. `moved` pushes the death pose out at once.
@@ -216,11 +202,17 @@ function tick() {
     if (Math.hypot(plan.exit.x - player.x, plan.exit.y - player.y) < trigger) {
       const cleared = player.floor
       const ms = now - session.floorEnteredAt
-      // From the hub, the portal resumes you at your deepest floor today (or
-      // floor 1 if you've yet to climb); a floor's exit drops to the next one.
-      const dest = cleared === HUB_FLOOR ? Math.max(HUB_FLOOR + 1, player.best) : cleared + 1
+      // The dungeon is a finite, hand-authored descent. From the hub, the door
+      // resumes you at your deepest floor (capped at the last authored one, or
+      // floor 1 if you've yet to climb). A floor's exit drops one deeper — unless
+      // it's the deepest authored floor, which returns you to the hub.
+      const last = maxAuthoredFloor()
+      const dest = cleared === HUB_FLOOR
+        ? Math.min(Math.max(HUB_FLOOR + 1, player.best), last)
+        : (cleared >= last ? HUB_FLOOR : cleared + 1)
       Object.assign(player, spawnAt(dest))
-      player.best = Math.max(player.best, player.floor)
+      // `best` is the deepest floor reached — the hub isn't a "depth".
+      if (dest !== HUB_FLOOR) player.best = Math.max(player.best, dest)
       progress.set(player.id, player.best)
       session.floorEnteredAt = now
 
@@ -261,8 +253,6 @@ function tick() {
   }
 
   if (tickCount % SWEEP_EVERY === 0) {
-    if (dateSeed() !== daySeed) rolloverTower()
-
     const min = Date.now() - STALE_TIMEOUT
     for (const session of sessions.values()) {
       // Close the socket; its close handler runs the normal disconnect path.
@@ -302,7 +292,7 @@ export interface Connection {
 }
 
 /**
- * Today's fastest clear per floor, sorted by floor. Read by `GET /api/records`
+ * The fastest clear per floor, sorted by floor. Read by `GET /api/records`
  * so the login gate can show the board before any socket is open; in-game and
  * spectator clients get the same data live in their `welcome` frame.
  */
@@ -384,14 +374,12 @@ function considerOracle(name: string, text: string) {
  * WS handler verified — see server/utils/session.ts.
  */
 export function registerConnection(identity: Identity, send: (data: string) => void, close: () => void): Connection {
-  if (dateSeed() !== daySeed) rolloverTower()
-
   const player: Player = {
     ...identity,
     ...spawnAt(HUB_FLOOR),
     angle: -Math.PI / 2,
-    // Restore today's deepest floor so a refresh keeps your rank, and the hub
-    // portal sends you back down to where you left off rather than to floor 1.
+    // Restore your deepest floor so a refresh keeps your rank, and the hub
+    // door sends you back down to where you left off rather than to floor 1.
     best: progress.get(identity.id) ?? 0,
     deaths: 0,
   }
@@ -430,7 +418,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     t: 'welcome',
     self: player,
     players: others,
-    seed: daySeed,
+    seed: TOWER_SEED,
     now: Date.now(),
     records: [...records.values()],
   } satisfies ServerMessage))
@@ -510,8 +498,6 @@ export function registerConnection(identity: Identity, send: (data: string) => v
  * required — spectating is anonymous.
  */
 export function registerSpectator(send: (data: string) => void, close: () => void): Connection {
-  if (dateSeed() !== daySeed) rolloverTower()
-
   const id = newUserId()
   spectators.set(id, { lastSeen: Date.now(), send, close })
   startLoop()
@@ -520,7 +506,7 @@ export function registerSpectator(send: (data: string) => void, close: () => voi
     t: 'welcome',
     self: null,
     players: [...sessions.values()].map(s => s.player),
-    seed: daySeed,
+    seed: TOWER_SEED,
     now: Date.now(),
     records: [...records.values()],
   } satisfies ServerMessage))

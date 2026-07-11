@@ -1,28 +1,36 @@
 /**
- * Mugen's world: a hub plaza and an endless tower of labyrinth floors,
- * all generated deterministically.
+ * Tempest's world: a colosseum hub and a descent of hand-authored dungeon
+ * floors.
  *
  * Both the server (collision, hazards, win detection) and the client
  * (rendering, prediction, spectator maps) build the exact same floors
  * locally, so no geometry ever travels over the WebSocket — only players.
  *
- * The day seed is derived from the current UTC date: the tower is the same
- * world for every player and every function instance all day, survives
- * instance recycling, and becomes a brand-new tower at midnight UTC. Each
- * floor's layout is seeded by (day seed, floor index), so any client can
- * regenerate any floor on demand.
+ * The world is fixed, not procedural: the hub and every floor are authored
+ * once (in the dev editor) and bundled as JSON, keyed by a constant
+ * `TOWER_SEED` only so the decorative placement hashing stays stable. There
+ * is no daily reset — the dungeon is carved and eternal; only the runners
+ * change.
  */
 
 import hubProps from '../data/hub-props.json'
 import hubStructure from '../data/hub-structure.json'
+// Authored floors, bundled as ONE top-level-array JSON (like the hub files).
+// NOT per-file with a barrel: the Nitro-beta dev worker (rolldown) crashes on
+// importing a top-level-*object* JSON — only arrays are safe. The save route
+// rewrites this whole array.
+import authoredFloorsData from '../data/floors.json'
 
 /** How far players move, in tiles per second (biome modifiers apply). */
 export const PLAYER_SPEED = 3.2
 /** Collision radius of a player, in tiles (corridors are 2 tiles wide). */
 export const PLAYER_RADIUS = 0.3
 
-/** Floor 0 is the hub plaza; floors 1.. are the labyrinth. */
+/** Floor 0 is the colosseum hub; floors 1.. are the dungeon. */
 export const HUB_FLOOR = 0
+/** Fixed world key. The world no longer rotates daily, so this is a constant
+ *  salt for deterministic cosmetic placement rather than a date-derived seed. */
+export const TOWER_SEED = 20260708
 /** Radius of the teleport circle trigger in the hub. */
 export const PORTAL_RADIUS = 1.7
 /** Radius of a floor's exit trigger. */
@@ -63,8 +71,14 @@ export interface PropSpec {
   scale: number
   /** Walkable height of its top surface (0 = decorative, walk-through). */
   top: number
-  /** Footprint radius for the walkable surface. */
+  /** Footprint radius. For boxed kinds this is the broad-phase bounding radius
+   *  (hypot of the box half-extents); for round kinds it's the collision disc. */
   r: number
+  /** Oriented-box footprint half-extents `[localX, localY]` (tile-plane), for
+   *  wall/panel pieces a circle can't fit. When set, collision is a rotated-rect
+   *  test inside the `r` broad-phase; absent means the circular `r` is the shape. */
+  bx?: number
+  by?: number
   /** Hand-placed via the dev editor (vs. daily scatter) — lets the editor
    *  isolate and re-render just the props it owns. */
   hand?: boolean
@@ -112,58 +126,108 @@ export interface FloorPlan {
 }
 
 /**
- * Per-kind walkable surface: [top height at scale 1, footprint radius at scale 1].
- * A tall `top` (above jump height) makes a prop an unjumpable blocker; a low one
- * is a ledge you can hop onto. `r` is the circular collision footprint.
+ * An authored dungeon floor as stored in `shared/data/floors/floor-N.json`
+ * (hand-built in the dev editor, bundled as JSON — no procedural generation).
+ * Walls are placements, not tiles: `size` only drives the border ring + ground,
+ * and collision comes from each solid placement's footprint. `maze.ts` turns
+ * this into a runtime `FloorPlan` via `planFromAuthored`. `version` lets chests/
+ * monsters be added later without a repaint. The data lives in a single
+ * top-level-array `shared/data/floors.json` (NOT per-file objects): the
+ * Nitro-beta dev worker crashes importing a top-level-object JSON — arrays are
+ * safe (same shape as the hub JSON files).
  */
-const SOLID_PROPS: Record<string, [number, number]> = {
+export interface AuthoredFloorData {
+  version: 1
+  floor: number
+  size: number
+  biome: number
+  start: { x: number, y: number }
+  exit: { x: number, y: number }
+  traps: Trap[]
+  placements: HubPropPlacement[]
+}
+
+/**
+ * Per-kind collision at scale 1. `top` is the walkable surface height: a tall
+ * `top` (above jump height) makes a prop an unjumpable blocker; a low one is a
+ * ledge you can hop onto. Round kinds give just `r` (a collision disc). Wall/
+ * panel kinds a circle can't fit give `box: [localX, localY]` half-extents — an
+ * oriented rectangle in the tile plane; `r` is then derived as its bounding
+ * radius. `top`/`r`/`box` scale with the placement (per-axis when `s3` is set).
+ */
+interface SolidProp { top: number, r: number, box?: [number, number] }
+const SOLID_PROPS: Record<string, SolidProp> = {
   // Radii track each model's real footprint (measured), so collision hugs the
   // visible mesh instead of a fat invisible ring around it. `Bricks` is left
   // out on purpose: its mesh is a long, tall, thin wall (~1.8×0.55×1.6) that no
   // single circle can fit — a circle wide enough to cover the broad faces reads
   // as an invisible wall, and a full-height one would wall off corridors — so
   // it stays decorative clutter you can walk through.
-  Crate: [0.8, 0.42],
-  Barrel: [1.05, 0.42],
-  Chest: [0.88, 0.55],
+  Crate: { top: 0.8, r: 0.42 },
+  Barrel: { top: 1.05, r: 0.42 },
+  Chest: { top: 0.88, r: 0.55 },
   // Fantasy-kit furniture that doubles as a low platform to hop onto.
-  Crate_Wooden: [1.1, 0.45],
-  Chest_Wood: [0.68, 0.55],
+  Crate_Wooden: { top: 1.1, r: 0.45 },
+  Chest_Wood: { top: 0.68, r: 0.55 },
   // Hub nature/village obstacles: trees and boulders block like walls; the
   // crate/wagon are lower so they read as clutter you can vault with a jump.
-  CommonTree_1: [3, 0.6],
-  CommonTree_2: [3, 0.6],
-  CommonTree_3: [3, 0.6],
-  Pine_1: [3, 0.6],
-  Pine_2: [3, 0.6],
-  Rock_Medium_1: [1.8, 0.9],
-  Rock_Medium_2: [1.8, 0.85],
-  Rock_Medium_3: [1.8, 0.95],
-  Prop_Crate: [0.9, 0.55],
-  Prop_Wagon: [1.2, 1.05],
+  CommonTree_1: { top: 3, r: 0.6 },
+  CommonTree_2: { top: 3, r: 0.6 },
+  CommonTree_3: { top: 3, r: 0.6 },
+  Pine_1: { top: 3, r: 0.6 },
+  Pine_2: { top: 3, r: 0.6 },
+  Rock_Medium_1: { top: 1.8, r: 0.9 },
+  Rock_Medium_2: { top: 1.8, r: 0.85 },
+  Rock_Medium_3: { top: 1.8, r: 0.95 },
+  Prop_Crate: { top: 0.9, r: 0.55 },
+  Prop_Wagon: { top: 1.2, r: 1.05 },
   // Ground-level village building pieces (baked into hub-structure.json). Tall
   // `top` (unjumpable) so house walls block; ~1-tile radius so a chain of 2-unit
   // wall panels reads as a solid perimeter. The door frame + gate arch are left
   // OUT so their openings stay walkable. Upper-floor/roof kinds are never listed
   // (cosmetic, and they sit at z>0 where ground collision wouldn't apply).
-  Wall_UnevenBrick_Straight: [3.4, 1],
-  Wall_UnevenBrick_Window_Wide_Round: [3.4, 1],
-  Corner_Exterior_Brick: [3.4, 0.7],
-  Prop_Support: [3.4, 0.35],
-  Prop_WoodenFence_Single: [1.1, 1],
+  Wall_UnevenBrick_Straight: { top: 3.4, r: 1 },
+  Wall_UnevenBrick_Window_Wide_Round: { top: 3.4, r: 1 },
+  Corner_Exterior_Brick: { top: 3.4, r: 0.7 },
+  Prop_Support: { top: 3.4, r: 0.35 },
+  Prop_WoodenFence_Single: { top: 1.1, r: 1 },
+  // Dungeon/crypt wall + column pieces (authored floors). Oriented boxes so a
+  // chain of panels forms a tight corridor wall instead of a scalloped line of
+  // discs; `box` half-extents are [localX, localY] from the convert DIMS (W/2 ×
+  // D/2). A high `top` makes them unjumpable blockers. Arches/doorways/entrances
+  // stay OUT so their openings remain walkable. Dungeon walls run along local X
+  // (2.0 wide × 0.44 thick); crypt walls run along local Y (0.68 thick × 2.04
+  // long) — note the transposed extents.
+  Dungeon_Wall_Modular: { top: 3, r: 1, box: [1, 0.22] }, // 2.00 × 0.44 × 2.01
+  Dungeon_Decorative_Wall: { top: 3, r: 1, box: [0.87, 0.22] }, // 1.74 × 0.44 × 1.52
+  Dungeon_Column: { top: 4, r: 0.65 }, // 1.30 × 1.30 × 4.07
+  Dungeon_Column2: { top: 4, r: 0.65 },
+  Crypt_ModularStoneWall: { top: 3, r: 1, box: [0.34, 1.02] }, // 0.68 × 2.04 × 2.04
+  Crypt_ModularStoneWall_top: { top: 3, r: 1, box: [0.35, 1.99] }, // 0.70 × 3.98 × 2.26
+  Crypt_WallRocks: { top: 3, r: 1, box: [0.1, 1.02] }, // 0.15 × 2.05 × 2.04
+  Crypt_Column: { top: 4.9, r: 1 }, // 2.00 × 2.00 × 4.92
 }
 
-function makeProp(kind: string, x: number, y: number, rot: number, scale: number): PropSpec {
+function makeProp(kind: string, x: number, y: number, rot: number, scale: number, s3?: [number, number, number]): PropSpec {
   const solid = SOLID_PROPS[kind]
-  return {
+  if (!solid) return { kind, x, y, rot, scale, top: 0, r: 0 }
+  const [sx, sy, sz] = s3 ?? [scale, scale, scale]
+  const spec: PropSpec = {
     kind,
     x,
     y,
     rot,
     scale,
-    top: solid ? solid[0] * scale : 0,
-    r: solid ? solid[1] * scale : 0,
+    top: solid.top * sy,
+    r: solid.r * Math.max(sx, sz),
   }
+  if (solid.box) {
+    spec.bx = solid.box[0] * sx
+    spec.by = solid.box[1] * sz
+    // Bounding radius must cover the rotated rect's far corner for broad-phase.
+    spec.r = Math.hypot(spec.bx, spec.by)
+  }
+  return spec
 }
 
 /** Whether a prop kind collides (blocks/ledges) vs. renders purely decorative. */
@@ -192,11 +256,6 @@ export function isTrapActive(trap: Trap, nowMs: number): boolean {
   return t % trap.period < trap.duration
 }
 
-/** Today's day seed, as a YYYYMMDD number in UTC. */
-export function dateSeed(date: Date = new Date()): number {
-  return Number(date.toISOString().slice(0, 10).replaceAll('-', ''))
-}
-
 /** Deterministic PRNG (mulberry32) so server and client agree on the world. */
 export function createRng(seed: number): () => number {
   let a = seed >>> 0
@@ -219,60 +278,53 @@ export function createRng(seed: number): () => number {
  * Footprint spans are kept to 4/6/8 tiles so the renderer can cap each house
  * with a matching Medieval-Village gable roof (`Roof_RoundTiles_WxD`).
  */
-export interface HubHouse {
-  x0: number
-  y0: number
-  x1: number
-  y1: number
-  front: 0 | 1 | 2 | 3
-}
-
 /**
- * The village hub layout, shared so `generateHub` (which fills the collision
- * tiles) and the client renderer (which places the tower, houses, roads, and
- * portal meshes) never drift apart. World coords in tiles (1 tile = 1 unit).
+ * The colosseum hub layout, shared so `generateHub` (collision tiles) and the
+ * client renderer (arena sand, stands, the great door) never drift apart. World
+ * coords in tiles (1 tile = 1 unit).
  *
- * The village: a gigantic tower dead-center on a cobbled plaza, timber-frame
- * houses fronting the plaza and the main street, a market corner, the spawn
- * just inside the south gate, and the portal on the plaza before the tower.
- * All collision lives in the tiles + solid props; roads are cosmetic but are
- * shared here so the daily scatter keeps off them on every client.
+ * A gigantic colosseum: players spawn on the open arena sand in the middle; a
+ * solid ring of tiles under the tiered stands walls the arena in (the parapet
+ * visuals sit on top of it). A single notch in the north wall opens onto the
+ * monumental door — the exit trigger — the only way down into the dungeon.
+ * Everything visible is a hand-placed kit piece (baked into hub-structure.json);
+ * only the sand, the ring, and the door channel are procedural.
  */
 export const HUB_LAYOUT = {
-  size: 40,
-  /** Solid disc of wall tiles; players can't enter — the portal is the way up. */
-  tower: { x: 20, y: 20, radius: 4 },
-  /** Cobbled plaza disc around the tower. */
-  plazaRadius: 9.5,
-  /** Main street: from the plaza rim south to the village gate. */
-  street: { x: 20, halfW: 1.6, y1: 37.5 },
-  /** Village gate arch across the street, at the south tree line. */
-  gate: { x: 20, y: 37 },
-  /** Vertical portal + teleport trigger, on the plaza south of the tower. */
-  exit: { x: 20, y: 26 },
-  /** Spawn, on the main street just inside the gate. */
-  start: { x: 20, y: 35 },
-  /** Market stall corner on the south-west plaza rim. */
-  market: { x: 13.5, y: 26.5 },
-  houses: [
-    // Two grand plaza-front halls flanking the tower.
-    { x0: 5, y0: 16, x1: 10, y1: 21, front: 1 },
-    { x0: 29, y0: 16, x1: 34, y1: 21, front: 3 },
-    // The north row behind the plaza.
-    { x0: 9, y0: 6, x1: 14, y1: 9, front: 2 },
-    { x0: 25, y0: 6, x1: 30, y1: 9, front: 2 },
-    { x0: 17, y0: 4, x1: 22, y1: 7, front: 2 },
-    // Two houses flanking the main street by the gate.
-    { x0: 12, y0: 28, x1: 15, y1: 33, front: 1 },
-    { x0: 24, y0: 28, x1: 27, y1: 33, front: 3 },
-  ] as HubHouse[],
+  size: 56,
+  center: { x: 28, y: 28 },
+  /** Open arena radius — players roam freely inside this. */
+  arenaRadius: 12,
+  /** The solid stands ring begins here (tiles at radius ≥ this are wall). */
+  wallInner: 13,
+  /** The great door, set into the north wall. */
+  door: { x: 28, y: 13 },
+  /** Exit trigger, in the door channel at the arena's north rim. */
+  exit: { x: 28, y: 13 },
+  /** Spawn, on the sand just south of centre. */
+  start: { x: 28, y: 32 },
 }
+
+/** Half-width and y-span of the walkable channel cut through the north wall to
+ *  the door, so the arena connects out to the exit trigger. */
+const DOOR_NOTCH = { halfW: 2.5, y0: 10, y1: 16 }
 
 function generateHub(daySeed: number): FloorPlan {
   const size = HUB_LAYOUT.size
-  const tiles = new Uint8Array(size * size).fill(0)
+  const { center, wallInner, door } = HUB_LAYOUT
+  const tiles = new Uint8Array(size * size)
 
-  // Border wall ring (hidden behind the tree line client-side).
+  // Solid stands ring: every tile outside the arena is wall, except the north
+  // door channel that lets you walk from the sand out to the great door.
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x + 0.5 - center.x, y + 0.5 - center.y)
+      const inNotch = Math.abs(x + 0.5 - door.x) <= DOOR_NOTCH.halfW
+        && y + 0.5 >= DOOR_NOTCH.y0 && y + 0.5 <= DOOR_NOTCH.y1
+      if (d >= wallInner && !inNotch) tiles[y * size + x] = 1
+    }
+  }
+  // Explicit border ring (defensive — the arena annulus already covers the edges).
   for (let i = 0; i < size; i++) {
     tiles[i] = 1
     tiles[(size - 1) * size + i] = 1
@@ -280,60 +332,14 @@ function generateHub(daySeed: number): FloorPlan {
     tiles[i * size + size - 1] = 1
   }
 
-  // The gigantic central tower: a solid disc of wall tiles.
-  const { tower, houses } = HUB_LAYOUT
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if (Math.hypot(x + 0.5 - tower.x, y + 0.5 - tower.y) <= tower.radius) {
-        tiles[y * size + x] = 1
-      }
-    }
-  }
-
-  // NOTE: houses are no longer stamped as solid tiles. Once the village is baked
-  // (dev prop editor → hub-structure.json), each ground-floor wall piece is a
-  // solid prop, so house collision follows the editable pieces. `houses` is still
-  // used below to keep the daily scatter off the building footprints.
-
-  // Village core: the cobbled plaza, the main street, the market, and a margin
-  // around every house stay tidy — daily scatter only lands in the meadow ring
-  // between the buildings and the border tree line.
-  const { plazaRadius, street, market } = HUB_LAYOUT
-  const inCore = (x: number, y: number) => {
-    if (Math.hypot(x - tower.x, y - tower.y) < plazaRadius + 2) return true
-    if (Math.abs(x - street.x) < street.halfW + 2 && y > tower.y) return true
-    if (Math.hypot(x - market.x, y - market.y) < 4) return true
-    return houses.some(h => x > h.x0 - 2 && x < h.x1 + 3 && y > h.y0 - 2 && y < h.y1 + 3)
-  }
-
-  // Solid clutter: trees, boulders, and market goods the player actually bumps
-  // into. These live in the shared plan (so the server simulates their collision
-  // the same way the client predicts it); small greenery stays client-side cosmetic.
+  // Every visible piece (arcade, columns, stands, statues) is a hand placement
+  // baked into the committed JSON — appended here, run through makeProp so the
+  // server simulates collision exactly as the client renders. `z`/`s3` are
+  // render-only extras carried onto the spec.
   const props: PropSpec[] = []
-  const rng = createRng((daySeed ^ 0x5f3a29c1) >>> 0)
-  const onOpenTile = (x: number, y: number) => tiles[Math.floor(y) * size + Math.floor(x)] === 0
-  const clear = (x: number, y: number, dist: number) => props.every(p => Math.hypot(p.x - x, p.y - y) >= dist)
-  const scatter = (kinds: string[], count: number, sMin: number, sMax: number, minDist: number) => {
-    for (let placed = 0, tries = 0; placed < count && tries < count * 60; tries++) {
-      const x = 2.5 + rng() * (size - 5)
-      const y = 2.5 + rng() * (size - 5)
-      if (!onOpenTile(x, y) || inCore(x, y) || !clear(x, y, minDist)) continue
-      props.push(makeProp(kinds[Math.floor(rng() * kinds.length)]!, x, y, rng() * Math.PI * 2, sMin + rng() * (sMax - sMin)))
-      placed++
-    }
-  }
-  scatter(['CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2'], 18, 0.6, 0.95, 3)
-  scatter(['Rock_Medium_1', 'Rock_Medium_2', 'Rock_Medium_3'], 10, 0.6, 1, 2.4)
-  // Hand-placed props and baked village pieces come from committed JSON files,
-  // appended AFTER the daily scatter so the RNG stream — and thus the meadow
-  // layout — is identical no matter what's been placed/baked. `top`/`r` are
-  // derived through makeProp so the server simulates collision exactly as the
-  // client renders; `z` (elevation) and `s3` (per-axis scale) are render-only
-  // extras carried onto the spec. `hub-structure.json` is the exploded village
-  // (walls/roofs/etc.); `hub-props.json` is free-standing gameplay clutter.
   const placements = [...hubStructure, ...hubProps] as HubPropPlacement[]
   for (const p of placements) {
-    props.push({ ...makeProp(p.kind, p.x, p.y, p.rot, p.scale), hand: true, z: p.z, s3: p.s3 })
+    props.push({ ...makeProp(p.kind, p.x, p.y, p.rot, p.scale, p.s3), hand: true, z: p.z, s3: p.s3 })
   }
 
   return {
@@ -345,7 +351,6 @@ function generateHub(daySeed: number): FloorPlan {
     start: { ...HUB_LAYOUT.start },
     exit: { ...HUB_LAYOUT.exit },
     traps: [],
-    // Solid clutter is shared (above); small greenery is client-side cosmetic.
     props,
     biome: -1,
   }
@@ -371,14 +376,88 @@ function floorCells(floor: number): number {
   return Math.min(9 + floor * 2, 19)
 }
 
+/* -------------------------------------------------------------------------- */
+/* Authored floors (hand-built in the dev editor, bundled as JSON)            */
+/* -------------------------------------------------------------------------- */
+
+// Lazily indexed so nothing touches `AUTHORED_FLOORS` at module-init time — the
+// dev bundler can order this module before `../data/floors` finishes evaluating
+// (a type-only import cycle it doesn't always erase), and a top-level
+// `AUTHORED_FLOORS.map()` would then throw and take the whole server init down.
+const AUTHORED = authoredFloorsData as AuthoredFloorData[]
+let authoredIndex: Map<number, AuthoredFloorData> | undefined
+function authored(): Map<number, AuthoredFloorData> {
+  return (authoredIndex ??= new Map(AUTHORED.map(f => [f.floor, f])))
+}
+
+/** Whether `floor` has hand-authored data (vs. the procedural fallback). */
+export function isAuthoredFloor(floor: number): boolean {
+  return authored().has(floor)
+}
+
+/** The deepest authored floor (0 if none) — the bottom of the dungeon. */
+export function maxAuthoredFloor(): number {
+  let max = 0
+  for (const f of AUTHORED) if (f.floor > max) max = f.floor
+  return max
+}
+
+/** Stable per-floor cosmetic salt (replaces the old day-seeded per-floor seed),
+ *  so decorative placement hashing on the client stays deterministic. */
+export function floorSalt(floor: number): number {
+  return Math.imul(floor + 1, 0x9E3779B1) >>> 0
+}
+
+/** Build a runtime `FloorPlan` from authored data. Tiles are just a border ring
+ *  (like the hub) — collision comes from each solid placement's footprint.
+ *  Exported so the editor can render a floor's working doc live. */
+export function planFromAuthored(d: AuthoredFloorData): FloorPlan {
+  const size = d.size
+  const tiles = new Uint8Array(size * size)
+  for (let i = 0; i < size; i++) {
+    tiles[i] = 1
+    tiles[(size - 1) * size + i] = 1
+    tiles[i * size] = 1
+    tiles[i * size + size - 1] = 1
+  }
+  const props: PropSpec[] = d.placements.map(p => ({
+    ...makeProp(p.kind, p.x, p.y, p.rot, p.scale, p.s3),
+    hand: true,
+    z: p.z,
+    s3: p.s3,
+  }))
+  return {
+    floor: d.floor,
+    seed: floorSalt(d.floor),
+    width: size,
+    height: size,
+    tiles,
+    start: { ...d.start },
+    exit: { ...d.exit },
+    traps: d.traps.map(t => ({ ...t })),
+    props,
+    biome: d.biome,
+  }
+}
+
+/**
+ * Resolve one floor's plan. The hub and authored floors are loaded from data;
+ * everything deeper still falls back to the procedural generator (removed once
+ * every floor is authored). Server and client both call this, so they agree.
+ */
+export function generateFloor(floor: number, seed: number): FloorPlan {
+  if (floor === HUB_FLOOR) return generateHub(seed)
+  const data = authored().get(floor)
+  if (data) return planFromAuthored(data)
+  return generateProceduralFloor(floor, seed)
+}
+
 /**
  * Generate one labyrinth floor: a recursive-backtracker maze with
  * `CELL_TILES`-wide corridors (cells are square tile blocks separated by 1-tile
  * walls), a few dead ends opened into loops, and timed hazards scaled to depth.
  */
-export function generateFloor(floor: number, daySeed: number): FloorPlan {
-  if (floor === HUB_FLOOR) return generateHub(daySeed)
-
+function generateProceduralFloor(floor: number, daySeed: number): FloorPlan {
   const seed = (daySeed ^ Math.imul(floor + 1, 0x9E3779B1)) >>> 0
   const rng = createRng(seed)
   const cells = floorCells(floor)
@@ -553,9 +632,67 @@ export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
   let top = 0
   for (const prop of plan.props) {
     if (prop.top <= top) continue
-    if (Math.hypot(prop.x - x, prop.y - y) <= prop.r) top = prop.top
+    const dx = x - prop.x
+    const dy = y - prop.y
+    // Broad-phase: the bounding radius (a disc for round kinds, the box's corner
+    // reach for oriented kinds).
+    if (Math.hypot(dx, dy) > prop.r) continue
+    // Narrow-phase for boxed kinds: rotate the delta into the prop's local frame
+    // and test the axis-aligned rectangle.
+    if (prop.bx != null && prop.by != null) {
+      const c = Math.cos(prop.rot)
+      const s = Math.sin(prop.rot)
+      const lx = dx * c + dy * s
+      const ly = -dx * s + dy * c
+      if (Math.abs(lx) > prop.bx || Math.abs(ly) > prop.by) continue
+    }
+    top = prop.top
   }
   return top
+}
+
+/**
+ * A display-only wall grid for the minimap/spectator/fog: the tile grid plus
+ * every wall-height solid prop rasterized in. Deterministic and cheap — computed
+ * per floor on the client, never read by the server. Lets free-placed
+ * architecture (the hub's buildings, an authored floor's maze walls) show up on
+ * the map, which reading raw `tiles` (mostly open) would not.
+ *
+ * Rasterized by tile-square OVERLAP with each prop's world-space AABB — not by
+ * whether a tile *centre* falls inside the footprint. Maze wall panels are only
+ * ~0.44 thick, so they slip between tile centres and a centre test would draw an
+ * empty room; overlap makes a thin wall register on the tiles it crosses.
+ */
+const DISPLAY_WALL_TOP = 1.2
+export function occupancyGrid(plan: FloorPlan): Uint8Array {
+  const { width, height } = plan
+  const grid = plan.tiles.slice()
+  for (const prop of plan.props) {
+    if (prop.top < DISPLAY_WALL_TOP) continue
+    // World-space AABB half-extents: exact for axis-aligned boxes, a slight
+    // over-estimate for diagonal ones (fine for a map). Circles use `r`.
+    let ax = prop.r
+    let ay = prop.r
+    if (prop.bx != null && prop.by != null) {
+      const c = Math.abs(Math.cos(prop.rot))
+      const s = Math.abs(Math.sin(prop.rot))
+      ax = prop.bx * c + prop.by * s
+      ay = prop.bx * s + prop.by * c
+    }
+    const minX = Math.max(0, Math.floor(prop.x - ax))
+    const maxX = Math.min(width - 1, Math.ceil(prop.x + ax))
+    const minY = Math.max(0, Math.floor(prop.y - ay))
+    const maxY = Math.min(height - 1, Math.ceil(prop.y + ay))
+    for (let ty = minY; ty <= maxY; ty++) {
+      for (let tx = minX; tx <= maxX; tx++) {
+        // Does tile square [tx,tx+1]×[ty,ty+1] overlap the prop's AABB?
+        if (tx < prop.x + ax && tx + 1 > prop.x - ax && ty < prop.y + ay && ty + 1 > prop.y - ay) {
+          grid[ty * width + tx] = 1
+        }
+      }
+    }
+  }
+  return grid
 }
 
 export interface KinematicBody {

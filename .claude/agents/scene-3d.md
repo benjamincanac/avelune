@@ -12,7 +12,7 @@ description: >
 model: inherit
 ---
 
-You own everything Mugen draws in 3D. The world's geometry is regenerated
+You own everything Tempest draws in 3D. The world's geometry is regenerated
 locally from the shared module — you render it and predict motion; you never
 receive geometry over the wire.
 
