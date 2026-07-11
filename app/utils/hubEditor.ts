@@ -67,6 +67,14 @@ const FLY_SPEED = 8
 const FLY_BOOST = 4
 const LOOK_SENSITIVITY = 0.0025
 const PITCH_LIMIT = 1.45
+/** Editor fly-camera seed: a 3/4 overhead view aimed at the floor centre.
+ *  `CAM_PITCH` is a fixed downward tilt; `CAM_H` sets the height as a fraction
+ *  of the floor size (so hub and floors both frame fully); `CAM_BACK` is the
+ *  Z-offset-per-height that puts the look ray exactly on the centre — i.e.
+ *  −cot(pitch). */
+const CAM_PITCH = -0.9
+const CAM_H = 0.62
+const CAM_BACK = -Math.cos(CAM_PITCH) / Math.sin(CAM_PITCH)
 const ROTATE_STEP = Math.PI / 12
 const SCALE_STEP = 1.1
 const SCALE_MIN = 0.2
@@ -129,10 +137,11 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   const pickPoint = new Vector3()
 
   // Fly-camera pose (owned here — does not touch the shared gameplay `view`),
-  // seeded looking down at the current floor's centre.
-  const camPos = new Vector3(getSize() / 2, 18, getSize() / 2 + 15)
+  // seeded as a 3/4 overhead view aimed at the current floor's centre.
+  const camPos = new Vector3()
   let yaw = 0
-  let pitch = -0.5
+  let pitch = CAM_PITCH
+  seatCamera()
   const held = new Set<string>()
   let boost = false
 
@@ -628,13 +637,20 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     if (box.visible) box.update()
   }
 
+  /** Seat the fly camera as a 3/4 overhead view aimed at the floor centre,
+   *  height scaled to the floor size so the whole extent frames in the 70° FOV. */
+  function seatCamera() {
+    const s = getSize()
+    const h = s * CAM_H
+    camPos.set(s / 2, h, s / 2 + h * CAM_BACK)
+    yaw = 0
+    pitch = CAM_PITCH
+  }
+
   /** Re-seat the fly camera over the current floor's centre and redraw gizmos
    *  (traps/markers belong to the floor that was just switched to). */
   function focus() {
-    const s = getSize()
-    camPos.set(s / 2, 18, s / 2 + 15)
-    yaw = 0
-    pitch = -0.5
+    seatCamera()
     renderGizmos()
   }
 
