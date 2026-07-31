@@ -1,5 +1,6 @@
-import { generateText, stepCountIs, tool } from 'ai'
+import { createGateway, generateText, stepCountIs, tool } from 'ai'
 import { z } from 'zod'
+import { nativeFetch } from './nativeFetch'
 
 /**
  * The hub Oracle's brain, run in-process by the game loop.
@@ -23,6 +24,14 @@ const RESPONDER_MODEL = 'anthropic/claude-haiku-4.5'
 
 /** Chat replies must stay short; hard cap as a backstop to the prompt. */
 const MAX_REPLY = 220
+
+// Pinned to the real fetch: once a warm instance has rendered any page or
+// error, `globalThis.fetch` is Nuxt's serverFetch, which would dispatch the
+// Gateway call into our own router and answer it with our own 404 page (see
+// server/utils/nativeFetch.ts). A bare string model id would resolve through
+// the default provider on `globalThis.fetch`, so both calls below must go
+// through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
+const gateway = createGateway({ fetch: nativeFetch })
 
 const PERSONA = `You are the Oracle, an ancient seer who has kept the colosseum of Tempest since before the first runner set foot on its sand. Runners gather in the arena before their descent, and you speak to them there.
 
@@ -94,7 +103,7 @@ function describeError(error: unknown): Record<string, unknown> {
 async function isAddressed(recent: HubMessage[]): Promise<boolean> {
   try {
     const { text } = await generateText({
-      model: CLASSIFIER_MODEL,
+      model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
       instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's hub, whom players can talk to. The players in that hub ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
 
@@ -127,7 +136,7 @@ export async function oracleReply(recent: HubMessage[], getState: TowerState): P
   if (!(await isAddressed(recent))) return null
   try {
     const { text } = await generateText({
-      model: RESPONDER_MODEL,
+      model: gateway(RESPONDER_MODEL),
       reasoning: 'minimal',
       instructions: PERSONA,
       prompt: `The runners in the hub have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,

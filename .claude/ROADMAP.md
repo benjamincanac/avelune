@@ -53,7 +53,7 @@
 
 ### 1. Ship it — verify prod
 - [x] **First Vercel deploy — verify the WebSocket upgrade actually works in prod** (never tested; the whole architecture rests on it). No `vercel.json` yet
-- [ ] Verify the Oracle works deployed: `AI_GATEWAY_API_KEY` / OIDC configured and `anthropic/claude-sonnet-5` resolves on the Gateway — it's a no-op otherwise
+- [ ] Verify the Oracle works deployed post-fix: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed 2026-07-11 by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in hub chat (needs `AI_GATEWAY_API_KEY` env; model `anthropic/claude-haiku-4.5`)
 - [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the new kits are already meshopt+WebP)
 
 ### 2. Combat, monsters & loot (PvE) — headline next feature
@@ -120,7 +120,7 @@ The game's first HP/damage system: fight monsters, loot chests, and a full inven
 - [ ] **`scripts/ws-test.mjs` is broken by the signed-cookie gate** — it opens raw cookieless WebSockets, which `server/api/ws.ts` closes on upgrade, so it dies at "A: no welcome". Predates the village-hub work; the fix is to `POST /api/auth` first and replay the cookie on the upgrade
 - [ ] **Nitro-beta dev server can die/crash-loop under the hub's ~180-GLB load burst** (dev worker exits silently or "Dev worker failed after 3 retries"); a prod build (`pnpm build` + `NUXT_SESSION_PASSWORD=… node .output/server/index.mjs`) serves the same session rock-solid — use it for headless verification (see the run-mmo skill)
 - [ ] **Vercel WS upgrade unverified in prod** — load-bearing; see §1
-- [ ] **Oracle is a no-op without a working Gateway key / model id** — verify on deploy (§1)
+- [ ] **Oracle Gateway calls looped back into the app in prod** (intermittent `GatewayResponseError` 404 echoing our own Nuxt error page) — root-caused to [nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321) and fixed with the pinned `nativeFetch` provider; verify on deploy (§1). Still a silent no-op without a working Gateway key
 - [ ] Ranger's **hairstyle selector has no visible effect** — the hood is always baked on and covers it; the intended "hooded ⇒ no hairstyle choice" isn't enforced in the gate UI, and the aspirational runtime `hood` toggle is unimplemented (no `Player.hood` field / control)
 - [ ] Mid-air `Jump`/`Roll` clip playback never visually verified (state logic tested; watch one jump/dash and tune crossfade/timescale if off)
 - [ ] Pointer lock impossible in the Claude preview iframe (`WrongDocumentError`) — real tabs/deploy are fine; delta-look fallback covers embeds
@@ -133,7 +133,7 @@ The game's first HP/damage system: fight monsters, loot chests, and a full inven
 
 - Dev server: `pnpm dev` — or the preview harness via `~/GitHub/benjamincanac/.claude/launch.json` (name `mmo`, autoPort; port 3000 is occupied by another process on this machine)
 - Package manager is **pnpm**; `pnpm typecheck` / `pnpm lint`
-- Oracle needs `AI_GATEWAY_API_KEY` locally (OIDC on Vercel); model id is a Gateway string (`anthropic/claude-sonnet-5`, swappable to `anthropic/claude-haiku-4.5`); identity secret is `NUXT_SESSION_PASSWORD`
+- Oracle needs `AI_GATEWAY_API_KEY` locally **and on Vercel** (OIDC is request-scoped — absent in the WS/game-loop context); model id is a Gateway string (`anthropic/claude-haiku-4.5` for both classifier and responder); identity secret is `NUXT_SESSION_PASSWORD`
 - Blender 5.1.2 at `/Applications/Blender.app/Contents/MacOS/Blender` — asset scripts run headless (`--background --python scripts/<x>.py -- <args>`); kit conversion uses `npx @gltf-transform/cli optimize`
 - Quaternius packs download from Google Drive folders linked on quaternius.com pack pages (`gdown --folder`); the Universal characters + Modular Fantasy Outfits are itch.io-only behind Cloudflare (manual download, then run `convert_universal_characters.py`)
 - Protocol testing: two `WebSocket` clients from Node against `/api/ws` — assert `welcome/state/clear/death/chat` frames (`node scripts/ws-test.mjs ws://localhost:<port>/api/ws`)
