@@ -39,6 +39,10 @@
 - [x] `git init`, `benjamincanac/tempest` repo created & pushed
 - [x] First Vercel deploy
 
+### Vercel demo (branch `vercel-demo`)
+- [x] **Stadium dressing** — the arena becomes a Vercel stadium at the same size and architecture: an LED sponsor ribbon riding the parapet wall (two laps of the 18 brands — 13 platform primitives with the ▲, 5 frameworks as light text-only panels), 18 cloth banners on the upper-tier facade, and the Vercel ▲ replacing the rune circle in the sand. All canvas-drawn (`app/utils/stadium.ts`, `app/utils/vercelBrands.ts`, `textures.ts`), render-only — nothing in `shared/` changed
+- [ ] Carry the swag beyond the arena: HUD/gate/palette in Vercel black & white, brand the Oracle's lore
+
 ### Removed in the simplification (2026-09-10)
 The project was cut back to its actual purpose (WebSockets + AI NPC demo). Gone: the
 dungeon tower and its floors, procedural labyrinth generation, biomes, timed traps,

@@ -6,8 +6,8 @@ description: >
   sky/day-night cycle + weather, instanced arena architecture, character model
   playback, the Oracle rig, the minimap, and the dev world editor's 3D side.
   Files: GameScene.client.vue, MazeScene.vue, MiniMap.vue, CharacterPreview*
-  model components, and app/utils/{textures,composeColosseum,hubEditor,
-  characterModels,appearance,palette}.ts.
+  model components, and app/utils/{textures,composeColosseum,stadium,
+  vercelBrands,hubEditor,characterModels,appearance,palette}.ts.
 model: inherit
 ---
 
@@ -57,11 +57,21 @@ you never receive geometry over the wire.
 - `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
   `material.map` on the cloth materials only (`MI_Peasant*`/`MI_Ranger*`), with
   materials cloned per rig so a swap never leaks into the shared template.
-- `app/utils/textures.ts` — procedural/canvas textures and normal maps.
+- `app/utils/textures.ts` — procedural/canvas textures and normal maps, plus
+  the canvas-drawn Vercel sponsor boards and centre mark.
+- `app/utils/stadium.ts` — the Vercel stadium dressing (`vercel-demo`): the LED
+  sponsor ribbon on the parapet wall and the upper-facade banners, cycling
+  `app/utils/vercelBrands.ts`. Render-only — never in `plan.props`; board
+  textures are cached across arena rebuilds and redrawn once Geist loads.
 - `app/utils/palette.ts` — the brand palette (`PALETTE` / `PALETTE_HEX`), shared
   with the 2D UI and the generated art. Use it instead of hardcoding accents.
 
 ## Invariants & context
+
+- **API reference lives in the `nuxt-tresjs` skill** (`.claude/skills/nuxt-tresjs/`):
+  it routes to the vanilla three.js skills, the bundled TresJS docs, and the
+  global `nuxt` skill, and lists the known inaccuracies in the three.js skills.
+  This file stays the source of truth for the project's own rules.
 1. **Client prediction uses the SHARED kinematics** (`shared/utils/maze.ts` →
    `stepBody`, collision, elevation). Do not reimplement physics in a component —
    call the shared functions so prediction matches the authoritative server. New

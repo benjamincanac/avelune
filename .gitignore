@@ -24,6 +24,7 @@ logs
 !.env.example
 .vercel
 .env*
+.history
 
 # Claude
 .claude/worktrees
