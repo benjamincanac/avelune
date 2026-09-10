@@ -1,10 +1,29 @@
-// Two-client protocol test against the Tempest server (v3: z, jump, dash).
-const URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
+// Two-client protocol test against the Tempest server.
+//
+// The socket requires the signed identity cookie, so each client first creates
+// a character over `POST /api/auth` and carries the cookie into the upgrade.
+const WS_URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
+const BASE = WS_URL.replace(/^ws/, 'http').replace(/\/api\/ws.*$/, '')
 
-function connect(label) {
+/** Create a character and return its `tempest_id` cookie. The route validates
+ *  and falls back to the default character, so a bare name is enough here. */
+async function auth(label) {
+  const res = await fetch(`${BASE}/api/auth`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: `Test${label}` }),
+  })
+  if (!res.ok) throw new Error(`${label}: auth ${res.status}`)
+  const jar = res.headers.getSetCookie?.() ?? []
+  const cookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('tempest_id='))
+  if (!cookie) throw new Error(`${label}: no tempest_id cookie`)
+  return cookie
+}
+
+function connect(label, cookie) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(URL)
-    const client = { ws, label, welcome: null, frames: [] }
+    const ws = new WebSocket(WS_URL, { headers: { cookie } })
+    const client = { ws, label, cookie, welcome: null, frames: [] }
     const timeout = setTimeout(() => reject(new Error(`${label}: no welcome`)), 5000)
     ws.addEventListener('message', (event) => {
       const msg = JSON.parse(event.data)
@@ -29,12 +48,16 @@ function check(name, ok, detail = '') {
   if (!ok) failures++
 }
 
-const a = await connect('A')
+const a = await connect('A', await auth('A'))
 const self = a.welcome.self
-check('A welcome', self?.floor === 0 && self?.z === 0 && typeof a.welcome.now === 'number',
-  `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`)
+check(
+  'A welcome',
+  !!self && self.z === 0 && typeof a.welcome.now === 'number'
+  && a.welcome.seed === undefined && a.welcome.records === undefined,
+  `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`,
+)
 
-const b = await connect('B')
+const b = await connect('B', await auth('B'))
 const statesOf = (client, id, since = 0) =>
   client.frames.slice(since).filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === id)
 const lastState = () => statesOf(b, self.id).at(-1) ?? self
@@ -69,26 +92,11 @@ check('dash outruns walking', dashed > plain * 1.3, `plain=${plain.toFixed(2)} d
 const dashFlag = statesOf(b, self.id, mark).some(s => s.d === true)
 check('dash flagged in snapshots', dashFlag)
 
-// Walk to the great door from wherever the dash left us. The colosseum door /
-// exit trigger sits at HUB_LAYOUT.exit = (28, 13), north across the arena from
-// the spawn at (28, 32) — a longer walk than the old village portal.
-const DOOR = { x: 28, y: 13 }
-const here = lastState()
-const heading = Math.atan2(DOOR.y - here.y, DOOR.x - here.x)
-send(a, { t: 'move', ...noMove, forward: true, a: heading })
-await sleep(Math.min(9000, (Math.hypot(DOOR.x - here.x, DOOR.y - here.y) / 3.2) * 1000 + 900))
-send(a, { t: 'move', ...noMove, a: heading })
-await sleep(400)
-const clearMsg = b.frames.find(f => f.t === 'clear' && f.id === self.id)
-check('teleport circle fired a clear', !!clearMsg && clearMsg.floor === 0 && clearMsg.best === 1,
-  clearMsg ? `best=${clearMsg.best}` : 'no clear frame')
-check('A is on floor 1', lastState().f === 1, `f=${lastState().f}`)
-
-// Chat carries the sender's floor.
-send(a, { t: 'chat', text: 'depth calls' })
+// Chat reaches the other client, with no floor scoping left on the frame.
+send(a, { t: 'chat', text: 'well met' })
 await sleep(300)
 const chat = b.frames.find(f => f.t === 'chat' && f.id === self.id)
-check('chat has floor', chat?.text === 'depth calls' && chat?.f === 1, `f=${chat?.f}`)
+check('chat reaches the arena', chat?.text === 'well met' && chat?.f === undefined)
 
 // Heartbeat + garbage tolerance.
 send(b, { t: 'ping' })
@@ -102,6 +110,13 @@ b.ws.close()
 await sleep(300)
 check('A got leave for B', a.frames.some(f => f.t === 'leave' && f.id === b.welcome.self.id))
 
+// One live session per identity: reconnecting with A's cookie boots the first.
+// Last, because it closes A's socket.
+const a2 = await connect('A2', a.cookie)
+await sleep(300)
+check('second tab kicks the first', a.frames.some(f => f.t === 'kicked'))
+
+a2.ws.close()
 a.ws.close()
 console.log(failures ? `\n${failures} FAILURES` : '\nALL PASS')
 process.exit(failures ? 1 : 0)

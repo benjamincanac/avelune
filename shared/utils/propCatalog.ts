@@ -11,8 +11,8 @@
 
 /**
  * Quaternius "Ultimate Modular Ruins" props (CC0), converted from .blend to
- * GLB by scripts/convert_props.py. The hub gets a fixed arrangement; floors
- * get deterministic biome-flavored scatter.
+ * GLB by scripts/convert_props.py. Every piece is hand-placed in the dev editor
+ * and baked into the arena JSON — nothing here is scattered procedurally.
  */
 export const PROP_NAMES = [
   'Statue_Fox', 'Statue_Stag', 'Cart', 'Crate', 'Barrel', 'Chest', 'Flag_Wall',
@@ -23,7 +23,7 @@ export const PROP_NAMES = [
   'Arch_Gothic', 'Arch_Round', 'Column_Round', 'Column_Square',
   'Support_Center', 'Support_Left', 'Support_Right', 'Support_Tall',
   'Rail_Straight', 'Curve_1_Overgrown', 'Curve_2_Overgrown', 'Torch',
-  // Tower-interior masonry + fittings
+  // Masonry + fittings
   'Wall', 'Wall_Half', 'Wall_ArchRound', 'Wall_Broken', 'Wall_Hole', 'Window_Open',
   'Doors_GothicArch', 'Doors_RoundArch', 'Stairs', 'Stairs_2', 'Rail_Corner', 'Rail_Divider',
   'Bookcase_Full', 'Bookcase_Empty', 'Chest_Gold', 'Pot1', 'Pot2', 'Pot3',
@@ -39,10 +39,10 @@ export const PROP_NAMES = [
 ] as const
 
 /**
- * Purely-decorative Ruins props (banners, ground-hazard clutter, the water
- * bridge, extra scatter). Deferred to the post-hub load phase alongside the
- * fantasy furniture so they don't delay the first structural paint — a missing
- * banner or bush just pops in on the follow-up rebuild.
+ * Purely-decorative Ruins props (banners, clutter, bridge sections, extra
+ * scatter). Deferred to the post-arena load phase alongside the fantasy
+ * furniture so they don't delay the first structural paint — a missing banner or
+ * bush just pops in on the follow-up rebuild.
  */
 export const PROP_DECOR_NAMES = [
   'Flag_GothicArch', 'Flag_RoundArch', 'Flag_Wall2',
@@ -51,9 +51,9 @@ export const PROP_DECOR_NAMES = [
 ] as const
 
 /**
- * Quaternius CC0 MegaKit models for the nature-village hub, optimized to GLB by
- * scripts/convert_kits.sh. Nature dresses the meadow; village builds the tower
- * cap, house facades, and plaza props. Loaded into the same template map.
+ * Quaternius CC0 MegaKit models, optimized to GLB by scripts/convert_kits.sh.
+ * Nature dresses the meadow the colosseum stands on; the village kit survives as
+ * editor palette material. Loaded into the same template map.
  */
 export const NATURE_NAMES = [
   'CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2',
@@ -79,9 +79,9 @@ export const VILLAGE_NAMES = [
 
 /**
  * Quaternius "Fantasy Props MegaKit" (CC0) furniture, optimized to GLB by
- * scripts/convert_fantasy.sh. These dress the tower-interior labyrinth floors —
- * bookcases, banners, chandeliers, chests, forge gear — themed per biome by
- * `scatterInterior`. Loaded into the shared template map from /models/fantasy.
+ * scripts/convert_fantasy.sh. Interior furniture — bookcases, banners,
+ * chandeliers, chests, forge gear — available in the editor palette for dressing
+ * the arena. Loaded into the shared template map from /models/fantasy.
  */
 export const FANTASY_NAMES = [
   'Bookcase_2', 'Chair_1', 'Bench', 'Stool', 'Bed_Twin1',

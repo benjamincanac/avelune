@@ -16,14 +16,18 @@ files the game loads, and the scripts that do it.
 ## Files you own
 - `scripts/convert_props.py` — architecture/props → instanced-ready glb.
 - `scripts/convert_universal_characters.py` — character pack conversion.
-- `scripts/rebuild_animations.py` — shared `animations.glb` (Idle/Run/Jump/Roll
-  + Death/Victory) retargeting.
-- `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`
-  — batch conversion entry points.
-- `scripts/make_portal.py` — the hub teleport gate's stone structure
-  (`public/models/portal_gate.glb`). Engine contract (app/utils/portal.ts):
-  objects named `Shard_*` are animated, material `Rune` is emissive-pulsed —
-  keep both names. Compress with `gltf-transform optimize --join false
+- `scripts/rebuild_animations.py` — shared `animations.glb` retargeting (the
+  Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
+  `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start/Loop/Land`, `Roll`, …), one NLA
+  track per clip so the exporter emits one animation each.
+- `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`,
+  `scripts/convert_new_kits.py` — batch conversion entry points.
+- `scripts/make_door.py` / `scripts/make_portal.py` — built the arena's great
+  door (`colosseum_door.glb`) and the older `portal_gate.glb`. Both are now
+  unloaded: the door was removed when the dungeon was cut, so the scripts and
+  GLBs are dead weight kept only as reference. If you resurrect either, note the
+  contract: objects named `Shard_*` are animated and material `Rune` is
+  emissive-pulsed, and compressing needs `gltf-transform optimize --join false
   --flatten false --instance false` or the named nodes get merged away.
 - `scripts/make_og.py` — social OG image.
 - `public/models/**` — the shipped `.glb` output (characters, props, fantasy,
@@ -42,15 +46,16 @@ files the game loads, and the scripts that do it.
   correctness for size.
 
 ## Invariants
-1. **Characters share one animation set.** Playback expects clip names
-   Idle/Run/Jump/Roll (+ Death/Victory planned) — keep `rebuild_animations.py`
-   output stable, since `scene-3d` drives clips by name.
+1. **Characters share one animation set.** `scene-3d` drives clips by exact
+   name — today `Idle_Loop`, `Jog_Fwd_Loop`, `Jump_Loop`, `Sprint_Loop` — so keep
+   `rebuild_animations.py` output stable; renaming a clip silently breaks
+   playback.
 2. **Props are authored for instancing** — consistent origins/scale so
    `MazeScene.vue` can batch them. The Ruins pack **does** have a full straight-wall
    set — `Wall` (plain 2×2 panel), `Wall_Half`, `Wall_Broken`, `Wall_Hole`,
    `Wall_Overgrown`, the 4×4 `Wall_Arch*` variants, `Window_*`, `Doors_*`, and
-   `Curve_*` corners — all converted and placed. (The old "no straight wall panels"
-   note was wrong; the ROADMAP "Modular masonry walls" item resolved it.)
+   `Curve_*` corners — all converted, though the arena only places a handful of
+   the pack (arches, columns, torches, flags, seating slabs).
 3. Output stays in `public/models/<category>/`; keep the existing folder layout so
    loader paths don't move.
 4. **Character head-trim is by bone weight, not height.**
@@ -81,12 +86,11 @@ files the game loads, and the scripts that do it.
   (single brick — use `Bricks`), `Tree_1/2/3` (use the nicer nature-pack
   `CommonTree`/`Pine`), and the 4 "double"-width panels (`Wall_Double_Broken`,
   `Wall_Double_Hole`, `Window_Open_Double`, `Window_Bars_Double_Overgrown`) that
-  don't fit `scene-3d`'s per-face 2-unit panel stretch.
-- **Floor slabs must sit flush.** A slab's placement `y = 0.01 - meshTop`, where
-  `meshTop` is the mesh's Blender **max-Z** (its top), *not* its height. Measure it
-  headless with a `bound_box` world-Z scan (a ~6-line script) — never by eye;
-  `scene-3d`'s `FLOOR_TILE_Y` table hardcodes these, so regenerate the value for
-  any new floor tile.
+  don't fit the kit's 2-unit panel grid.
+- **A piece that must sit flush on the ground needs its top measured, not
+  guessed.** Placement `y = 0.01 - meshTop`, where `meshTop` is the mesh's
+  Blender **max-Z** (its top), *not* its height. Measure it headless with a
+  `bound_box` world-Z scan (a ~6-line script) — never by eye.
 
 ## Working style
 Run conversions headless and report the before/after file sizes and any dropped

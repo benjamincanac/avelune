@@ -2,7 +2,7 @@ import { CanvasTexture, SRGBColorSpace } from 'three'
 import { createRng } from '#shared/utils/maze'
 
 /**
- * Procedural canvas textures — the dungeon's entire art budget.
+ * Procedural canvas textures — the arena's entire art budget.
  *
  * Everything is drawn deterministically from a seed at runtime, so the game
  * ships zero image assets and every client paints identical stone.
@@ -247,53 +247,5 @@ export function makeRuneCircleTexture(seed: number): CanvasTexture {
       ctx.arc(c + Math.cos(angle) * 34, c + Math.sin(angle) * 34, 26, 0, Math.PI * 2)
       ctx.stroke()
     }
-  })
-}
-
-/**
- * Swirling portal energy: a dark centre that brightens toward the rim, overlaid
- * with spiralling filaments. Drawn white on black so an additive material tints
- * it; layer two of these counter-rotating to sell a turbulent Solo-Leveling rift.
- */
-export function makePortalTexture(seed: number): CanvasTexture {
-  const rng = createRng(seed)
-  return canvasTexture(512, (ctx) => {
-    const c = 256
-    ctx.fillStyle = '#000000'
-    ctx.fillRect(0, 0, 512, 512)
-
-    // Radial base: hollow dark core, a bright band, then fading to the edge.
-    const grad = ctx.createRadialGradient(c, c, 30, c, c, 252)
-    grad.addColorStop(0, 'rgba(255,255,255,0)')
-    grad.addColorStop(0.5, 'rgba(255,255,255,0.06)')
-    grad.addColorStop(0.86, 'rgba(255,255,255,0.32)')
-    grad.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, 512, 512)
-
-    // Spiral filaments streaming out from the centre, brighter near the rim.
-    ctx.lineCap = 'round'
-    ctx.globalCompositeOperation = 'lighter'
-    for (let i = 0; i < 140; i++) {
-      const a0 = rng() * Math.PI * 2
-      const r0 = 26 + rng() * 70
-      const r1 = 150 + rng() * 96
-      const curl = (0.5 + rng() * 1.5) * (rng() < 0.5 ? 1 : -1)
-      ctx.strokeStyle = `rgba(255,255,255,${(0.05 + rng() * 0.16).toFixed(3)})`
-      ctx.lineWidth = 0.5 + rng() * 1.7
-      ctx.beginPath()
-      const steps = 16
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps
-        const r = r0 + (r1 - r0) * t
-        const a = a0 + curl * t
-        const x = c + Math.cos(a) * r
-        const y = c + Math.sin(a) * r
-        if (s === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      }
-      ctx.stroke()
-    }
-    ctx.globalCompositeOperation = 'source-over'
   })
 }

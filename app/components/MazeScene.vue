@@ -5,41 +5,34 @@ import {
   AnimationMixer,
   BackSide,
   Box3,
-  BoxGeometry,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
   CircleGeometry,
   Color,
-  ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
-  DoubleSide,
   FogExp2,
   Group,
   HemisphereLight,
   InstancedMesh,
   LinearFilter,
-  LoopOnce,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
-  OctahedronGeometry,
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
   Points,
   PointsMaterial,
   RepeatWrapping,
-  RingGeometry,
   ShaderMaterial,
   SkinnedMesh,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
-  TorusGeometry,
   Vector3,
 } from 'three'
 import type { AnimationAction, AnimationClip } from 'three'
@@ -49,25 +42,15 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
-import type { AuthoredFloorData, FloorPlan, HubPropPlacement, PropSpec, Trap } from '#shared/utils/maze'
+import type { FloorPlan, HubPropPlacement } from '#shared/utils/maze'
 import {
-  CELL_STRIDE,
-  CELL_TILES,
   DASH_COOLDOWN,
   DASH_DURATION,
   DASH_MULTIPLIER,
-  DEATH_DELAY,
-  HUB_FLOOR,
   HUB_LAYOUT,
   JUMP_VELOCITY,
   PLAYER_SPEED,
-  TOWER_SEED,
-  floorSpeed,
-  generateFloor,
-  isAuthoredFloor,
-  isTrapActive,
   isWalkable,
-  planFromAuthored,
   stepBody,
 } from '#shared/utils/maze'
 import {
@@ -86,31 +69,29 @@ import { composeColosseum } from '~/utils/composeColosseum'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import type { StonePalette } from '~/utils/textures'
-import { makeBrickTexture, makeCobbleTexture, makeCrackTexture, makeGrassTexture, makeRuneCircleTexture } from '~/utils/textures'
+import { makeGrassTexture, makeRuneCircleTexture } from '~/utils/textures'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
-import { buildBigDoor } from '~/utils/bigDoor'
 import { PALETTE } from '~/utils/palette'
-import type { Portal } from '~/utils/portal'
 
 /**
  * Tempest's 3D world, built imperatively with three.js inside the Tres context.
  *
- * Tres provides the renderer, scene, camera, and render loop. Each floor's
- * walls go into a single InstancedMesh with procedural stone textures; the
- * sky, sun, fog, and rain are driven by a shared day/night + weather clock
- * derived from the server's time, so every player sees the same evening
- * storm roll in.
+ * Tres provides the renderer, scene, camera, and render loop. The arena is one
+ * hand-authored colosseum: a sand floor ringed by baked kit pieces, drawn as
+ * instanced batches. The sky, sun, fog, and rain are driven by a day/night +
+ * weather clock derived from the server's time, so every player sees the same
+ * evening storm roll in.
  *
- * World mapping: maze tile (x, y) → 3D (x, 0, y), 1 tile = 1 unit.
+ * World mapping: arena tile (x, y) → 3D (x, 0, y), 1 tile = 1 unit.
  *
  * The third-person camera follows a *predicted* self: your held keys are
- * integrated locally with the exact same `moveWithCollision` the server
- * runs, then blended toward the authoritative position. The mouse orbits
- * the camera around you (and is the movement basis the server integrates);
- * the character itself only pivots to face where it is actually moving, so
- * mouse-look while standing still just circles the camera without spinning
- * you on the spot. The camera boom shortens when a wall would block the view.
+ * integrated locally with the exact same `stepBody` the server runs, then
+ * blended toward the authoritative position. The mouse orbits the camera
+ * around you (and is the movement basis the server integrates); the character
+ * itself only pivots to face where it is actually moving, so mouse-look while
+ * standing still just circles the camera without spinning you on the spot. The
+ * camera boom shortens when a wall would block the view.
  */
 
 interface ViewState {
@@ -135,111 +116,30 @@ const { onBeforeRender } = useLoop()
 // Dev-only world editor: created in onMounted when `editor` is set (see the
 // bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
 let editorCtl: HubEditor | null = null
-// The editor's shared state, when editing. Drives which floor's plan the scene
-// builds and the controller's editable bounds.
+// The editor's shared state, when editing. Drives the controller's editable bounds.
 let ed: ReturnType<typeof useEditor> | null = null
 
-/** The FloorPlan for the editor's active floor: the hub's procedural base, or an
- *  authored plan built live from the working doc (so brand-new floors render). */
-function editorPlan(): FloorPlan {
-  const doc = ed!.current.value
-  if (doc.floor === HUB_FLOOR) return getPlan(HUB_FLOOR)
-  return planFromAuthored({
-    version: 1,
-    floor: doc.floor,
-    size: doc.size,
-    biome: doc.biome,
-    start: doc.start,
-    exit: doc.exit,
-    traps: doc.traps,
-    placements: doc.placements,
-  } satisfies AuthoredFloorData)
-}
-
-/**
- * Interior wall + ceiling height. Tall enough that the third-person camera
- * clears it at a jump's apex (`local.z ≈ 0.9`) even while looking up, so it
- * never pops through the ceiling. A hard clamp in the render loop is the backstop.
- */
-const WALL_HEIGHT = 3.8
-/** How high the masonry panels rise; the wall is plain stone above them to the ceiling. */
-const WALL_PANEL_TOP = 2.6
 /** Full day/night cycle length. */
 const DAY_MS = 15 * 60 * 1000
 
-/* -------------------------------------------------------------------------- */
-/* Biome looks                                                                */
-/* -------------------------------------------------------------------------- */
-
-interface BiomeLook {
-  wall: StonePalette
-  ground: StonePalette
-  fog: string
-  fogDensity: number
-  trap: 'spikes' | 'geyser' | 'vines' | 'vent'
-  water?: boolean
-  lava?: boolean
-}
-
-const HUB_LOOK: BiomeLook = {
-  // `wall` dresses the stone tower; `ground` is the meadow the plaza sits on.
-  wall: { base: '#8a8378', dark: '#6f695f', mortar: '#4c4740', moss: '#5a7048', mossAmount: 0.16 },
-  ground: { base: '#5f8440', dark: '#496a31', mortar: '#6d5c3d', moss: '#82a850', mossAmount: 0.5 },
-  fog: '#3f4d34',
-  fogDensity: 0.014,
-  trap: 'spikes',
-}
-
-const BIOME_LOOKS: BiomeLook[] = [
-  {
-    wall: { base: '#6f6a61', dark: '#58544b', mortar: '#3d3a34', moss: '#57703f', mossAmount: 0.12 },
-    ground: { base: '#56534b', dark: '#47443d', mortar: '#312f29', moss: '#57703f', mossAmount: 0.12 },
-    fog: '#0b0e15',
-    fogDensity: 0.05,
-    trap: 'spikes',
-  },
-  {
-    wall: { base: '#5d6b70', dark: '#48555c', mortar: '#2e383d', moss: '#3e6e62', mossAmount: 0.32 },
-    ground: { base: '#4a585e', dark: '#3b474d', mortar: '#263034', moss: '#3e6e62', mossAmount: 0.3 },
-    fog: '#0d2830',
-    fogDensity: 0.07,
-    trap: 'geyser',
-    water: true,
-  },
-  {
-    wall: { base: '#5f6851', dark: '#4a5340', mortar: '#33392c', moss: '#4c7a3d', mossAmount: 0.5 },
-    ground: { base: '#48513c', dark: '#3a4230', mortar: '#272c21', moss: '#4c7a3d', mossAmount: 0.45 },
-    fog: '#12281a',
-    fogDensity: 0.082,
-    trap: 'vines',
-  },
-  {
-    wall: { base: '#4c423d', dark: '#3a322e', mortar: '#241e1b', moss: '#833c22', mossAmount: 0.18 },
-    ground: { base: '#3c3431', dark: '#2e2724', mortar: '#1c1715', moss: '#833c22', mossAmount: 0.12 },
-    fog: '#2a1008',
-    fogDensity: 0.042,
-    trap: 'vent',
-    lava: true,
-  },
-]
-
-function lookFor(plan: FloorPlan): BiomeLook {
-  return plan.biome < 0 ? HUB_LOOK : BIOME_LOOKS[plan.biome]!
-}
+/** The meadow the arena sits on, and the haze around it. */
+const GROUND_PALETTE: StonePalette = { base: '#5f8440', dark: '#496a31', mortar: '#6d5c3d', moss: '#82a850', mossAmount: 0.5 }
+const FOG_COLOR = '#3f4d34'
+const FOG_DENSITY = 0.014
 
 /* -------------------------------------------------------------------------- */
 /* Static scene: lights, sky, rain                                            */
 /* -------------------------------------------------------------------------- */
 
-const fog = new FogExp2('#0b0e15', 0.04)
+const fog = new FogExp2(FOG_COLOR, FOG_DENSITY)
 scene.value.fog = fog
 scene.value.background = new Color('#05070d')
 
 const ambient = new AmbientLight('#8899bb', 0.4)
 scene.value.add(ambient)
 
-/** Sky/ground fill for soft outdoor bounce light — lifts the hub, off in dungeons. */
-const hemi = new HemisphereLight('#bcd4ff', '#5a6a3a', 0)
+/** Sky/ground fill for soft outdoor bounce light. */
+const hemi = new HemisphereLight('#bcd4ff', '#5a6a3a', 0.55)
 scene.value.add(hemi)
 
 /**
@@ -433,66 +333,41 @@ scene.value.add(sunGlow)
 const sunDir = new Vector3()
 
 /* -------------------------------------------------------------------------- */
-/* Floor geometry                                                             */
+/* Arena geometry                                                             */
 /* -------------------------------------------------------------------------- */
 
-const planCache = new Map<string, FloorPlan>()
+/** The arena is hand-authored and constant — build its plan once. */
+const hubPlan = generateHub()
 
-function getPlan(floor: number): FloorPlan {
-  const daySeed = props.game.seed.value ?? TOWER_SEED
-  const key = `${daySeed}:${floor}`
-  let plan = planCache.get(key)
-  if (!plan) {
-    plan = generateFloor(floor, daySeed)
-    planCache.set(key, plan)
+function getPlan(): FloorPlan {
+  return hubPlan
+}
+
+let currentPlan = getPlan()
+
+/** There is only one map, so the editor always edits the arena's plan. */
+function editorPlan(): FloorPlan {
+  return getPlan()
+}
+
+/** Procedural grass under and around the arena, built once. */
+let groundTexture: CanvasTexture | null = null
+function ensureGroundTexture(): CanvasTexture {
+  if (!groundTexture) {
+    groundTexture = makeGrassTexture(7000, GROUND_PALETTE)
+    groundTexture.wrapS = RepeatWrapping
+    groundTexture.wrapT = RepeatWrapping
   }
-  return plan
+  return groundTexture
 }
 
-let currentPlan = getPlan(HUB_FLOOR)
-
-/** Procedural textures, cached per biome index (-1 = hub). */
-const textureCache = new Map<number, { wall: CanvasTexture, ground: CanvasTexture, ceiling: CanvasTexture }>()
-
-function texturesFor(plan: FloorPlan) {
-  let entry = textureCache.get(plan.biome)
-  if (!entry) {
-    const look = lookFor(plan)
-    entry = {
-      wall: makeBrickTexture(9000 + plan.biome, look.wall),
-      ground: plan.biome < 0
-        ? makeGrassTexture(7000, look.ground)
-        : makeCobbleTexture(7000 + plan.biome, look.ground),
-      // Flagstone ceiling, in the wall's stone tones — distinct from the brick
-      // walls but clearly the same masonry. Tiled (its repeat is set per floor).
-      ceiling: makeCobbleTexture(6500 + plan.biome, look.wall),
-    }
-    entry.ground.wrapS = RepeatWrapping
-    entry.ground.wrapT = RepeatWrapping
-    entry.ceiling.wrapS = RepeatWrapping
-    entry.ceiling.wrapT = RepeatWrapping
-    textureCache.set(plan.biome, entry)
-  }
-  return entry
-}
-
-const crackTexture = import.meta.client ? makeCrackTexture(4242) : null
-if (crackTexture) {
-  crackTexture.wrapS = RepeatWrapping
-  crackTexture.wrapT = RepeatWrapping
-}
-
-/** Everything floor-shaped lives here so floor changes can rebuild wholesale. */
+/** Everything world-shaped lives here so a rebuild can swap it wholesale. */
 const floorGroup = new Group()
 scene.value.add(floorGroup)
-const exitPortal = new Group()
 
-/** The hub's swirling teleport gate, animated in the render loop (null off-hub). */
-let hubPortal: Portal | null = null
-
-// Hub Oracle NPC — a monster (Quaternius Ultimate Monsters) as the tower's
-// ancient seer, standing just west of the portal. Declared here (before the
-// synchronous initial buildFloor) so buildFloor can reset it on floor changes.
+// The Oracle NPC — a monster (Quaternius Ultimate Monsters) as the arena's
+// ancient seer. Declared here (before the synchronous initial buildFloor) so
+// buildFloor can reset it on a rebuild.
 /** Where the Oracle stands, in tiles. Editable via the hub 'Oracle' marker: in
  *  the editor it follows the live (draggable) marker; in play it's the saved
  *  position from hub-oracle.json. */
@@ -516,54 +391,10 @@ interface OracleRig {
 }
 let oracleRig: OracleRig | null = null
 
-interface TrapVisual {
-  trap: Trap
-  hazard: Group
-}
-let trapVisuals: TrapVisual[] = []
-
-function buildTrapMesh(kind: BiomeLook['trap']): Group {
-  const group = new Group()
-  if (kind === 'spikes' || kind === 'vines') {
-    const isVine = kind === 'vines'
-    const material = new MeshStandardMaterial({
-      color: isVine ? '#3f7a2e' : '#8a8f99',
-      roughness: isVine ? 0.8 : 0.4,
-      metalness: isVine ? 0 : 0.6,
-    })
-    const geometry = new ConeGeometry(isVine ? 0.07 : 0.1, isVine ? 0.85 : 0.6, 6)
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2
-      const radius = i === 0 ? 0 : 0.24
-      const spike = new Mesh(geometry, material)
-      spike.position.set(Math.cos(angle) * radius, (isVine ? 0.42 : 0.3), Math.sin(angle) * radius)
-      if (isVine) spike.rotation.set((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5)
-      group.add(spike)
-    }
-  }
-  else if (kind === 'geyser') {
-    const column = new Mesh(
-      new CylinderGeometry(0.3, 0.2, 1.9, 12),
-      new MeshBasicMaterial({ color: '#9fdcee', transparent: true, opacity: 0.55, depthWrite: false }),
-    )
-    column.position.y = 0.95
-    group.add(column)
-  }
-  else {
-    const column = new Mesh(
-      new CylinderGeometry(0.27, 0.33, 1.4, 10),
-      new MeshBasicMaterial({ color: '#ff8a2a', transparent: true, opacity: 0.85, blending: AdditiveBlending, depthWrite: false }),
-    )
-    column.position.y = 0.7
-    group.add(column)
-  }
-  return group
-}
-
 /**
- * Tag the freshly built floor for shadows: opaque standard-material meshes cast
+ * Tag the freshly built world for shadows: opaque standard-material meshes cast
  * and receive; the flat ground plane only receives; glowing/transparent bits
- * (portals, beams, rune) do neither. Instanced meshes cast shadows too.
+ * (rift, beams, runes) do neither. Instanced meshes cast shadows too.
  */
 function tagShadows(root: Group) {
   root.traverse((o) => {
@@ -577,585 +408,45 @@ function tagShadows(root: Group) {
 
 function buildFloor() {
   floorGroup.clear()
-  exitPortal.clear()
-  hubPortal = null
-  // floorGroup.clear() detached the Oracle; drop the ref so the hub rebuilds it.
+  // floorGroup.clear() detached the Oracle; drop the ref so it gets rebuilt.
   oracleRig = null
-  trapVisuals = []
-  flames.length = 0
 
   const plan = currentPlan
-  const look = lookFor(plan)
-  const textures = texturesFor(plan)
 
-  const isHub = plan.floor === HUB_FLOOR
-  // Authored floors are hand-built from freely-placed wall/arch/column pieces
-  // (like the hub), so the tile-derived dressing passes don't apply — the placed
-  // pieces ARE the architecture. They still get ground/border/ceiling/traps/portal.
-  // In editor mode every non-hub floor is authored (a freshly-created floor isn't
-  // in floors.json yet), so it renders the authored base for the controller.
-  const isAuthored = isAuthoredFloor(plan.floor) || (!!props.editor && plan.floor !== HUB_FLOOR)
-  // Ground: pack floor slabs where possible; the Magma Halls keep the
-  // procedural emissive-crack floor (the slabs would hide the glow), and the
-  // hub is an open meadow (no dungeon slabs).
-  const modularGround = !look.lava && !isHub && placeModularFloor(plan)
-  const groundMaterial = new MeshStandardMaterial({ map: textures.ground, roughness: 1 })
-  textures.ground.repeat.set(plan.width / 2, plan.height / 2)
-  if (look.lava && crackTexture) {
-    groundMaterial.emissive = new Color('#ff5a1a')
-    groundMaterial.emissiveIntensity = 0.55
-    groundMaterial.emissiveMap = crackTexture
-    crackTexture.repeat.set(plan.width / 4, plan.height / 4)
-  }
-  const ground = new Mesh(new PlaneGeometry(plan.width, plan.height), groundMaterial)
-  ground.rotation.x = -Math.PI / 2
-  // Under the slabs it only peeks through seams; alone it is the floor.
-  ground.position.set(plan.width / 2, modularGround ? -0.3 : 0, plan.height / 2)
-  floorGroup.add(ground)
-
-  // The hub is a bespoke village-in-nature scene: tower, portal, houses,
-  // greenery — no dungeon walls, traps, torches, or scatter.
-  if (isHub) {
-    buildColosseumHub(plan)
-    tagShadows(floorGroup)
-    // Re-sync the editor's own selectable clones (templates may have just
-    // finished loading, so this runs after each build phase).
-    editorCtl?.rebuild()
-    return
-  }
-
-  // Shallow water covering the Sunken Depths.
-  if (look.water) {
-    const water = new Mesh(
-      new PlaneGeometry(plan.width, plan.height),
-      new MeshStandardMaterial({
-        color: '#2e7d96',
-        transparent: true,
-        opacity: 0.42,
-        roughness: 0.15,
-        metalness: 0.1,
-      }),
-    )
-    water.rotation.x = -Math.PI / 2
-    water.position.set(plan.width / 2, 0.1, plan.height / 2)
-    floorGroup.add(water)
-
-    // A ruined plank bridge over the flooded centre room, on stone pilings —
-    // room centres are always open, so it never clips a wall. Deferred module,
-    // so it appears on the follow-up rebuild. Procedural-only: authored floors
-    // place their own bridges via the editor.
-    if (!isAuthored) {
-      const cc = Math.floor(((plan.width - 1) / CELL_STRIDE) / 2)
-      const rx = cc * CELL_STRIDE + 1 + CELL_TILES / 2
-      const rz = cc * CELL_STRIDE + 1 + CELL_TILES / 2
-      const tint = MODULE_TINTS[plan.biome + 1]!
-      const bridge = instantiateModule('BridgeSection', [placementMatrix(rx, 0.22, rz, 0, 1)], tint)
-      if (bridge) floorGroup.add(bridge)
-      const pilings = instantiateModule('Column_BridgeSupport', [
-        placementMatrix(rx - 1, 0, rz, 0, 0.5),
-        placementMatrix(rx + 1, 0, rz, 0, 0.5),
-      ], tint)
-      if (pilings) floorGroup.add(pilings)
-    }
-  }
-
-  // Walls: a stone core of instanced blocks, dressed on every corridor-facing
-  // side with Ruins masonry panels + columns (`placeModularWalls`). The core is
-  // darkened so the lit panels read as the finished interior surface.
-  const wallTiles: Array<[number, number]> = []
-  for (let y = 0; y < plan.height; y++) {
-    for (let x = 0; x < plan.width; x++) {
-      if (plan.tiles[y * plan.width + x] === 1) wallTiles.push([x, y])
-    }
-  }
-  const walls = new InstancedMesh(
-    new BoxGeometry(1, WALL_HEIGHT, 1),
-    new MeshStandardMaterial({ map: textures.wall, roughness: 0.95, color: new Color('#8a8a8a') }),
-    wallTiles.length,
-  )
-  const matrix = new Matrix4()
-  wallTiles.forEach(([x, y], i) => {
-    walls.setMatrixAt(i, matrix.makeTranslation(x + 0.5, WALL_HEIGHT / 2, y + 0.5))
-  })
-  floorGroup.add(walls)
-
-  // A stone ceiling caps the interior so floors read as rooms in a tower rather
-  // than an open-air maze. There are no shadow maps, so it never darkens the
-  // scene — light still pours in; windows keep the sky glimpsable at the edges.
-  // Tiled flagstone texture, dimmed so it reads as shadowed masonry overhead.
-  textures.ceiling.repeat.set(plan.width / 3, plan.height / 3)
-  const ceiling = new Mesh(
+  // The meadow the colosseum stands on — the sand disc covers its middle.
+  const ground = ensureGroundTexture()
+  ground.repeat.set(plan.width / 2, plan.height / 2)
+  const meadow = new Mesh(
     new PlaneGeometry(plan.width, plan.height),
-    new MeshStandardMaterial({ map: textures.ceiling, color: new Color('#a8a8a8'), roughness: 1, side: DoubleSide }),
+    new MeshStandardMaterial({ map: ground, roughness: 1 }),
   )
-  ceiling.rotation.x = Math.PI / 2
-  ceiling.position.set(plan.width / 2, WALL_HEIGHT, plan.height / 2)
-  floorGroup.add(ceiling)
+  meadow.rotation.x = -Math.PI / 2
+  meadow.position.set(plan.width / 2, 0, plan.height / 2)
+  floorGroup.add(meadow)
 
-  // Hazards. A wooden trapdoor plate sits under each one as its mechanism, with
-  // the dark opening and the timed hazard (spikes/geyser/…) rising through it.
-  const trapdoors: Matrix4[] = []
-  for (const trap of plan.traps) {
-    const base = new Mesh(
-      new CircleGeometry(0.42, 20),
-      new MeshBasicMaterial({ color: '#0a0a0a', transparent: true, opacity: 0.55 }),
-    )
-    base.rotation.x = -Math.PI / 2
-    base.position.set(trap.x, 0.03, trap.y)
-    floorGroup.add(base)
-    trapdoors.push(placementMatrix(trap.x, 0.012, trap.y, 0, 0.62))
-
-    const hazard = buildTrapMesh(look.trap)
-    hazard.position.set(trap.x, 0, trap.y)
-    hazard.scale.y = 0.02
-    floorGroup.add(hazard)
-    trapVisuals.push({ trap, hazard })
-  }
-  const trapdoorGroup = instantiateModule('Trapdoor', trapdoors, MODULE_TINTS[plan.biome + 1]!)
-  if (trapdoorGroup) floorGroup.add(trapdoorGroup)
-
-  // Exit portal: torus + beacon you can spot over the walls.
-  const ring = new Mesh(
-    new TorusGeometry(0.6, 0.06, 12, 48),
-    new MeshBasicMaterial({ color: PALETTE.slime }),
-  )
-  ring.position.y = 1
-  exitPortal.add(ring)
-
-  const beacon = new Mesh(
-    new CylinderGeometry(0.1, 0.1, 18, 8, 1, true),
-    new MeshBasicMaterial({
-      color: PALETTE.slime,
-      transparent: true,
-      opacity: 0.12,
-      blending: AdditiveBlending,
-      side: DoubleSide,
-      depthWrite: false,
-    }),
-  )
-  beacon.position.y = 9
-  exitPortal.add(beacon)
-
-  const glow = new PointLight(PALETTE.slime, 6, 9)
-  glow.position.y = 1
-  exitPortal.add(glow)
-
-  const pad = new Mesh(
-    new RingGeometry(0.45, 0.7, 32),
-    new MeshBasicMaterial({ color: PALETTE.slime, transparent: true, opacity: 0.5, side: DoubleSide }),
-  )
-  pad.rotation.x = -Math.PI / 2
-  pad.position.y = 0.03
-  exitPortal.add(pad)
-
-  exitPortal.position.set(plan.exit.x, 0, plan.exit.y)
-  floorGroup.add(exitPortal)
-
-  const startRing = new Mesh(
-    new RingGeometry(0.4, 0.55, 32),
-    new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.18, side: DoubleSide }),
-  )
-  startRing.rotation.x = -Math.PI / 2
-  startRing.position.set(plan.start.x, 0.02, plan.start.y)
-  floorGroup.add(startRing)
-
-  if (isAuthored) {
-    // The editor-placed pieces are the whole interior — no tile-derived dressing.
-    renderPlanProps(plan)
-  }
-  else {
-    placeModularWalls(plan)
-    placeTorches(plan)
-    placeProps(plan)
-    placeArchitecture(plan)
-    scatterInterior(plan)
-    placeChandeliers(plan)
-  }
+  buildColosseumHub(plan)
   tagShadows(floorGroup)
-  // Re-sync the editor's selectable clones after a rebuild (templates may have
-  // just finished loading), same as the hub path.
+  // Re-sync the editor's own selectable clones (templates may have just
+  // finished loading, so this runs after each build phase).
   editorCtl?.rebuild()
 }
 
-/**
- * Pack floor slabs on a 2x2 grid, sunk so their tops sit at ~+0.01. Returns
- * false while the modules are still downloading (the plane covers meanwhile).
- */
-function placeModularFloor(plan: FloorPlan): boolean {
-  if (!templatesReady) return false
-  const tint = MODULE_TINTS[plan.biome + 1]!
-  const isVerdant = plan.biome === 2
-  // Base slab mix (weights sum to 1). Each slab's mesh top sits a different
-  // amount above its origin, so the y offset (`0.01 - meshTop`, see FLOOR_TILE_Y)
-  // lands every variant's top at ~+0.01 — otherwise adjacent slabs step.
-  const variants: Array<[string, number]> = [
-    ['Floor_Standard', 0.32],
-    ['Floor_Squares', 0.24],
-    ['Floor_Standard_Half', 0.14],
-    ['Floor_Diamond', 0.15],
-    ['Floor_SquareLarge', 0.15],
-  ]
-  const buckets = new Map<string, Matrix4[]>()
-  for (let gy = 0; gy < plan.height - 1; gy += 2) {
-    for (let gx = 0; gx < plan.width - 1; gx += 2) {
-      // A rare slab is ruined — a hole tile whose gap reveals the sunk ground
-      // plane as a shallow pit — or, in the Verdant maze, a tree burst through.
-      const ruin = placementHash(plan.seed, gx, gy, 3)
-      let name: string
-      if (isVerdant && ruin < 0.05) name = 'Floor_Tree'
-      else if (ruin < 0.06) name = placementHash(plan.seed, gx, gy, 4) < 0.5 ? 'Floor_Hole_Corner' : 'Floor_Hole_Straight'
-      else {
-        let roll = placementHash(plan.seed, gx, gy, 1)
-        name = (variants.find(([, w]) => (roll -= w) <= 0) ?? variants[0]!)[0]
-      }
-      const rotation = Math.floor(placementHash(plan.seed, gx, gy, 2) * 4) * (Math.PI / 2)
-      const matrices = buckets.get(name) ?? []
-      matrices.push(placementMatrix(gx + 1, FLOOR_TILE_Y[name] ?? -0.02, gy + 1, rotation, 1))
-      buckets.set(name, matrices)
-    }
-  }
-  for (const [name, matrices] of buckets) {
-    const group = instantiateModule(name, matrices, tint)
-    if (group) floorGroup.add(group)
-  }
-  return true
-}
-
-/**
- * Structural dressing from the Ruins pack (labyrinth floors only): buttresses
- * along corridor walls, arches over passage mouths, and a gothic gateway at the
- * exit. The hub has its own dressing in `buildVillageHub`.
- */
-function placeArchitecture(plan: FloorPlan) {
-  if (!templatesReady) return
-  const tint = MODULE_TINTS[plan.biome + 1]!
-  const add = (group: Group | null) => {
-    if (group) floorGroup.add(group)
-  }
-
-  // Buttresses against corridor walls.
-  const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const
-  const supports: Record<string, Matrix4[]> = {
-    Support_Center: [], Support_Left: [], Support_Right: [], Support_Tall: [],
-  }
-  const supportNames = Object.keys(supports)
-  let buttressCount = 0
-  for (let y = 1; y < plan.height - 1 && buttressCount < 30; y++) {
-    for (let x = 1; x < plan.width - 1 && buttressCount < 30; x++) {
-      if (plan.tiles[y * plan.width + x] !== 1) continue
-      if (placementHash(plan.seed, x, y, 4) > 0.08) continue
-      const open = DIRS.find(([dx, dy]) => isWalkable(plan, x + dx, y + dy))
-      if (!open) continue
-      const name = supportNames[Math.floor(placementHash(plan.seed, x, y, 5) * supportNames.length)]!
-      supports[name]!.push(placementMatrix(
-        x + 0.5 + open[0] * 0.69,
-        0,
-        y + 0.5 + open[1] * 0.69,
-        Math.atan2(open[0], open[1]),
-        0.58,
-      ))
-      buttressCount++
-    }
-  }
-  for (const [name, matrices] of Object.entries(supports)) {
-    add(instantiateModule(name, matrices, tint))
-  }
-
-  // Arches over some passage mouths between cells, scaled to the corridor width.
-  // Four arch variants (plain/round-column × gothic/round), some hung with a
-  // matching banner, keyed to world position so the choice is deterministic.
-  const S = CELL_STRIDE
-  const C = CELL_TILES
-  const cells = (plan.width - 1) / S
-  const archScale = (C + 0.4) / 3.09 // Arch modules are ~3.09 units wide natively.
-  const archBuckets = new Map<string, Matrix4[]>()
-  const flagBuckets = new Map<string, Matrix4[]>()
-  const addArch = (x: number, z: number, rotY: number, salt: number) => {
-    const r = placementHash(plan.seed, x, z, salt)
-    const name = r < 0.3 ? 'Arch_Gothic' : r < 0.55 ? 'Arch_Round' : r < 0.8 ? 'Arch_Gothic_RoundColumn' : 'Arch_Round_RoundColumn'
-    const arr = archBuckets.get(name) ?? []
-    arr.push(placementMatrix(x, 0, z, rotY, archScale))
-    archBuckets.set(name, arr)
-    if (placementHash(plan.seed, x, z, salt + 1) < 0.35) {
-      const flag = name.startsWith('Arch_Gothic') ? 'Flag_GothicArch' : 'Flag_RoundArch'
-      const farr = flagBuckets.get(flag) ?? []
-      farr.push(placementMatrix(x, 2.5, z, rotY, archScale))
-      flagBuckets.set(flag, farr)
-    }
-  }
-  for (let cy = 0; cy < cells; cy++) {
-    for (let cx = 0; cx < cells; cx++) {
-      // Passage east of (cx, cy).
-      if (cx < cells - 1 && plan.tiles[(cy * S + 1) * plan.width + cx * S + S] === 0
-        && placementHash(plan.seed, cx, cy, 6) < 0.3) {
-        addArch(cx * S + S + 0.5, cy * S + 1 + C / 2, Math.PI / 2, 50)
-      }
-      // Passage south of (cx, cy).
-      if (cy < cells - 1 && plan.tiles[(cy * S + S) * plan.width + cx * S + 1] === 0
-        && placementHash(plan.seed, cx, cy, 8) < 0.3) {
-        addArch(cx * S + 1 + C / 2, cy * S + S + 0.5, 0, 52)
-      }
-    }
-  }
-  // The exit gets a grand gothic gateway around the portal.
-  const exitArch = archBuckets.get('Arch_Gothic') ?? []
-  exitArch.push(placementMatrix(plan.exit.x, 0, plan.exit.y, Math.PI / 2, archScale * 1.05))
-  archBuckets.set('Arch_Gothic', exitArch)
-  for (const [name, mats] of archBuckets) add(instantiateModule(name, mats, tint))
-  for (const [name, mats] of flagBuckets) add(instantiateModule(name, mats, '#ffffff'))
-
-  // Grand "way up" around the exit portal: a tall staircase at the back, low
-  // steps on the other sides, a railing ringing the dais (open on the south
-  // approach), and flanking banners — the teleport as the ascent to the next floor.
-  const ex = plan.exit.x
-  const ey = plan.exit.y
-  add(instantiateModule('Stairs_2', [placementMatrix(ex, 0, ey - C * 0.45, 0, 0.6)], tint))
-  add(instantiateModule('Stairs', ([[0, 1, Math.PI], [-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2]] as const).map(
-    ([dx, dz, rot]) => placementMatrix(ex + dx * (C * 0.45), 0, ey + dz * (C * 0.45), rot, 0.6)), tint))
-
-  const rr = 1.6 // railing radius — just outside the stairs
-  add(instantiateModule('Rail_Corner', ([[-1, -1], [1, -1], [-1, 1], [1, 1]] as const).map(
-    ([sx, sz]) => placementMatrix(ex + sx * rr, 0, ey + sz * rr, Math.atan2(sx, sz), 1)), tint))
-  add(instantiateModule('Rail_Straight', ([[0, -1, Math.PI / 2], [-1, 0, 0], [1, 0, 0]] as const).map(
-    ([sx, sz, rot]) => placementMatrix(ex + sx * rr, 0, ey + sz * rr, rot, 1)), tint))
-  add(instantiateModule('Rail_Divider', ([-0.6, 0.6] as const).map(
-    sx => placementMatrix(ex + sx, 0, ey + rr, 0, 1)), tint))
-
-  add(instantiateModule('Banner_1', [
-    placementMatrix(ex - C / 2, 1.8, ey, Math.PI / 2, 0.95),
-    placementMatrix(ex + C / 2, 1.8, ey, -Math.PI / 2, 0.95),
-  ], '#ffffff'))
-  add(instantiateModule('Flag_Wall', [
-    placementMatrix(ex - C / 2 + 0.12, 1.5, ey - 0.6, Math.PI / 2, 1),
-    placementMatrix(ex + C / 2 - 0.12, 1.5, ey - 0.6, -Math.PI / 2, 1),
-  ], '#ffffff'))
-}
-
-/**
- * Masonry skin for a labyrinth floor. Every maze cell is a `CELL_TILES`-wide
- * square room; each of its four faces is either an open passage or a wall.
- * Closed faces get a Ruins wall panel stretched to the corridor width
- * (occasionally a window/hole/broken variant), and a deterministic subset of
- * rooms are colonnaded with corner columns. The panels dress the darkened
- * box-wall core `buildFloor` already placed — collision is untouched (still
- * tile-based), this is pure finish.
- */
-function placeModularWalls(plan: FloorPlan) {
-  if (!templatesReady) return
-  const tint = MODULE_TINTS[plan.biome + 1]!
-  const S = CELL_STRIDE
-  const C = CELL_TILES
-  const cells = (plan.width - 1) / S
-  const verdant = plan.biome === 2
-  const cInset = 0.3 // column inset from the room walls
-  const tile = (tx: number, ty: number) => plan.tiles[ty * plan.width + tx]
-  const buckets = new Map<string, Matrix4[]>()
-  const push = (kind: string, m: Matrix4) => {
-    const arr = buckets.get(kind) ?? []
-    arr.push(m)
-    buckets.set(kind, arr)
-  }
-  // Stretch a face panel to the room-face width (X) and interior height (Y),
-  // per the module's native size, so every variant lines up at `WALL_PANEL_TOP`.
-  const panel = (kind: string, px: number, pz: number, rotY: number) =>
-    push(kind, placementMatrixScaled(px, 0, pz, rotY, C / PANEL_W[kind]!, WALL_PANEL_TOP / PANEL_H[kind]!, 1))
-
-  for (let cy = 0; cy < cells; cy++) {
-    for (let cx = 0; cx < cells; cx++) {
-      const bx = cx * S
-      const by = cy * S
-      const mid = 1 + C / 2 // room-centre offset from the cell origin
-      // A few rooms are "grand halls" — their closed faces are monumental 4-wide
-      // arch walls (the arch opening reveals the dark core behind as a niche).
-      const grand = placementHash(plan.seed, cx, cy, 23) < 0.1
-      // [openCheckX, openCheckY, panelX, panelZ, rotY so the panel face points into the room]
-      const faces: Array<[number, number, number, number, number]> = [
-        [bx + 1, by, bx + mid, by + 1, 0], // north
-        [bx + 1, by + S, bx + mid, by + S, Math.PI], // south
-        [bx, by + 1, bx + 1, by + mid, Math.PI / 2], // west
-        [bx + S, by + 1, bx + S, by + mid, -Math.PI / 2], // east
-      ]
-      faces.forEach(([ox, oy, px, pz, rotY], f) => {
-        if (tile(ox, oy) !== 1) return // open passage — no wall panel here
-        const roll = placementHash(plan.seed, cx * 4 + f, cy, 21)
-        let kind: string
-        if (grand) {
-          kind = verdant
-            ? (roll < 0.5 ? 'Wall_ArchRound_Overgrown' : 'Wall_ArchRound_Overgrown_Broken')
-            : (roll < 0.4 ? 'Wall_ArchRound' : roll < 0.7 ? 'Wall_ArchGothic' : 'Wall_ArchRound_Broken')
-        }
-        else if (roll < 0.06) {
-          // A door set into the wall — a sealed side-chamber beyond.
-          const d = placementHash(plan.seed, cx * 4 + f, cy, 24)
-          kind = d < 0.3 ? 'Doors_GothicArch' : d < 0.6 ? 'Doors_RoundArch' : d < 0.8 ? 'Doors_GothicArch_Covered' : 'Doors_RoundArch_Covered'
-        }
-        else if (roll < 0.16) kind = verdant ? 'Window_Bars_Overgrown' : (placementHash(plan.seed, cx * 4 + f, cy, 25) < 0.5 ? 'Window_Open' : 'Window_Bars')
-        else if (roll < 0.22) kind = 'Wall_Broken'
-        else if (roll < 0.27) kind = 'Wall_Hole'
-        else kind = verdant ? 'Wall_Overgrown' : 'Wall'
-        panel(kind, px, pz, rotY)
-      })
-
-      // Colonnade a subset of rooms: a column tucked into each interior corner,
-      // round or square per room for variety.
-      if (placementHash(plan.seed, cx, cy, 22) < 0.26) {
-        const colKind = placementHash(plan.seed, cx, cy, 26) < 0.5 ? 'Column_Round' : 'Column_Square'
-        const lo = 1 + cInset
-        const hi = 1 + C - cInset
-        for (const [dx, dz] of [[lo, lo], [hi, lo], [lo, hi], [hi, hi]] as const) {
-          push(colKind, placementMatrix(bx + dx, 0, by + dz, 0, WALL_HEIGHT / 4))
-        }
-      }
-    }
-  }
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
-  for (const [name, mats] of buckets) add(instantiateModule(name, mats, tint))
-}
-
-/** Per-biome furniture: [0] keep, [1] flooded, [2] overgrown, [3] forge. */
-const INTERIOR_WALL_ITEMS: string[][] = [
-  ['Bookcase_2', 'Bookcase_Full', 'WeaponStand', 'Shelf_Simple', 'Cabinet'],
-  ['Bookcase_Empty', 'Shelf_Simple', 'Cabinet'],
-  [],
-  ['WeaponStand', 'Shield_Wooden', 'Cabinet'],
-]
-const INTERIOR_FLOOR_ITEMS: string[][] = [
-  ['Chest_Wood', 'Barrel', 'Crate_Wooden', 'CandleStick_Triple', 'Book_Stack_1', 'Cage_Small', 'BookStand', 'Chair_1', 'Stool', 'Candles_2', 'Statue_Stag', 'BearTrap_Open', 'BearTrap_Closed', 'Wall_Half', 'Curve_1', 'Curve_2'],
-  ['Barrel', 'Pot1', 'Pot2', 'Pot3', 'Pot3_Broken', 'Vase_2', 'Rope_1', 'Crate_Wooden', 'Wall_Half', 'Curve_1', 'Curve_2'],
-  ['Bush_1x1', 'Bush_Round', 'Bush_2x1', 'Bush_2x2', 'Bush_Large', 'Grass', 'DeadTree_1', 'DeadTree_2', 'DeadTree_3', 'Statue_Fox', 'Statue_Stag', 'Pot1_Broken', 'Pot3_Broken', 'Curve_1_Overgrown', 'Curve_2_Overgrown'],
-  ['Anvil', 'Cauldron', 'Workbench', 'Barrel', 'Chest_Gold', 'Skull', 'CandleStick_Triple', 'Candles_2', 'BearTrap_Closed', 'Wall_Half', 'Curve_1', 'Curve_2'],
-]
-const INTERIOR_BANNERS = ['Banner_1', 'Banner_2', 'Flag_Wall2']
-
-/**
- * Deterministic, non-colliding interior dressing keyed to the biome, mirroring
- * `scatterHub`. Sparse on purpose: only a fraction of rooms get dressed, and
- * each gets at most ONE piece — a wall piece (bookcase/rack/banner) flush to a
- * closed face, or a floor piece in a corner — never stacked, and always placed
- * clear of the shared `plan.props` scatter so nothing overlaps.
- */
-function scatterInterior(plan: FloorPlan) {
-  if (!templatesReady) return
-  const S = CELL_STRIDE
-  const C = CELL_TILES
-  const cells = (plan.width - 1) / S
-  const wallItems = INTERIOR_WALL_ITEMS[plan.biome] ?? []
-  const floorItems = INTERIOR_FLOOR_ITEMS[plan.biome] ?? []
-  const buckets = new Map<string, Matrix4[]>()
-  const push = (kind: string, x: number, y: number, z: number, rotY: number, scale: number) => {
-    const arr = buckets.get(kind) ?? []
-    arr.push(placementMatrix(x, y, z, rotY, scale))
-    buckets.set(kind, arr)
-  }
-  const hash = (cx: number, cy: number, salt: number) => placementHash(plan.seed, cx, cy, salt)
-  const near = (x: number, z: number) =>
-    Math.hypot(x - plan.start.x, z - plan.start.y) < 4 || Math.hypot(x - plan.exit.x, z - plan.exit.y) < 4
-  // Keep dressing clear of the shared gameplay props so nothing sits stacked.
-  const clash = (x: number, z: number) => plan.props.some(p => Math.hypot(p.x - x, p.y - z) < 1.3)
-
-  const off = 0.35 // distance a wall piece sits in front of its wall
-  const mid = 1 + C / 2 // room centre offset from the cell origin
-  for (let cy = 0; cy < cells; cy++) {
-    for (let cx = 0; cx < cells; cx++) {
-      const bx = cx * S
-      const by = cy * S
-      if (near(bx + mid, by + mid)) continue
-      if (hash(cx, cy, 40) > 0.22) continue // only ~1 in 5 rooms is dressed
-      const tile = (tx: number, ty: number) => plan.tiles[ty * plan.width + tx]
-
-      // One piece per room: prefer a wall piece against a closed face, else a
-      // floor piece in a corner. Whichever is chosen is skipped if it would
-      // land on a plan prop.
-      const faces: Array<[number, number, number]> = []
-      if (tile(bx + 1, by) === 1) faces.push([bx + mid, by + 1 + off, 0])
-      if (tile(bx + 1, by + S) === 1) faces.push([bx + mid, by + S - off, Math.PI])
-      if (tile(bx, by + 1) === 1) faces.push([bx + 1 + off, by + mid, Math.PI / 2])
-      if (tile(bx + S, by + 1) === 1) faces.push([bx + S - off, by + mid, -Math.PI / 2])
-
-      let placed = false
-      if (faces.length && hash(cx, cy, 42) < 0.55) {
-        const [fx, fz, rotY] = faces[Math.floor(hash(cx, cy, 41) * faces.length)]!
-        if (!clash(fx, fz)) {
-          if (hash(cx, cy, 43) < 0.3) {
-            const banner = INTERIOR_BANNERS[Math.floor(hash(cx, cy, 44) * INTERIOR_BANNERS.length)]!
-            push(banner, fx, 1.8, fz, rotY, 0.9)
-            placed = true
-          }
-          else if (wallItems.length) {
-            const item = wallItems[Math.floor(hash(cx, cy, 45) * wallItems.length)]!
-            push(item, fx, 0, fz, rotY, 0.9)
-            placed = true
-          }
-        }
-      }
-      if (!placed && floorItems.length) {
-        const lo = 1.4
-        const hi = 1 + C - 0.4
-        const corners = [[bx + lo, by + lo], [bx + hi, by + lo], [bx + lo, by + hi], [bx + hi, by + hi]] as const
-        const [ix, iz] = corners[Math.floor(hash(cx, cy, 46) * corners.length)]!
-        if (!clash(ix, iz)) {
-          const item = floorItems[Math.floor(hash(cx, cy, 47) * floorItems.length)]!
-          push(item, ix, 0, iz, hash(cx, cy, 48) * Math.PI * 2, 0.8 + hash(cx, cy, 49) * 0.3)
-        }
-      }
-    }
-  }
-  const add = (g: Group | null) => {
-    if (g) floorGroup.add(g)
-  }
-  for (const [kind, mats] of buckets) add(instantiateModule(kind, mats, '#ffffff'))
-}
-
-/** A few chandeliers hung from the ceiling, each with a warm point light. */
-function placeChandeliers(plan: FloorPlan) {
-  if (!templatesReady) return
-  const template = propTemplates.get('Chandelier')
-  if (!template) return
-  const S = CELL_STRIDE
-  const mid = 1 + CELL_TILES / 2
-  const cells = (plan.width - 1) / S
-  const group = new Group()
-  let count = 0
-  for (let cy = 0; cy < cells && count < 6; cy++) {
-    for (let cx = 0; cx < cells && count < 6; cx++) {
-      if (placementHash(plan.seed, cx, cy, 30) > 0.06) continue
-      const x = cx * S + mid
-      const z = cy * S + mid
-      if (Math.hypot(x - plan.start.x, z - plan.start.y) < 4) continue
-      if (Math.hypot(x - plan.exit.x, z - plan.exit.y) < 4) continue
-      const chandelier = template.clone(true)
-      chandelier.position.set(x, WALL_HEIGHT + 0.02, z)
-      chandelier.scale.setScalar(0.7)
-      group.add(chandelier)
-      const light = new PointLight('#ffca7a', 3.2, 7, 1.8)
-      light.position.set(x, WALL_HEIGHT - 1.1, z)
-      group.add(light)
-      count++
-    }
-  }
-  floorGroup.add(group)
-}
-
 /* -------------------------------------------------------------------------- */
-/* Colosseum hub                                                              */
+/* Colosseum arena                                                            */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Build the hub: a gigantic stone tower dead-centre on a cobbled plaza, the
- * pulsing portal before it, a main street running south to the village gate,
- * timber-framed houses fronting the plaza and street, a market corner, and
- * nature dressing. Solid clutter comes from `plan.props` (so it collides);
- * roads, house shells, and greenery are cosmetic — their collision is the
- * shared tile stamps in `generateHub`.
+ * Build the arena: a sand floor with a glowing rune circle, a backdrop shell so
+ * the gaps between kit pieces never show raw sky, and every baked kit piece
+ * from `plan.props`. Collision comes from the
+ * shared tile stamps in `generateHub`, not from anything drawn here.
  */
 function buildColosseumHub(plan: FloorPlan) {
   const { center, arenaRadius } = HUB_LAYOUT
 
   // --- Procedural base (never editable): the sand arena floor and a backdrop
-  // shell so the gaps between kit pieces never show raw sky. Everything else
-  // (arcade, columns, tiered stands, door statues) is editable baked pieces.
+  // shell. Everything else (arcade, columns, tiered stands, statues) is
+  // editable baked pieces.
   const sand = new Mesh(
     new CircleGeometry(arenaRadius + 1.5, 56),
     new MeshStandardMaterial({ color: new Color('#c2a878'), roughness: 1 }),
@@ -1164,7 +455,7 @@ function buildColosseumHub(plan: FloorPlan) {
   sand.position.set(center.x, 0.02, center.y)
   floorGroup.add(sand)
 
-  // A glowing slime-blue rune circle inlaid in the sand, before the great door.
+  // A glowing slime-blue rune circle inlaid in the sand.
   const runes = new Mesh(
     new CircleGeometry(arenaRadius * 0.7, 64),
     new MeshBasicMaterial({ map: makeRuneCircleTexture(4242), color: new Color(PALETTE.slime), transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false }),
@@ -1180,9 +471,6 @@ function buildColosseumHub(plan: FloorPlan) {
   backdrop.position.set(center.x, 13, center.y)
   floorGroup.add(backdrop)
 
-  // --- The great door: the dungeon entrance / exit trigger at the north wall.
-  buildHubPortal(plan.exit.x, plan.exit.y)
-
   // --- Editable colosseum kit pieces. Pre-bake, render the procedural
   // composition (visual only, no collision until baked); once baked the pieces
   // flow through plan.props. In editor mode the controller owns the seeded
@@ -1196,9 +484,9 @@ function buildColosseumHub(plan: FloorPlan) {
 
 /**
  * Render a plan's props as instanced batches per kind, exactly where the server
- * simulates their footprints. In editor mode, hand-placed props (incl. baked
- * structure and authored-floor pieces) are skipped so the editor controller can
- * clone them as individually selectable objects instead of drawing them twice.
+ * simulates their footprints. In editor mode, hand-placed props (incl. the
+ * baked structure) are skipped so the editor controller can clone them as
+ * individually selectable objects instead of drawing them twice.
  */
 function renderPlanProps(plan: FloorPlan) {
   const solids = new Map<string, Matrix4[]>()
@@ -1209,13 +497,15 @@ function renderPlanProps(plan: FloorPlan) {
     solids.set(p.kind, arr)
   }
   for (const [kind, mats] of solids) {
-    const g = instantiateModule(kind, mats, '#ffffff')
+    const g = instantiateModule(kind, mats)
     if (g) floorGroup.add(g)
   }
 }
 
-/** Instance matrix for a prop, honoring elevation (`z`) and per-axis scale (`s3`). */
-function propMatrix(p: PropSpec): Matrix4 {
+/** Instance matrix for a placed piece, honoring elevation (`z`) and per-axis
+ *  scale (`s3`). `PropSpec` is structurally a `HubPropPlacement` with collision
+ *  fields, so both plan props and composed pieces go through here. */
+function propMatrix(p: HubPropPlacement): Matrix4 {
   return p.s3
     ? placementMatrixScaled(p.x, p.z ?? 0, p.y, p.rot, p.s3[0], p.s3[1], p.s3[2])
     : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale)
@@ -1226,28 +516,13 @@ function renderComposed(pieces: HubPropPlacement[]) {
   const byKind = new Map<string, Matrix4[]>()
   for (const p of pieces) {
     const arr = byKind.get(p.kind) ?? []
-    arr.push(p.s3
-      ? placementMatrixScaled(p.x, p.z ?? 0, p.y, p.rot, p.s3[0], p.s3[1], p.s3[2])
-      : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale))
+    arr.push(propMatrix(p))
     byKind.set(p.kind, arr)
   }
   for (const [kind, mats] of byKind) {
-    const g = instantiateModule(kind, mats, '#ffffff')
+    const g = instantiateModule(kind, mats)
     if (g) floorGroup.add(g)
   }
-}
-
-/**
- * The great door: the monumental stone gate + banded leaves (scripts/make_door.py)
- * set into the arena's north wall. Its front (+Z) faces the arena (+tile-y) so
- * players approach the glowing seam and floating rune shards head-on; the ground
- * trigger at the door teleports you down into the dungeon. Glow driven by the
- * same `hubPortal.update(...)` render-loop hook.
- */
-function buildHubPortal(ex: number, ey: number) {
-  hubPortal = buildBigDoor()
-  hubPortal.root.position.set(ex, 0, ey)
-  floorGroup.add(hubPortal.root)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1261,9 +536,9 @@ gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 
 /**
  * The universal rig is authored at human scale (~1.8 m); this brings characters
- * to ~1.3 units so they sit well under the 2.4-unit walls and read as
- * dungeon-scale rather than towering over the corridors. Each player picks a
- * character during onboarding (see CharacterGate); it rides the snapshot.
+ * to ~1.3 units so they read at arena scale rather than towering over the
+ * kit pieces. Each player picks a character during onboarding (see
+ * CharacterGate); it rides the snapshot.
  */
 const CHARACTER_SCALE = 0.72
 
@@ -1272,7 +547,7 @@ const CHARACTER_SCALE = 0.72
  * Animation Library 1 & 2). Since every character shares the universal
  * skeleton, one set of clips drives them all with no retargeting.
  */
-const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', death: 'Death01' } as const
+const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop' } as const
 
 const characterTemplates = new Map<string, Group>()
 const characterLoading = new Set<string>()
@@ -1297,56 +572,9 @@ function ensureClips() {
   })
 }
 
-const flames: Array<{ mesh: Mesh, base: number, offset: number }> = []
-const flameGeometry = new OctahedronGeometry(0.07, 1)
-const flameMaterial = new MeshBasicMaterial({ color: '#ffb545' })
-
 // Prop template name lists (PROP_NAMES, PROP_DECOR_NAMES, NATURE_NAMES,
 // VILLAGE_NAMES, FANTASY_NAMES) live in #shared/utils/propCatalog so the dev
 // editor can share them; imported at the top of this file.
-
-/** Subtle per-biome tint multiplied into structural module materials. */
-const MODULE_TINTS = ['#ffffff', '#ffffff', '#a8ccd6', '#b4d8a4', '#d89b82']
-
-/**
- * Floor-slab y offset = `0.01 - meshTop` (measured per tile) so every variant's
- * top surface lands flush at ~+0.01 above the sunk ground plane.
- */
-const FLOOR_TILE_Y: Record<string, number> = {
-  Floor_Standard: -0.023, Floor_Squares: -0.024, Floor_Standard_Half: -0.024,
-  Floor_Diamond: -0.006, Floor_SquareLarge: -0.017,
-  Floor_Hole_Corner: -0.051, Floor_Hole_Straight: -0.051, Floor_Tree: -0.055,
-}
-
-/**
- * Native width/height (metres) of each wall-face module, so a panel can be
- * stretched to the `CELL_TILES`-wide room face and `WALL_PANEL_TOP` height
- * regardless of its source size. The plain 2×2 `Wall` is the baseline; doors are
- * ~2.3–2.5 wide and the grand arch walls are 4×4.
- */
-const PANEL_W: Record<string, number> = {
-  Wall: 2, Wall_Overgrown: 2, Wall_Hole: 2, Wall_Broken: 2,
-  Window_Open: 2, Window_Bars: 2, Window_Bars_Overgrown: 2,
-  Doors_GothicArch: 2.31, Doors_RoundArch: 2.31,
-  Doors_GothicArch_Covered: 2.52, Doors_RoundArch_Covered: 2.52,
-  Wall_ArchRound: 4, Wall_ArchGothic: 4, Wall_ArchRound_Broken: 4,
-  Wall_ArchRound_Overgrown: 4, Wall_ArchRound_Overgrown_Broken: 4,
-}
-const PANEL_H: Record<string, number> = {
-  Wall: 2, Wall_Overgrown: 2, Wall_Hole: 2, Wall_Broken: 1.95,
-  Window_Open: 2, Window_Bars: 2, Window_Bars_Overgrown: 2,
-  Doors_GothicArch: 3.21, Doors_RoundArch: 2.97,
-  Doors_GothicArch_Covered: 3.21, Doors_RoundArch_Covered: 2.97,
-  Wall_ArchRound: 4, Wall_ArchGothic: 4, Wall_ArchRound_Broken: 4,
-  Wall_ArchRound_Overgrown: 4, Wall_ArchRound_Overgrown_Broken: 4,
-}
-
-/** Deterministic hash for placement decisions, salted per use. */
-function placementHash(seed: number, x: number, y: number, salt: number): number {
-  let h = Math.imul(x * 374761393 + y * 668265263 + salt * 69621, (seed ^ 0x85EBCA6B) | 1)
-  h = Math.imul(h ^ (h >>> 13), 1274126177)
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
-}
 
 const placementDummy = new Object3D()
 function placementMatrix(x: number, y: number, z: number, rotY: number, scale: number): Matrix4 {
@@ -1358,10 +586,9 @@ function placementMatrix(x: number, y: number, z: number, rotY: number, scale: n
 }
 
 /**
- * Like `placementMatrix` but with per-axis scale, so a 2 m wall panel can be
- * stretched to the corridor width (local X) and interior height (local Y)
- * without touching its depth. Scale is applied in the module's local frame
- * before the Y-rotation, so widening never shears the geometry.
+ * Like `placementMatrix` but with per-axis scale, so a kit piece can be
+ * stretched on one axis without touching the others. Scale is applied in the
+ * module's local frame before the Y-rotation, so widening never shears it.
  */
 function placementMatrixScaled(x: number, y: number, z: number, rotY: number, sx: number, sy: number, sz: number): Matrix4 {
   placementDummy.position.set(x, y, z)
@@ -1375,7 +602,7 @@ function placementMatrixScaled(x: number, y: number, z: number, rotY: number, sx
  * Instance a GLB module at many placements: one InstancedMesh per mesh part,
  * with the part's own transform baked into every instance matrix.
  */
-function instantiateModule(name: string, placements: Matrix4[], tint: string): Group | null {
+function instantiateModule(name: string, placements: Matrix4[], tint = '#ffffff'): Group | null {
   const template = propTemplates.get(name)
   if (!template || !placements.length) return null
   template.updateMatrixWorld(true)
@@ -1396,7 +623,6 @@ function instantiateModule(name: string, placements: Matrix4[], tint: string): G
 }
 
 const propTemplates = new Map<string, Group>()
-let propGroup: Group | null = null
 
 /**
  * The bush models reference a leaf texture that didn't survive the
@@ -1412,10 +638,6 @@ function fixupPropMaterials(root: Group) {
     }
   })
 }
-
-/** Flipped once every kit template has loaded, so the placement passes (which
- *  depend on many modules) run only against a complete set, not a partial one. */
-let templatesReady = false
 
 // Load one dir's models into the shared template map. Resilient: a single
 // model that 404s or fails to parse is logged and skipped rather than
@@ -1434,98 +656,43 @@ async function loadTemplates(dir: string, names: readonly string[]) {
   }))
 }
 
-// The hub and labyrinth structure only need props/nature/village, so build the
-// world as soon as those arrive — the fantasy dressing streams in after and
-// triggers a second rebuild. This keeps the hub from sitting empty while ~30
-// floor-only models it never uses finish downloading.
+/** In the editor the whole palette must be placeable, so every catalog loads. */
+const EDITING = import.meta.dev && !!props.editor
+
+/**
+ * Every kind the arena actually draws: the baked structure (via `plan.props`)
+ * plus the pre-bake composition. In play we download only these, so the arena
+ * never waits on the ~200 kit models it doesn't reference.
+ */
+const ARENA_KINDS = new Set<string>([
+  ...hubPlan.props.map(p => p.kind),
+  ...composeColosseum().map(p => p.kind),
+])
+function arenaOnly(names: readonly string[]): readonly string[] {
+  return EDITING ? names : names.filter(name => ARENA_KINDS.has(name))
+}
+
+// Wave 1 is the structural kit the arena is built from — nothing paints until
+// it lands. Wave 2 streams the decorative pieces (and, in the editor, the rest
+// of the palette) and triggers a second build, so late arrivals pop in.
 Promise.all([
-  loadTemplates('props', PROP_NAMES),
-  loadTemplates('nature', NATURE_NAMES),
-  loadTemplates('village', VILLAGE_NAMES),
+  loadTemplates('props', arenaOnly(PROP_NAMES)),
 ]).then(() => {
-  templatesReady = true
   buildFloor()
   return Promise.all([
-    loadTemplates('props', PROP_DECOR_NAMES),
-    loadTemplates('fantasy', FANTASY_NAMES),
-    loadTemplates('dungeon', DUNGEON_NAMES),
-    loadTemplates('castle', CASTLE_NAMES),
-    loadTemplates('crypt', CRYPT_NAMES),
+    loadTemplates('props', arenaOnly(PROP_DECOR_NAMES)),
+    loadTemplates('castle', arenaOnly(CASTLE_NAMES)),
+    ...(EDITING
+      ? [
+          loadTemplates('nature', NATURE_NAMES),
+          loadTemplates('village', VILLAGE_NAMES),
+          loadTemplates('fantasy', FANTASY_NAMES),
+          loadTemplates('dungeon', DUNGEON_NAMES),
+          loadTemplates('crypt', CRYPT_NAMES),
+        ]
+      : []),
   ])
 }).then(() => buildFloor())
-
-/**
- * Props come straight from the plan now (`plan.props`, generated in shared
- * code) — placement must be shared because solid props are walkable surfaces
- * the server simulates too.
- */
-function placeProps(plan: FloorPlan) {
-  if (!templatesReady) return
-  if (propGroup) floorGroup.remove(propGroup)
-  propGroup = new Group()
-
-  for (const spec of plan.props) {
-    const template = propTemplates.get(spec.kind)
-    if (!template) continue
-    const prop = template.clone(true)
-    prop.position.set(spec.x, 0, spec.y)
-    prop.rotation.y = spec.rot
-    prop.scale.setScalar(spec.scale)
-    propGroup.add(prop)
-  }
-
-  floorGroup.add(propGroup)
-}
-
-/**
- * Wall lighting scattered deterministically along the corridors: standing pack
- * torches with a flickering flame, mixed with wall-mounted caged lanterns for
- * variety. Both cling to whichever adjacent tile is a wall.
- */
-function placeTorches(plan: FloorPlan) {
-  const torchTemplate = propTemplates.get('Torch')
-  if (!torchTemplate) return
-  const lanternTemplate = propTemplates.get('Lantern_Wall')
-  const seededRandom = (x: number, y: number) => {
-    const h = Math.imul(x * 374761393 + y * 668265263, plan.seed | 1)
-    return ((h ^ (h >>> 15)) >>> 0) / 4294967296
-  }
-  const group = new Group()
-  let count = 0
-  const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const
-  for (let y = 1; y < plan.height - 1 && count < 34; y++) {
-    for (let x = 1; x < plan.width - 1 && count < 34; x++) {
-      if (plan.tiles[y * plan.width + x] !== 0) continue
-      if (seededRandom(x, y) > (plan.floor === HUB_FLOOR ? 0.045 : 0.06)) continue
-      const wall = DIRS.find(([dx, dy]) => !isWalkable(plan, x + dx, y + dy))
-      if (!wall) continue
-      const rotY = Math.atan2(wall[0], wall[1]) + Math.PI
-      // A caged lantern mounted mid-wall (no flame) — pure fitting variety.
-      if (lanternTemplate && plan.floor !== HUB_FLOOR && seededRandom(x * 2 + 1, y) < 0.4) {
-        const lantern = lanternTemplate.clone(true)
-        lantern.position.set(x + 0.5 + wall[0] * 0.42, 0.95, y + 0.5 + wall[1] * 0.42)
-        lantern.rotation.y = rotY
-        lantern.scale.setScalar(0.9)
-        group.add(lantern)
-        count++
-        continue
-      }
-      // The pack torch has no flame of its own; give it a flickering one.
-      const torch = torchTemplate.clone(true)
-      torch.position.set(x + 0.5 + wall[0] * 0.38, 0, y + 0.5 + wall[1] * 0.38)
-      torch.rotation.y = rotY
-      torch.scale.setScalar(1.2)
-      const flame = new Mesh(flameGeometry, flameMaterial)
-      flame.position.y = 1.12
-      flame.scale.set(1, 1.8, 1)
-      torch.add(flame)
-      flames.push({ mesh: flame, base: 1.8, offset: x * 7 + y })
-      group.add(torch)
-      count++
-    }
-  }
-  floorGroup.add(group)
-}
 
 /* -------------------------------------------------------------------------- */
 /* Players                                                                    */
@@ -1680,7 +847,7 @@ function createRig(player: GamePlayer): Rig | null {
   model.rotation.y = Math.PI / 2
   model.scale.setScalar(CHARACTER_SCALE)
   // Swap in the chosen outfit colorway (designed texture variant, not a dye).
-  // The accent color is a chat/leaderboard/nameplate identity only.
+  // The accent color is a chat/nameplate identity only.
   applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
   // Skinned meshes must keep rendering when bones move them outside their
   // original bounds.
@@ -1700,13 +867,6 @@ function createRig(player: GamePlayer): Rig | null {
   const actions: Record<string, AnimationAction> = {}
   for (const clip of sharedClips) {
     actions[clip.name] = mixer.clipAction(clip)
-  }
-  // Death is a one-shot: collapse once and hold the fallen pose (rather than
-  // looping) until the hub respawn clears it.
-  const death = actions[CLIP.death]
-  if (death) {
-    death.setLoop(LoopOnce, 1)
-    death.clampWhenFinished = true
   }
   actions[CLIP.idle]?.play()
 
@@ -1791,22 +951,6 @@ watch(() => props.game.selfId.value, (id: string | null) => {
   }
 })
 
-// Floor changes (teleport circle, exits, deaths) and the midnight rollover
-// rebuild the world around us.
-watch([() => props.game.selfFloor.value, () => props.game.seed.value], () => {
-  currentPlan = getPlan(props.game.selfFloor.value)
-  buildFloor()
-  boomDist = MAX_BOOM // fresh floor — don't ease the boom from a stale distance
-  const self = props.game.selfId.value ? props.game.players.get(props.game.selfId.value) : undefined
-  if (self) {
-    local.x = self.x
-    local.y = self.y
-    local.z = self.z
-    local.vz = 0
-    local.facing = self.angle
-  }
-})
-
 buildFloor()
 
 /** Longest the third-person boom extends behind the player, in tiles. */
@@ -1875,9 +1019,9 @@ const RECONCILE_RATE = 8
 const RECONCILE_IDLE_FREEZE = 0.4
 
 /* -------------------------------------------------------------------------- */
-/* Hub Oracle: the ancient seer by the portal. Unlike the player characters    */
-/* (shared universal skeleton + shared clips), this monster carries its own    */
-/* rig and animation clips inside its GLB, so it gets its own mixer.           */
+/* Hub Oracle: the ancient seer by the arena wall. Unlike the player           */
+/* characters (shared universal skeleton + shared clips), this monster carries */
+/* its own rig and animation clips inside its GLB, so it gets its own mixer.   */
 /* -------------------------------------------------------------------------- */
 
 let oracleTemplate: Group | null = null
@@ -1983,19 +1127,17 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     selfDashing = now < local.dashUntil
 
-    // A dying player is frozen where they fell — ignore input until respawn.
-    const selfDying = self.dying === true
-    let drive = selfDying ? 0 : (props.held.forward ? 1 : 0) - (props.held.back ? 1 : 0)
-    const strafe = selfDying ? 0 : (props.held.right ? 1 : 0) - (props.held.left ? 1 : 0)
+    let drive = (props.held.forward ? 1 : 0) - (props.held.back ? 1 : 0)
+    const strafe = (props.held.right ? 1 : 0) - (props.held.left ? 1 : 0)
     // A dash from a standstill still launches you forward (camera-relative),
     // rather than rolling on the spot with no input to accelerate.
-    if (selfDashing && !selfDying && drive === 0 && strafe === 0) drive = 1
+    if (selfDashing && drive === 0 && strafe === 0) drive = 1
     let dx = 0
     let dy = 0
     if (drive !== 0 || strafe !== 0) {
       const len = Math.hypot(drive, strafe)
       const dash = selfDashing ? DASH_MULTIPLIER : 1
-      const speed = PLAYER_SPEED * floorSpeed(currentPlan.floor) * dash * dt / len
+      const speed = PLAYER_SPEED * dash * dt / len
       const cos = Math.cos(props.view.yaw)
       const sin = Math.sin(props.view.yaw)
       dx = (cos * drive - sin * strafe) * speed
@@ -2006,39 +1148,37 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     stepBody(currentPlan, local, dx, dy, dt)
 
-    if (self.floor === currentPlan.floor) {
-      const ex = self.x - local.x
-      const ey = self.y - local.y
-      const k = 1 - Math.exp(-dt * RECONCILE_RATE)
-      if (Math.hypot(ex, ey) > RECONCILE_SNAP) {
-        // Gross desync (teleport, big lag spike): jump to authority.
-        local.x = self.x
-        local.y = self.y
-        local.z = self.z
+    const ex = self.x - local.x
+    const ey = self.y - local.y
+    const k = 1 - Math.exp(-dt * RECONCILE_RATE)
+    if (Math.hypot(ex, ey) > RECONCILE_SNAP) {
+      // Gross desync (teleport, big lag spike): jump to authority.
+      local.x = self.x
+      local.y = self.y
+      local.z = self.z
+    }
+    else if (drive !== 0 || strafe !== 0) {
+      // Driving: split the error into components along our travel direction
+      // and perpendicular to it. Always correct the perpendicular part (that
+      // smooths out heading-lag side drift), but only correct along-track
+      // when the server is *ahead* (catch up) — never drag us backward
+      // against our own input, which is the "stuck on an invisible wall"
+      // feel. This lets the prediction lead the lagging server, not fight it.
+      const len = Math.hypot(dx, dy) || 1
+      const tx = dx / len
+      const ty = dy / len
+      const along = ex * tx + ey * ty
+      local.x += (ex - along * tx) * k
+      local.y += (ey - along * ty) * k
+      if (along > 0) {
+        local.x += along * tx * k
+        local.y += along * ty * k
       }
-      else if (drive !== 0 || strafe !== 0) {
-        // Driving: split the error into components along our travel direction
-        // and perpendicular to it. Always correct the perpendicular part (that
-        // smooths out heading-lag side drift), but only correct along-track
-        // when the server is *ahead* (catch up) — never drag us backward
-        // against our own input, which is the "stuck on an invisible wall"
-        // feel. This lets the prediction lead the lagging server, not fight it.
-        const len = Math.hypot(dx, dy) || 1
-        const tx = dx / len
-        const ty = dy / len
-        const along = ex * tx + ey * ty
-        local.x += (ex - along * tx) * k
-        local.y += (ey - along * ty) * k
-        if (along > 0) {
-          local.x += along * tx * k
-          local.y += along * ty * k
-        }
-      }
-      else if (Math.hypot(ex, ey) > RECONCILE_IDLE_FREEZE) {
-        // Idle: only chase real disagreement; small stop-overshoot is left be.
-        local.x += ex * k
-        local.y += ey * k
-      }
+    }
+    else if (Math.hypot(ex, ey) > RECONCILE_IDLE_FREEZE) {
+      // Idle: only chase real disagreement; small stop-overshoot is left be.
+      local.x += ex * k
+      local.y += ey * k
     }
   }
 
@@ -2064,10 +1204,7 @@ onBeforeRender(({ delta, elapsed }) => {
     boomDist = targetBoom < boomDist
       ? targetBoom
       : boomDist + (targetBoom - boomDist) * (1 - Math.exp(-dt * 9))
-    let camHeight = Math.max(local.z + 0.35, local.z + 1.5 + pitch * 1.8)
-    // Keep the camera just under the interior ceiling so it never pops through
-    // it at a jump's apex (the hub is open to the sky, so it isn't capped).
-    if (currentPlan.floor !== HUB_FLOOR) camHeight = Math.min(camHeight, WALL_HEIGHT - 0.25)
+    const camHeight = Math.max(local.z + 0.35, local.z + 1.5 + pitch * 1.8)
     camera.value.position.set(
       headX - Math.cos(yaw) * boomDist,
       camHeight,
@@ -2081,13 +1218,10 @@ onBeforeRender(({ delta, elapsed }) => {
     torchLight.position.set(headX, local.z + 1.7, headZ)
   }
 
-  // Sky, weather, fog — shared clock, biome-tinted. The hub is pinned to a
-  // bright, calm midday so the village reads clearly (no dusk/storm murk).
+  // Sky, weather, fog — the arena is outdoors, so it runs the full shared
+  // day/night + weather cycle off the server clock.
   {
-    const sky = currentPlan.floor === HUB_FLOOR
-      ? { sunAngle: 1, sunHeight: 0.9, dayness: 1, overcast: 0, rain: 0 }
-      : computeSky(serverNow)
-    const look = lookFor(currentPlan)
+    const sky = computeSky(serverNow)
 
     skyColor.copy(skyNight).lerp(skyDay, sky.dayness)
     const duskiness = clamp01(1 - Math.abs(sky.sunHeight) * 4) * sky.dayness
@@ -2110,11 +1244,11 @@ onBeforeRender(({ delta, elapsed }) => {
     cloudMaterial.opacity = clamp01(0.15 + sky.dayness * 0.7) * (1 - sky.overcast * 0.35)
     cloudMaterial.color.copy(skyColor).lerp(new Color('#ffffff'), 0.65).lerp(new Color('#98a1ac'), sky.overcast * 0.55)
 
-    fogColor.set(look.fog)
+    fogColor.set(FOG_COLOR)
     fogColor.lerp(skyColor, 0.25)
     fogColor.multiplyScalar(0.35 + 0.65 * sky.dayness)
     fog.color.copy(fogColor)
-    fog.density = look.fogDensity * (1 + sky.rain * 0.5 + sky.overcast * 0.15)
+    fog.density = FOG_DENSITY * (1 + sky.rain * 0.5 + sky.overcast * 0.15)
 
     const daylight = Math.max(sky.sunHeight, 0)
     sun.intensity = daylight > 0
@@ -2136,11 +1270,9 @@ onBeforeRender(({ delta, elapsed }) => {
     sunGlow.visible = daylight > 0.02
     sunGlowMaterial.opacity = daylight * 0.85 * (1 - sky.overcast * 0.6)
 
-    // Lower ambient outdoors so the sun's shadows actually read; the hemisphere
-    // fill (hub only) softens them without flattening. Dungeons keep flat ambient.
-    const outdoor = currentPlan.floor === HUB_FLOOR
-    ambient.intensity = (outdoor ? 0.12 : 0.22) + sky.dayness * (outdoor ? 0.28 : 0.45) * (1 - sky.overcast * 0.5)
-    hemi.intensity = outdoor ? 0.55 : 0
+    // Ambient stays low outdoors so the sun's shadows actually read; the
+    // hemisphere fill softens them without flattening.
+    ambient.intensity = 0.12 + sky.dayness * 0.28 * (1 - sky.overcast * 0.5)
 
     rainMaterial.opacity = sky.rain * 0.7
     rain.visible = sky.rain > 0.02
@@ -2154,12 +1286,6 @@ onBeforeRender(({ delta, elapsed }) => {
       }
       positions.needsUpdate = true
     }
-  }
-
-  // Hazards: rise when lethal (same clock the server kills with).
-  for (const { trap, hazard } of trapVisuals) {
-    const target = isTrapActive(trap, serverNow) ? 1 : 0.02
-    hazard.scale.y += (target - hazard.scale.y) * Math.min(1, dt * 14)
   }
 
   // Reconcile player rigs with the roster.
@@ -2177,10 +1303,6 @@ onBeforeRender(({ delta, elapsed }) => {
       rig = created
       rigs.set(id, rig)
     }
-
-    // Only players on your floor are visible (the spectator map shows the rest).
-    rig.group.visible = player.floor === currentPlan.floor
-    if (!rig.group.visible) continue
 
     const isSelf = id === selfId
     let moving = false
@@ -2226,8 +1348,6 @@ onBeforeRender(({ delta, elapsed }) => {
     rig.group.position.set(player.rx, player.rz, player.ry)
     rig.group.rotation.y = -player.ra
 
-    const dying = player.dying === true
-
     // The dash plays the sprint loop. Its speed burst only lasts DASH_DURATION,
     // so on the dash's rising edge we latch a slightly longer window and hold
     // the sprint for it, letting it read as a burst before run/idle resume.
@@ -2238,15 +1358,10 @@ onBeforeRender(({ delta, elapsed }) => {
     const DASH_ANIM_WINDOW = 0.5
     if (dashing && now >= rig.dashAnimUntil) rig.dashAnimUntil = now + DASH_ANIM_WINDOW * 1000
 
-    // Animation state: death > dash > airborne > run > idle. Sustain the sprint
-    // past the burst only while actually moving; a standstill dash stops
+    // Animation state: dash > airborne > run > idle. Sustain the sprint past
+    // the burst only while actually moving; a standstill dash stops
     // translating when the burst ends, so we drop to idle then, not churn.
-    if (dying) {
-      // Scale the death clip to play through fully within the respawn delay.
-      const clip = rig.actions[CLIP.death]?.getClip()
-      setAnimation(rig, CLIP.death, clip ? clip.duration / DEATH_DELAY : 2)
-    }
-    else if (now < rig.dashAnimUntil && (dashing || moving)) {
+    if (now < rig.dashAnimUntil && (dashing || moving)) {
       // remain: 1 at the start of the window, 0 at its end — a linear ramp.
       const remain = (rig.dashAnimUntil - now) / (DASH_ANIM_WINDOW * 1000)
       setAnimation(rig, CLIP.dash, DASH_ANIM_END_RATE + (DASH_ANIM_START_RATE - DASH_ANIM_END_RATE) * remain)
@@ -2275,51 +1390,34 @@ onBeforeRender(({ delta, elapsed }) => {
   }
 
   // Hub Oracle: spawn it once its model lands, run its idle animation, float a
-  // bubble when it speaks in chat, and track proximity (drives the hub hint).
-  if (currentPlan.floor === HUB_FLOOR) {
-    oracleRig ??= createOracleRig()
-    const op = oraclePos()
-    if (oracleRig) {
-      oracleRig.mixer.update(dt)
-      // Follow the editable Oracle marker (live while dragging in the editor;
-      // constant in play). Keep it facing the arena centre.
-      oracleRig.group.position.x = op.x
-      oracleRig.group.position.z = op.y
-      oracleRig.group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
-      const speech = oracle.speech.value
-      if (speech && speech.until > now) {
-        if (oracleRig.bubbleText !== speech.text) {
-          oracleRig.bubbleText = speech.text
-          const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, speech.text)
-          oracleRig.bubbleTexture.needsUpdate = true
-          oracleRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
-          oracleRig.bubble.position.y = oracleRig.bubbleBaseY + oracleRig.bubble.scale.y / 2
-        }
-        oracleRig.bubble.visible = true
-        oracleRig.bubble.material.opacity = Math.min(1, (speech.until - now) / 300)
+  // bubble when it speaks in chat, and track proximity (drives the HUD hint).
+  oracleRig ??= createOracleRig()
+  const op = oraclePos()
+  if (oracleRig) {
+    oracleRig.mixer.update(dt)
+    // Follow the editable Oracle marker (live while dragging in the editor;
+    // constant in play). Keep it facing the arena centre.
+    oracleRig.group.position.x = op.x
+    oracleRig.group.position.z = op.y
+    oracleRig.group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
+    const speech = oracle.speech.value
+    if (speech && speech.until > now) {
+      if (oracleRig.bubbleText !== speech.text) {
+        oracleRig.bubbleText = speech.text
+        const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, speech.text)
+        oracleRig.bubbleTexture.needsUpdate = true
+        oracleRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
+        oracleRig.bubble.position.y = oracleRig.bubbleBaseY + oracleRig.bubble.scale.y / 2
       }
-      else {
-        oracleRig.bubble.visible = false
-        oracleRig.bubbleText = ''
-      }
+      oracleRig.bubble.visible = true
+      oracleRig.bubble.material.opacity = Math.min(1, (speech.until - now) / 300)
     }
-    const dist = self ? Math.hypot(local.x - op.x, local.y - op.y) : Infinity
-    oracle.near.value = dist < ORACLE_NEAR
+    else {
+      oracleRig.bubble.visible = false
+      oracleRig.bubbleText = ''
+    }
   }
-  else if (oracle.near.value) {
-    oracle.near.value = false
-  }
-
-  // Ambient animation: exit-portal spin, hub gate swirl, torch flicker.
-  const ring = exitPortal.children[0]
-  if (ring) ring.rotation.y = elapsed * 0.8
-  hubPortal?.update(elapsed, dt)
-  for (const flame of flames) {
-    flame.mesh.scale.y = flame.base * (1 + Math.sin(elapsed * 11 + flame.offset) * 0.12)
-    const wobble = 1 + Math.sin(elapsed * 17 + flame.offset) * 0.08
-    flame.mesh.scale.x = wobble
-    flame.mesh.scale.z = wobble
-  }
+  oracle.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < ORACLE_NEAR : false
 })
 
 // Remove everything we added to the shared scene (also keeps HMR honest —
@@ -2333,13 +1431,11 @@ if (import.meta.dev) {
     const canvas = renderer.instance?.domElement
     if (!canvas || !scene.value) return
     ed = useEditor()
-    // Before the hub is baked, seed the editable structure layer from the
+    // Before the arena is baked, seed the editable structure layer from the
     // procedural composition so every kit piece is immediately selectable and
     // the first save writes hub-structure.json (the bake).
-    if (ed.currentFloor.value === HUB_FLOOR && !HUB_STRUCTURE.length) {
-      ed.seedStructure(composeColosseum())
-    }
-    // Build the editor's active floor (persisted across a save-reload).
+    if (!HUB_STRUCTURE.length) ed.seedStructure(composeColosseum())
+    // Build the editor's working copy of the arena (persisted across a save-reload).
     currentPlan = editorPlan()
     buildFloor()
     editorCtl = createHubEditor({
@@ -2351,15 +1447,12 @@ if (import.meta.dev) {
       getSize: () => ed!.current.value.size,
     })
     editorCtl.rebuild()
-    // Rebuild the scene on any structural change (switch / create / undo). The
+    // Rebuild the scene on any structural change (seed / undo / redo). The
     // controller re-clones its placements off its own deep watch.
     watch(() => ed!.structureVersion.value, () => {
       currentPlan = editorPlan()
       buildFloor()
     })
-    // Re-seat the fly camera ONLY on an actual floor switch — never on undo/redo,
-    // which would yank the camera away from where you're working.
-    watch(() => ed!.currentFloor.value, () => editorCtl?.focus())
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).__editor = ed
   })

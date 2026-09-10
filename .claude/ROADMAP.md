@@ -1,133 +1,81 @@
 # Tempest — Roadmap
 
-> Endless multiplayer dungeon-crawl tower. Nuxt + TresJS + Vercel WebSockets.
+> Multiplayer colosseum: one shared arena, walk around and chat, with an AI Oracle NPC.
+> Nuxt + TresJS + Vercel WebSockets. It exists to demo the Vercel WebSocket upgrade
+> under a real authoritative game loop, plus an AI NPC reading live game state.
 > This file is the source of truth for what's done and what's next — update it as work lands.
 
 ## Status: done ✓
 
 ### Core loop & simulation
-- [x] Authoritative 20 Hz server sim; client prediction via shared kinematics (`shared/utils/maze.ts` → `stepBody`)
-- [x] Third-person camera (wall-aware boom), raw-delta mouse-look, pointer lock + fullscreen (`F`), drag-free steering everywhere
-- [x] Endless floors seeded by (UTC date, floor index); 4 biomes (Stone/Sunken/Verdant/Magma) w/ tinted materials, fog, speed modifiers
-- [x] **3-tile-wide** corridors/rooms (`CELL_TILES`/`CELL_STRIDE`, exported so the wall renderer shares the grid)
-- [x] Timed traps per biome (spikes/geysers/vines/vents); depth leaderboard + per-floor fastest clears
-- [x] Jump (`Space`) & dash (`Shift`) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward; traps only kill below `TRAP_MAX_Z` (jumpable)
-- [x] Elevation: solid props are walkable ledges in the shared authoritative plan; `SOLID_PROPS` distinguishes low vaultable clutter (crates/chests/wagon) from tall unjumpable blockers (trees/boulders)
-- [x] Death → deferred corpse pause on the death floor (`DEATH_DELAY` 1.2s, `dyingUntil`, `dead` flag) → `Death` clip → hub reset *(was §3)*
-- [x] Fog of war: explored-tile bitmaps per floor; round WoW-style minimap (top-right) + fogged tower map. Traps are hidden on the minimap (fairness)
-- [x] Day/night cycle (15 min) + weather (clear→overcast→rain), synced via server clock (`welcome.now`)
-- [x] Protocol test suite (`scripts/ws-test.mjs`)
+- [x] Authoritative 20 Hz server sim; client prediction via shared kinematics (`shared/utils/maze.ts` → `stepBody`), input-aware reconcile that never drags you backward against your own input
+- [x] Third-person camera (wall-aware boom), raw-delta mouse-look, pointer lock + fullscreen (`F`)
+- [x] Jump (`Space`) & dash (`Shift`) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward
+- [x] Elevation: solid props are walkable ledges in the shared authoritative plan; `SOLID_PROPS` distinguishes low vaultable clutter from tall unjumpable blockers
+- [x] Day/night cycle (15 min) + weather (clear→overcast→rain), synced via the server clock (`welcome.now`)
+- [x] Round WoW-style minimap (top-right), full arena, no fog
+- [x] Protocol test suite (`scripts/ws-test.mjs`) — creates characters over `/api/auth`, then asserts `welcome`/`state`/`chat`/`pong`/`leave`/`kicked`
+- [x] Bot load-testing script (`scripts/spawn-bots.mjs`)
 
 ### Identity, onboarding & app shell
-- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie) replacing per-connection random identity; `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
-- [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, runner name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
-- [x] **Main-menu app shell** (`index.vue` state machine: `checking → menu → creating → playing → spectating`). Socket opens on demand, not on load. Returning player sees name + Enter; new visitor creates a runner; everyone can spectate. `MainMenu` + 3D `CharacterLineup` backdrop
-- [x] **Spectator mode**: `?spectate=1` read-only socket (`registerSpectator`, no cookie, never simulated/counted), full-tower reveal-all map
-- [x] Records over HTTP (`GET /api/records`) so the menu shows the board pre-socket; shared `RecordsBoard` used in menu / HUD / spectator
-- [x] **In-game Escape menu** (WoW-style, replaces the old bottom-right HUD buttons): controls reference + fullscreen + leave + return-to-game. Opens on Escape; while pointer-locked the keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
-- [x] **Single session per identity**: `sessions` is keyed by identity id, so opening a second tab takes over — the newest socket wins and the old one gets a `kicked` frame (client stops reconnecting, shows a "playing in another tab" overlay with "play here instead"). `disconnect` is guarded by `sessions.get(id) === session` so the booted socket can't evict the live player
-- [x] In-day progress persistence: `progress` map (deepest floor per identity) survives a refresh; hub portal resumes you at `max(1, best)` *(NB: in-memory, cleared at rollover — see §7)*
-- [x] Per-day tower shared by all; midnight-UTC rollover (`maze` frame) → new tower, everyone back to hub
+- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
+- [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
+- [x] **Direct entry**: no landing screen. `index.vue` probes `/api/auth` — a returning player drops straight into the arena, a new visitor lands on character creation
+- [x] **In-game Escape menu** (WoW-style): controls reference + fullscreen + return-to-game (+ a dev-only world editor button). While pointer-locked the Escape keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
+- [x] **Single session per identity**: `sessions` is keyed by identity id, so a second tab takes over — the newest socket wins and the old one gets a `kicked` frame (client stops reconnecting, shows an overlay with "play here instead"). `disconnect` is guarded by `sessions.get(id) === session` so the booted socket can't evict the live player
+- [x] Chat: bottom-left, arena-wide history, floating bubbles over rigs, system announcements (`announce()`)
 
 ### AI showcase
-- [x] **Hub Oracle AI NPC** — in-process AI SDK route (`POST /api/oracle`, `streamText` + `tower_state` tool reading live `snapshot()`), `anthropic/claude-sonnet-5` via Vercel AI Gateway, in-character persona. Client dialog (`OracleDialog` + `useOracle` + `useChat`), `MushroomKing.glb` body beside the portal, walk up + press `E`. (Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`)
+- [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. `anthropic/claude-haiku-4.5` via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); `MushroomKing.glb` body on the sand with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
 
 ### World, art & assets
-- [x] **Village hub v2** (`HUB_LAYOUT` 40×40 + `buildVillageHub`): tower dead-centre on a cobbled plaza, main street to a south gate (arch + fence line), 7 composed timber-frame houses (stone ground floor, jettied upper, footprint-matched gable roofs + shutters/balconies/chimneys/vines; ~35 more Medieval Village kit pieces via `convert_kits.sh`), market stall corner, door paths + curb edging; daily tree/rock scatter confined to the meadow ring — hub clutter is **real shared collision**; vertical "rift" portal (`makePortalTexture`)
-- [x] **Modeled portal gate** (`scripts/make_portal.py` → `portal_gate.glb`, 19 KB): ruined stone rune-ring on a stepped dais with twin obelisks, floating `Shard_*` stones and emissive `Rune` inlays animated by `buildPortal`; frames the energy rift in both the hub and the menu hero (menu stage gained lights for it)
-- [x] **Modular masonry walls** (`placeModularWalls`): real Ruins wall/door/window panels dress room faces (Verdant swaps overgrown variants); box-wall core still drives collision *(resolves the old §6 "no straight wall panels" holdout — via both Ruins `Wall*` modules and the Village MegaKit)*
-- [x] Enclosed interior: walls to `WALL_HEIGHT`, tiled flagstone ceiling, hung chandeliers; grand exit-portal dais (stairs + railings + flags); plank bridge over flooded rooms; trapdoor plates under traps; fantasy-prop interior scatter
-- [x] Character roster rebuilt: 8 Universal-skeleton Peasant/Ranger (M/F × 2 hairstyles) sharing one `animations.glb` clip library (Idle/Run/Jump/Roll + dashes), WebP textures, runtime colorway swap. Old 8 named GLBs removed
-- [x] Asset pipeline: `convert_universal_characters.py` (Universal base + Modular Fantasy Outfits + Animation Library; WebP-crash byte-sanitizer), `rebuild_animations.py`, `convert_props.py` (~50 new Ruins modules), `convert_fantasy.sh`/`convert_kits.sh` (`gltf-transform optimize` → meshopt + WebP), `make_og.py`
-- [x] New packs: `village/` (Medieval Village), `fantasy/` (Fantasy Props), `nature/` (Stylized Nature), `monsters/` (MushroomKing). Meshopt decode registered at runtime
-- [x] **Asset compression pass** (meshopt + WebP) on the new kits — *(was §1; not yet applied retroactively to the pre-existing `props/` GLBs)*
-- [x] **Real `og.png`** rendered from game assets (`make_og.py`) — *(was §1)*
-- [x] Chat: bottom-left, floor-filtered history, **system announcements** (`announce()`, replaced all toasts)
-- [x] **Dev-only in-game hub editor** (menu → "Editor", `import.meta.dev`-gated): fly camera + click-to-place / select (bounding-box pick) / drag / rotate / scale / elevation on the hub, palette from `shared/utils/propCatalog.ts`. 3D controller `app/utils/hubEditor.ts`, 2D `EditorPanel.vue` + `useEditor.ts`. Tree-shaken from prod; save routes 404 in prod (read-only FS)
-  - **Exploded village**: the whole procedural village (`composeVillage` — every wall/roof/corner/statue/fence as a piece) is editable. Pieces bake into `shared/data/hub-structure.json` (first save = bake); free-standing clutter stays in `hub-props.json`. Both append to `plan.props` (`hand:true`) through `makeProp` **after** the scatter (RNG untouched). Placements carry `z` (elevation) + `s3` (per-axis scale), render-only. House collision moved from tile stamps to **per-piece solid footprints** (ground wall/corner kinds added to `SOLID_PROPS`; doorways passable); tower/roads/portal stay procedural
+- [x] **Colosseum arena** (`HUB_LAYOUT` 56×56 + `generateHub`): open sand disc with a rune circle, walled in by an unbroken stands ring — there is no exit, the arena is the whole world. Every visible piece is a hand-placed kit piece baked into `shared/data/hub-structure.json` and rendered instanced; only the sand and the ring are procedural
+- [x] Character roster: 8 Universal-skeleton Peasant/Ranger (M/F × 2 hairstyles) sharing one `animations.glb` clip library (Idle/Run/Jump/Roll), WebP textures, runtime colorway swap
+- [x] Asset pipeline: `convert_universal_characters.py` (WebP-crash byte-sanitizer), `rebuild_animations.py`, `convert_props.py`, `convert_fantasy.sh`/`convert_kits.sh` (`gltf-transform optimize` → meshopt + WebP), `make_og.py`
+- [x] **Dev-only in-game world editor** (Escape menu → "World editor", or `/?editor=1`; `import.meta.dev`-gated): fly camera + click-to-place / select / drag / rotate / scale / elevation, palette from `shared/utils/propCatalog.ts`. Pieces bake into `hub-structure.json`, free-standing clutter into `hub-props.json`, both appended to `plan.props` (`hand:true`) through `makeProp` so collision matches what you see. Tree-shaken from prod; save routes 404 in prod (read-only FS)
+- [x] **Real `og.png`** rendered from game assets (`make_og.py`)
 
 ### Ship
-- [x] `git init`, `benjamincanac/tempest` repo created & pushed *(was §1)*
+- [x] `git init`, `benjamincanac/tempest` repo created & pushed
+- [x] First Vercel deploy
+
+### Removed in the simplification (2026-09-10)
+The project was cut back to its actual purpose (WebSockets + AI NPC demo). Gone: the
+dungeon tower and its floors, procedural labyrinth generation, biomes, timed traps,
+deaths, floor clears, records/leaderboards, fog of war, spectator mode, the video main
+menu, the great door (with `bigDoor.ts` and its wall notch), and the daily-seed
+machinery. `shared/utils/maze.ts` is now just the arena plus the collision/kinematics
+both sides share.
 
 ## Next up (prioritized)
 
-### 1. Ship it — verify prod
-- [x] **First Vercel deploy — verify the WebSocket upgrade actually works in prod** (never tested; the whole architecture rests on it). No `vercel.json` yet
-- [ ] Verify the Oracle works deployed post-fix: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed 2026-07-11 by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in hub chat (needs `AI_GATEWAY_API_KEY` env; model `anthropic/claude-haiku-4.5`)
-- [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the new kits are already meshopt+WebP)
+### 1. Verify prod
+- [ ] **Verify the WebSocket upgrade under load in prod** — load-bearing; the whole architecture rests on it
+- [ ] Verify the Oracle works deployed: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in chat (needs `AI_GATEWAY_API_KEY`)
+- [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the newer kits are already meshopt+WebP)
 
-### 2. Combat, monsters & loot (PvE) — headline next feature
-The game's first HP/damage system: fight monsters, loot chests, and a full inventory/gear/stats RPG layer. Authoritative server-side (damage & loot never trusted from clients — same rule as leaderboard depth); monster kinematics + placement live in `shared/utils/maze.ts` and stay deterministic per `(daySeed, floor)`. Assets are already on disk — 50 rigged monsters in `~/Downloads/quaternius/ultimate-monsters/`, player `Sword_Regular_A`/`Roll`/`Death01` clips in `animations.glb`, and `Chest*`/`Sword_Bronze`/`Shield_Wooden`/`Potion_1`/`Coin_Pile` GLBs already converted.
-
-**Phase A — HP, damage & player melee (foundations)**
-- [ ] `hp`/`maxHp` on `Player` (`shared/types/game.ts`) + combat runtime on `Session` (`attackUntil`, `attackCooldownUntil`, `lastAttacker`) in `server/utils/game.ts`
-- [ ] First non-hazard death path: decrement HP, set `dyingUntil` only at 0 — reuse the existing trap-death `broadcast({ t:'death', … cause })` block as the template
-- [ ] New `{ t:'action', kind:'attack' }` client message, cooldown-gated exactly like `dash`; transient `PlayerState` flags (`atk?`/`hit?`/`hp?`) mirroring the `d`/`dead` pattern
-- [ ] Client: new `CLIP` entries + priority branches in `MazeScene.vue` (attack = `Sword_Regular_A`, hit-react, dodge reuses `Roll`); HP bar + hit feedback in the HUD (`game-ui`)
-
-**Phase B — Monsters & enemy AI**
-- [ ] Batch-convert `ultimate-monsters` → `public/models/monsters/` via a new `scripts/convert_monsters.sh` (same `gltf-transform optimize` → meshopt+WebP one-liner as `convert_fantasy.sh`); start with the 16 Big bipeds (fullest clip set)
-- [ ] Deterministic per-`(daySeed, floor)` monster spawns in `generateFloor` (mirrors the trap/prop scatter loops) so both sides agree with no placement traffic; depth-scaled count/type/HP
-- [ ] Server monster registry + a new update pass in `tick()`: aggro/chase via `moveWithCollision`, melee/ranged attacks, HP, death → loot drop; new `ServerMessage` monster-snapshot variant + monster array in the 10 Hz broadcast
-- [ ] Client: generalize the Oracle `createOracleRig` pattern into a keyed monster-rig map driven by snapshots (own `AnimationMixer` per monster, `Idle/Walk/Run/Attack/HitReact/Death` from each GLB), nameplates + health bars
-- [ ] Biome-appropriate rosters (Blob critters shallow, Flying enemies deeper)
-
-**Phase C — Loot & chests**
-- [ ] Lootable chests: tag chest placements as interactive (loot flag on `PropSpec` or a parallel `loot` array in `FloorPlan`), deterministic per floor; open via `E` + interaction-range check in `tick()`; render off the existing `Chest`/`Chest_Wood`/`Chest_Gold` GLBs
-- [ ] Depth-scaled **loot tables** with rarity tiers feeding both chest contents and monster drops: coins, potions, weapons, armor
-- [ ] New wire messages: chest-open, item pickup/drop, loot-grant (authoritative)
-
-**Phase D — Inventory, gear & stats (the RPG layer)**
-- [ ] Server inventory keyed by `identity.id` (mirror the `progress` map; **cleared at daily rollover** in `rolloverTower()` until persistent accounts land — see §7)
-- [ ] Equippable weapons (damage/speed) + armor (mitigation); stats & leveling from kills/depth; rarity tiers
-- [ ] Inventory/equipment UI panel (`game-ui`, Nuxt UI); equipped weapon/shield rendered on the player rig (hand-bone attach — `Sword_Bronze`/`Shield_Wooden` GLBs exist)
-- [ ] Consumables (potions heal); coins as currency (hub vendor a further stretch)
-
-**Assets**
-- [ ] Extend the player clip lists (`CLIPS_UAL1`/`CLIPS_UAL2` in `convert_universal_characters.py` + `rebuild_animations.py`) with `Sword_Attack`, `Hit_Chest`, `Consume`, `Melee_Hook`, then rebuild `animations.glb`
-
-### 3. Audio (biggest missing sense — nothing implemented yet)
-- [ ] Footsteps (surface-aware: stone/water), jump/land, dash whoosh
-- [ ] Trap warnings + activation sounds (audible timing = fairer dodges)
-- [ ] Teleport/clear/death stingers; ambient loops per biome (wind, drips, jungle, magma rumble)
-- [ ] Positional audio for other players (three.js `AudioListener`/`PositionalAudio`)
-
-### 4. Death & clear polish (death pause done ✓)
-- [ ] `Victory` clip on floor clear before the drop
-- [ ] Trap pre-fire telegraph (glow/particles ~0.4s before lethal) — currently binary
-
-### 5. Party system (brief asked for "form groups") — not started
-- [ ] `party` messages: invite/accept/leave over the existing socket; party = shared color ring + markers on both maps regardless of fog
-- [ ] Party chat channel (chat already carries floor; add `party` scope)
-- [ ] Maybe: party members see each other through walls (outline shader)
-
-### 6. Deeper biome mechanics (hazards beyond timed traps) — not started
-- [ ] Sunken: deep-water pools that drown after ~3s submerged (needs per-player timer server-side)
-- [ ] Verdant: collapsing floor tiles (break after N crossings, respawn on rollover)
-- [ ] Magma: lava pools as instant-death zones w/ visible pathing (place only on braid loops so floors stay solvable)
-- [ ] Floor modifiers at depth milestones (darkness floors, no-minimap floors, speed floors)
-- [ ] (Monsters/combat moved out — now the headline §2)
-
-### 7. Stretch (from the original brief)
-- [ ] Proximity/party voice chat in the hub — WebRTC, signaling over the game socket (deliberately deferred)
-- [ ] **Persistent accounts: depth records surviving the daily rollover** (needs a store — KV keyed by day). *Partial today:* identity persists via the signed cookie and in-day depth survives a refresh, but the `progress` map is in-memory and cleared at rollover — nothing survives midnight yet
-- [ ] Multi-instance sharding once one function instance isn't enough
+### 2. Make the arena worth standing in
+- [ ] Audio — nothing is implemented yet: footsteps, jump/land, dash whoosh, ambient wind/crowd, positional audio for other players (three.js `AudioListener`/`PositionalAudio`)
+- [ ] Emotes / a wave or cheer clip, so players can interact without typing
 - [ ] Mobile/touch controls (virtual stick + look drag)
-- [ ] AI "Tower speaks" announcer — server-side, broadcasts shared events to chat (deferred; see `memory/ai-announcer-tower-voice.md`)
+
+### 3. Oracle depth
+- [ ] Give the Oracle more to see: time of day and weather in `arena_state`, so it can remark on the sky
+- [ ] AI announcer voice for shared events (joins, milestones) — deferred; see `memory/ai-announcer-tower-voice.md`
+
+### 4. Stretch
+- [ ] Proximity voice chat — WebRTC, signaling over the game socket
+- [ ] Multi-instance sharding once one function instance isn't enough (the roster is in-process memory today)
 
 ## Known issues / verify-me
 
-- [ ] **`scripts/ws-test.mjs` is broken by the signed-cookie gate** — it opens raw cookieless WebSockets, which `server/api/ws.ts` closes on upgrade, so it dies at "A: no welcome". Predates the village-hub work; the fix is to `POST /api/auth` first and replay the cookie on the upgrade
-- [ ] **Nitro-beta dev server can die/crash-loop under the hub's ~180-GLB load burst** (dev worker exits silently or "Dev worker failed after 3 retries"); a prod build (`pnpm build` + `NUXT_SESSION_PASSWORD=… node .output/server/index.mjs`) serves the same session rock-solid — use it for headless verification (see the run-mmo skill)
-- [ ] **Vercel WS upgrade unverified in prod** — load-bearing; see §1
-- [ ] **Oracle Gateway calls looped back into the app in prod** (intermittent `GatewayResponseError` 404 echoing our own Nuxt error page) — root-caused to [nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321) and fixed with the pinned `nativeFetch` provider; verify on deploy (§1). Still a silent no-op without a working Gateway key
-- [ ] Ranger's **hairstyle selector has no visible effect** — the hood is always baked on and covers it; the intended "hooded ⇒ no hairstyle choice" isn't enforced in the gate UI, and the aspirational runtime `hood` toggle is unimplemented (no `Player.hood` field / control)
-- [ ] Mid-air `Jump`/`Roll` clip playback never visually verified (state logic tested; watch one jump/dash and tune crossfade/timescale if off)
+- [ ] **Nitro-beta dev server can die/crash-loop under the arena's GLB load burst** (dev worker exits silently or "Dev worker failed after 3 retries"); a prod build (`pnpm build` + `NUXT_SESSION_PASSWORD=… node .output/server/index.mjs`) serves the same session rock-solid — use it for headless verification (see the run-mmo skill)
+- [ ] Ranger's **hairstyle selector has no visible effect** — the hood is always baked on and covers it; the intended "hooded ⇒ no hairstyle choice" isn't enforced in the gate UI
 - [ ] Pointer lock impossible in the Claude preview iframe (`WrongDocumentError`) — real tabs/deploy are fine; delta-look fallback covers embeds
 - [ ] Without pointer lock the OS cursor can pin at screen edges mid-turn (fullscreen `F` mitigates)
-- [ ] Magma floors keep the procedural emissive-crack ground (slabs would hide the glow) — revisit with an emissive slab variant
-- [ ] Camera boom ignores prop heights (only wall grid) — can clip through tall props at close range
-- [x] ~~Character GLB WebP-support race crashes on cold concurrent loads~~ — mitigated: convert script byte-sanitizes broken WebP refs; load a roster sequentially to warm WebP first (see `.claude/agents/scene-3d.md`)
+- [ ] Camera boom ignores prop heights (only the wall grid) — can clip through tall props at close range
+- [x] ~~Character GLB WebP-support race crashes on cold concurrent loads~~ — mitigated: the convert script byte-sanitizes broken WebP refs; load a roster sequentially to warm WebP first (see `.claude/agents/scene-3d.md`)
+- [x] ~~`scripts/ws-test.mjs` broken by the signed-cookie gate~~ — it now does the `/api/auth` handshake and replays the cookie on the upgrade
 
 ## Environment notes (for a cold start)
 
@@ -136,7 +84,7 @@ The game's first HP/damage system: fight monsters, loot chests, and a full inven
 - Oracle needs `AI_GATEWAY_API_KEY` locally **and on Vercel** (OIDC is request-scoped — absent in the WS/game-loop context); model id is a Gateway string (`anthropic/claude-haiku-4.5` for both classifier and responder); identity secret is `NUXT_SESSION_PASSWORD`
 - Blender 5.1.2 at `/Applications/Blender.app/Contents/MacOS/Blender` — asset scripts run headless (`--background --python scripts/<x>.py -- <args>`); kit conversion uses `npx @gltf-transform/cli optimize`
 - Quaternius packs download from Google Drive folders linked on quaternius.com pack pages (`gdown --folder`); the Universal characters + Modular Fantasy Outfits are itch.io-only behind Cloudflare (manual download, then run `convert_universal_characters.py`)
-- Protocol testing: two `WebSocket` clients from Node against `/api/ws` — assert `welcome/state/clear/death/chat` frames (`node scripts/ws-test.mjs ws://localhost:<port>/api/ws`)
+- Protocol testing: `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
 - Repo: `github.com/benjamincanac/tempest` (branch `main`)
-- **Shared-code invariant:** anything affecting gameplay position/collision/hazards must live in `shared/utils/maze.ts` so server and prediction agree; client-only code renders it
+- **Shared-code invariant:** anything affecting gameplay position/collision must live in `shared/utils/maze.ts` so server and prediction agree; client-only code renders it
 - Domain subagents live in `.claude/agents/` (`world-sim`, `server-net`, `scene-3d`, `game-ui`, `oracle-ai`, `assets`); see `CLAUDE.md`

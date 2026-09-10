@@ -1,12 +1,12 @@
 import type { AnimationClip, Group } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { CHARACTER_NAMES, DEFAULT_CHARACTER, OUTFITS, outfitColorCount, outfitColorTexture, outfitOf } from '#shared/utils/characters'
+import { CHARACTER_NAMES, DEFAULT_CHARACTER, OUTFITS, outfitColorCount, outfitColorTexture } from '#shared/utils/characters'
 import { preloadTexture } from '~/utils/appearance'
 
 /**
  * Shared client-side cache for the onboarding character models. The creation
- * gate's preview reads from here, and the main menu warms it ahead of time so
- * "Create your runner" opens instantly (see `preloadCharacterAssets`).
+ * gate's preview reads from here and warms the rest of the roster behind it
+ * (see `preloadCharacterAssets`).
  *
  * The character/animation GLBs are plain (no meshopt), so the loader needs no
  * decoder. Scenes are cached as templates and `SkeletonUtils.clone`d per rig by
@@ -65,18 +65,4 @@ export function preloadCharacterAssets(): Promise<void> {
     }
   })()
   return started
-}
-
-/**
- * Warm just one character — the animation library, that character's scene, and
- * its chosen outfit colorway. Used on the main menu for a returning player: they
- * click Enter → hub, so there's no point warming the whole roster, only the rig
- * they'll actually spawn as. Shares the browser fetch cache with MazeScene's
- * in-world loader, so the hub's first paint skips the network round-trip.
- */
-export async function preloadCharacter(name: string, outfitColor: number): Promise<void> {
-  await loadClips()
-  await loadCharacterScene(name).catch(() => {})
-  const url = outfitColorTexture(outfitOf(name), outfitColor)
-  if (url) preloadTexture(url)
 }

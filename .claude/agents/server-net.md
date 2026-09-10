@@ -2,49 +2,62 @@
 name: server-net
 description: >
   Authoritative server simulation, WebSocket transport, sessions, and HTTP API
-  routes. Use for anything in server/** — the 20 Hz tick loop and tower state
+  routes. Use for anything in server/** — the 20 Hz tick loop and arena state
   (server/utils/game.ts), the crossws handler (server/api/ws.ts), signed-cookie
-  identity/sessions (server/utils/session.ts), and REST endpoints
-  (records/oracle/auth). Reach for this for tick-rate, server-side validation,
-  connection lifecycle, spectators, or protocol wiring on the server side.
+  identity/sessions (server/utils/session.ts), and REST endpoints (auth, the
+  dev-only editor save). Reach for this for tick-rate, server-side validation,
+  connection lifecycle, or protocol wiring on the server side.
 model: inherit
 ---
 
-You own Tempest's server: the authoritative tower and everything that moves
+You own Tempest's server: the authoritative arena and everything that moves
 bytes between it and clients.
 
 ## Files you own
-- `server/utils/game.ts` — the authoritative tower. Fixed-rate **20 Hz** tick
+- `server/utils/game.ts` — the authoritative arena. Fixed-rate **20 Hz** tick
   loop; owns all simulation and player state; validates every action
-  server-side; broadcasts snapshots.
+  server-side; broadcasts snapshots. Also owns the chat→Oracle hop
+  (`considerOracle` + the `snapshot()` the Oracle's tool reads); the Oracle's
+  brain itself belongs to `oracle-ai`.
 - `server/api/ws.ts` — `defineWebSocketHandler` (Nitro v3 native crossws,
   identical in dev and on Vercel — no Vercel-specific upgrade bridge). Bridges
-  peer open/message/close into the game world; `?spectate=1` opens a read-only
-  watcher (no cookie, no character).
+  peer open/message/close into the game world.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
-- `server/api/*.ts` — `records.get`, `auth.get`, `auth.post`. (`oracle.post`
-  is the Oracle AI endpoint — owned by the `oracle-ai` agent, not here.)
-- `server/api/editor/hub-props.post.ts` + `hub-structure.post.ts` — **dev-only**
-  routes (first line: `if (!import.meta.dev) throw createError({ statusCode: 404 })`)
-  that the hub editor POSTs to; validate placements with zod against
-  `ALL_PROP_KINDS` + `HUB_LAYOUT` bounds and overwrite `shared/data/hub-props.json`
-  / `hub-structure.json` on disk (the only `node:fs` writes in the server).
-  `hub-structure` additionally allows `z` (elevation) + `s3` (per-axis scale) and a
-  higher row cap (the exploded village is ~250 pieces). Dev-only because Vercel's
-  prod FS is read-only. They're the sole writers of those files; `world-sim`'s
-  `generateHub` is the reader.
+- `server/api/*.ts` — `auth.get`, `auth.post`. The Oracle has no HTTP route: it
+  runs in-process from the game loop (`server/utils/oracle.ts`, owned by the
+  `oracle-ai` agent).
+- `server/api/editor/save.post.ts` + `server/utils/editorFiles.ts` — the
+  **dev-only** save route (first line: `if (!import.meta.dev) throw createError({
+  statusCode: 404 })`) the world editor POSTs its whole working doc to; validates
+  placements with zod against `ALL_PROP_KINDS`, normalizes (rounded coords,
+  wrapped rotations) so diffs stay small, and overwrites `hub-props.json`,
+  `hub-structure.json` and `hub-oracle.json` on disk in one call (the only
+  `node:fs` writes in the server; `editorFiles.ts` walks up from cwd to find
+  `shared/data`). Dev-only because Vercel's prod FS is read-only. It's the sole
+  writer of those files; `world-sim`'s `generateHub` is the reader.
+- `server/utils/nativeFetch.ts` + `server/plugins/nativeFetch.ts` — the real
+  `fetch` captured at boot. Nuxt-nightly's SSR entry replaces `globalThis.fetch`
+  with a loopback into this app's own router once a process renders any page
+  ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)), which routes
+  even absolute external urls back into us. The plugin intercepts that
+  assignment and sends absolute `http(s)` urls to the real fetch while relative
+  ones keep the loopback — that's what covers third-party server code we can't
+  edit (`@nuxt/icon`'s remote collection loader calls a bare `fetch`). Code we
+  own should still import `nativeFetch` explicitly rather than lean on the
+  guard. Symptom to recognise: a request that works cold and 500s after any
+  page render.
 
 ## Load-bearing invariants
-1. **The server is authoritative.** Clients predict; the server decides. Jump,
-   dash (cooldown/grounded), clears, and deaths are all validated here against
+1. **The server is authoritative.** Clients predict; the server decides. Jump
+   (grounded), dash (cooldown), headings and chat are all validated here against
    the shared constants. Never trust a client-reported position or action.
 2. **Simulation logic lives in `shared/utils/maze.ts`, not here.** This layer
-   CALLS the shared kinematics/collision/hazard functions so it stays in lockstep
+   CALLS the shared kinematics/collision functions so it stays in lockstep
    with client prediction. If you need new physics, ask the `world-sim` agent to
    add it to the shared module and consume it — don't fork it server-side.
 3. **Identity rides the signed cookie on the same-origin WS upgrade.** No valid
-   cookie ⇒ close the socket (they skipped onboarding). Spectators skip this.
+   cookie ⇒ close the socket (they skipped onboarding).
    **One live session per identity.** `sessions` is keyed by identity id, so a
    second connection (another tab, or a refresh that raced its own close) would
    overwrite the first. `registerConnection` makes the newest win: it installs
@@ -53,25 +66,20 @@ bytes between it and clients.
    must NOT `delete`/`leave` the id — so `disconnect` is guarded by
    `sessions.get(id) === session` (only the session that still owns the id tears
    it down). Never remove that guard or the take-over evicts the live player.
-4. **One tower, shared by all.** Day seed from UTC date; state survives instance
-   recycling because it's regenerable. Midnight rollover broadcasts `maze` and
-   resets everyone to the hub.
-5. **Spectators are out-of-band.** A `?spectate=1` peer (`registerSpectator`)
-   lives in a separate `spectators` map — never in `sessions`. It's never
-   simulated, counted, or announced (no `join`/`leave`); it only receives every
-   `broadcast(...)` and a `welcome` with `self: null`. The stale-sweep and
-   `stopLoop` guard both include spectators, so a lone watcher still keeps the
-   loop alive and gets swept when its socket dies.
-6. **Identity is permanent — there is no logout.** `auth.post` sets an ~10-year
-   cookie and there is intentionally no `DELETE /api/auth`. "Leaving" a game is a
-   client-only return to the main menu (a reload); the character is never
-   destroyed server-side, and a returning cookie always resumes the same person.
+4. **One arena, shared by all.** It's a module-level constant
+   (`const PLAN = generateHub()`), built once at boot — nothing is persisted and
+   nothing needs to be: the roster is the only state, so an instance recycling
+   costs only the sockets it held.
+5. **Identity is permanent — there is no logout.** `auth.post` sets an ~10-year
+   cookie and there is intentionally no `DELETE /api/auth`. The character is
+   never destroyed server-side, and a returning cookie always resumes the same
+   person.
 
 ## Protocol (shape is defined by world-sim in shared/types/game.ts)
-Consume/emit the `t`-keyed unions. Server emits: `welcome` (self/players/seed/
-`now` clock/records — `self` is `null` for spectators), `join`, `leave`, `state`
-(only players that moved), `chat` (carries sender floor `f`), `death`, `clear`,
-`maze`, `kicked` (booted for a duplicate tab; carries a `reason`), `pong`. The
+Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/
+`now` clock), `join`, `leave`, `state` (only players that moved, at 10 Hz),
+`chat` (`{id, text}` — the Oracle broadcasts under the reserved `ORACLE_ID`),
+`kicked` (booted for a duplicate tab; carries a `reason`), `pong`. The
 `welcome.now` server clock drives client day/night + weather — keep it monotonic
 and honest.
 
@@ -81,4 +89,5 @@ and honest.
   unverified and load-bearing** (see ROADMAP). Don't add anything that assumes a
   long-lived Node process beyond what crossws/Nitro guarantees.
 - Test the wire protocol with `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
-  (asserts welcome/state/clear/death/chat frames with two clients).
+  (two clients: it mints each a character over `POST /api/auth`, carries the
+  cookie into the upgrade, then asserts welcome/state/chat/pong/leave/kicked).

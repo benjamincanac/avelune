@@ -2,9 +2,9 @@
 import type { ChatMessage, UseGame } from '~/composables/useGame'
 
 /**
- * Bottom-left chat, MMO style: a scrollback of recent messages from runners
- * on *your* floor, with the input underneath. Enter focuses it from anywhere;
- * Escape hands control back to the game.
+ * Bottom-left chat, MMO style: a scrollback of recent messages from everyone in
+ * the arena, with the input underneath. Enter focuses it from anywhere; Escape
+ * hands control back to the game.
  */
 
 const props = defineProps<{ game: UseGame }>()
@@ -16,11 +16,7 @@ const scrollback = useTemplateRef('scrollback')
 
 const placeholder = computed(() => focused.value ? 'Press Esc to play…' : 'Press Enter to chat…')
 
-const messages = computed<ChatMessage[]>(() =>
-  props.game.chatLog.value
-    .filter((message: ChatMessage) => message.floor === props.game.selfFloor.value)
-    .slice(-9),
-)
+const messages = computed<ChatMessage[]>(() => props.game.chatLog.value.slice(-9))
 
 watch(messages, async () => {
   await nextTick()

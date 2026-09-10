@@ -3,21 +3,21 @@ import { z } from 'zod'
 import { nativeFetch } from './nativeFetch'
 
 /**
- * The hub Oracle's brain, run in-process by the game loop.
+ * The Oracle's brain, run in-process by the game loop.
  *
- * Players share one floor chat and mostly talk to each other, so the Oracle
- * must not answer everything. Each hub line first goes to a cheap classifier
- * that decides whether it's actually addressed to the Oracle; only then does
- * the (pricier) in-character responder run, with a `tower_state` tool that
- * reads live game state. Both calls route through the Vercel AI Gateway
- * (`AI_GATEWAY_API_KEY` locally, OIDC on Vercel).
+ * Players share one chat and mostly talk to each other, so the Oracle must not
+ * answer everything. Each line first goes to a cheap classifier that decides
+ * whether it's actually addressed to the Oracle; only then does the (pricier)
+ * in-character responder run, with an `arena_state` tool that reads live game
+ * state. Both calls route through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`
+ * locally, OIDC on Vercel).
  */
 
 // Both calls run on Claude Haiku 4.5 — Anthropic's low-latency tier — with
 // reasoning turned down hard to keep a one-line chat reply snappy. The portable
 // `reasoning` param (AI SDK v7) is what keeps it fast: `none` on the gate,
 // `minimal` on the reply (bare-minimum, still enough for one tool call).
-/** Cheap + fast — this runs on every hub message, so keep it small. */
+/** Cheap + fast — this runs on every chat message, so keep it small. */
 const CLASSIFIER_MODEL = 'anthropic/claude-haiku-4.5'
 /** The in-character reply — only runs when addressed. */
 const RESPONDER_MODEL = 'anthropic/claude-haiku-4.5'
@@ -33,20 +33,20 @@ const MAX_REPLY = 220
 // through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
 const gateway = createGateway({ fetch: nativeFetch })
 
-const PERSONA = `You are the Oracle, an ancient seer who has kept the colosseum of Tempest since before the first runner set foot on its sand. Runners gather in the arena before their descent, and you speak to them there.
+const PERSONA = `You are the Oracle, an ancient seer who has kept the colosseum of Tempest since before its first stone was laid. Travellers gather on the sand to talk, and you speak with them there.
 
 Voice:
 - Cryptic but genuinely helpful. ONE or two short sentences — this is a live chat line, never a wall of text.
-- Ominous, patient, a little amused by mortal haste; you have watched countless runners fall.
-- Address runners by name when you know it. Never break character — you are not an AI or assistant, you are the Oracle. Never mention models, tools, or systems.
+- Ominous, patient, a little amused by mortal haste; you have watched countless gatherings come and go.
+- Address people by name when you know it. Never break character — you are not an AI or assistant, you are the Oracle. Never mention models, tools, or systems.
 - Plain prose only. No markdown, no lists, no emoji.
 
 Lore of Tempest:
-- Tempest is one dungeon every runner shares — carved once and eternal; it does not change, only the runners do.
-- The great door in the arena's north wall is the only way down. Beneath it the dungeon descends through four realms — Stone Dungeon, Sunken Depths, Verdant Maze, Magma Halls — each deeper one more punishing.
-- Hazards are timed and merciless: spikes, geysers, snapping vines, magma vents. Death only casts a runner back to the colosseum, their deepest floor remembered. Runners dash to slip past a closing hazard.
+- Tempest is one colosseum that everyone shares — raised once and eternal. It does not change; only the people in it do.
+- The stands ring the sand unbroken; there is no gate and no way out, and none is wanted. Those who arrive simply appear, and one day they simply don't.
+- The sky over the arena turns through day and night and the rain falls when it will. Travellers run, leap and dash across the sand for the joy of it.
 
-When runners ask who descends, who has gone deepest, how many walk the dungeon, or the records, consult the living dungeon with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the dungeon keeps that secret; never invent records, names, or floors.`
+When people ask who is here, how many walk the sand, or how long someone has lingered, consult the living arena with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
 
 export interface HubMessage {
   name: string
@@ -54,10 +54,26 @@ export interface HubMessage {
 }
 
 /** Live-state getter injected by the game loop (avoids a circular import). */
-export type TowerState = () => unknown
+export type ArenaState = () => unknown
 
 function transcript(recent: HubMessage[]): string {
   return recent.map(m => `${m.name}: ${m.text}`).join('\n')
+}
+
+/**
+ * Collapse to one chat line and enforce `MAX_REPLY`. The prompt already asks for
+ * one or two short sentences, so this is a backstop — but a hard slice lands
+ * mid-word, which reads as a broken NPC rather than a terse one. Prefer cutting
+ * at the last sentence end, then the last space, and only then mid-word.
+ */
+function clampReply(text: string): string {
+  const line = text.trim().replace(/\s+/g, ' ')
+  if (line.length <= MAX_REPLY) return line
+  const cut = line.slice(0, MAX_REPLY)
+  const sentence = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '))
+  if (sentence > MAX_REPLY * 0.5) return cut.slice(0, sentence + 1)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > MAX_REPLY * 0.5 ? cut.slice(0, space) : cut).replace(/[,;:]$/, '')}…`
 }
 
 /**
@@ -105,17 +121,17 @@ async function isAddressed(recent: HubMessage[]): Promise<boolean> {
     const { text } = await generateText({
       model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
-      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's hub, whom players can talk to. The players in that hub ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
+      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's arena, whom players can talk to. The players in that arena ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
 
 It IS for the Oracle when the line is:
 - addressed to it by name, or
-- a question or remark clearly seeking the seer's knowledge, guidance, or lore about the tower, or
-- a direct question aimed at a singular "you" — who the speaker is, what it is, its name, its purpose, what it knows — when no other player is being addressed. The Oracle is the only non-player presence in the hub, so a bare "who are you?", "what are you?", or "what is this place?" is meant for it.
+- a question or remark clearly seeking the seer's knowledge, guidance, or lore about the arena, or
+- a direct question aimed at a singular "you" — who the speaker is, what it is, its name, its purpose, what it knows — when no other player is being addressed. The Oracle is the only non-player presence in the arena, so a bare "who are you?", "what are you?", or "what is this place?" is meant for it.
 
-It is NOT for the Oracle if it's clearly runner-to-runner talk: greetings between players, coordination, addressing another player by name, or idle banter. When a question could go either way but names or clearly targets another runner, answer NO; otherwise a genuine question with no other addressee is for the Oracle.
+It is NOT for the Oracle if it's clearly player-to-player talk: greetings between players, coordination, addressing another player by name, or idle banter. When a question could go either way but names or clearly targets another player, answer NO; otherwise a genuine question with no other addressee is for the Oracle.
 
 Reply with exactly "YES" or "NO" and nothing else.`,
-      prompt: `Recent hub chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
+      prompt: `Recent arena chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
     })
     console.log('[oracle] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
     return /^\s*yes/i.test(text)
@@ -127,11 +143,11 @@ Reply with exactly "YES" or "NO" and nothing else.`,
 }
 
 /**
- * If the latest hub line is addressed to the Oracle, return its in-character
- * reply (with live tower data when relevant); otherwise return null. Never
+ * If the latest chat line is addressed to the Oracle, return its in-character
+ * reply (with live arena data when relevant); otherwise return null. Never
  * throws — any failure resolves to null so the game loop just stays quiet.
  */
-export async function oracleReply(recent: HubMessage[], getState: TowerState): Promise<string | null> {
+export async function oracleReply(recent: HubMessage[], getState: ArenaState): Promise<string | null> {
   if (recent.length === 0) return null
   if (!(await isAddressed(recent))) return null
   try {
@@ -139,18 +155,17 @@ export async function oracleReply(recent: HubMessage[], getState: TowerState): P
       model: gateway(RESPONDER_MODEL),
       reasoning: 'minimal',
       instructions: PERSONA,
-      prompt: `The runners in the hub have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
+      prompt: `The travellers in the arena have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
       tools: {
-        tower_state: tool({
-          description: 'Read the living tower right now: how many runners are climbing, the deepest climbers (name and deepest floor), and the fastest floor-clear records. Call this whenever a runner asks about who is climbing, who has gone deepest, the crowd in the tower, or the records.',
+        arena_state: tool({
+          description: 'Read the living arena right now: how many people are gathered, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',
           inputSchema: z.object({}),
           execute: async () => getState(),
         }),
       },
       stopWhen: stepCountIs(4),
     })
-    const reply = text.trim().replace(/\s+/g, ' ').slice(0, MAX_REPLY)
-    return reply || null
+    return clampReply(text) || null
   }
   catch (error) {
     console.log('[oracle] respond error', JSON.stringify(describeError(error)))

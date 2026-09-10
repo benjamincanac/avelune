@@ -3,18 +3,17 @@ name: scene-3d
 description: >
   TresJS / three.js rendering — the 3D game view and everything drawn in it.
   Use for the camera (wall-aware third-person boom, pointer-lock delta look),
-  biome materials/fog/tint, day-night cycle + weather, instanced architecture,
-  character model playback (Idle/Run/Jump/Roll), minimap, fog-of-war, and the
-  spectator view. Files: GameScene.client.vue, MazeScene.vue, MiniMap.vue,
-  SpectatorView.vue, CharacterPreview*/CharacterLineup*/MenuPortal* model
-  components, and app/utils/textures.ts + app/utils/portal.ts +
-  app/utils/characterModels.ts.
+  sky/day-night cycle + weather, instanced arena architecture, character model
+  playback, the Oracle rig, the minimap, and the dev world editor's 3D side.
+  Files: GameScene.client.vue, MazeScene.vue, MiniMap.vue, CharacterPreview*
+  model components, and app/utils/{textures,composeColosseum,hubEditor,
+  characterModels,appearance,palette}.ts.
 model: inherit
 ---
 
-You own everything Tempest draws in 3D. The world's geometry is regenerated
-locally from the shared module — you render it and predict motion; you never
-receive geometry over the wire.
+You own everything Tempest draws in 3D. The arena is built locally from the
+shared module and the committed layout JSON — you render it and predict motion;
+you never receive geometry over the wire.
 
 ## Files you own
 - `app/components/GameScene.client.vue` — the live game view: TresJS scene,
@@ -26,48 +25,41 @@ receive geometry over the wire.
   keydown entirely while locked; `index.vue` opens the game menu on it. Gotcha:
   Chrome refuses re-lock for ~1.25s after an Escape-exit, so a failed
   `requestLock()` is normal — clicking the world recovers.
-- `app/components/MazeScene.vue` — floor/hub geometry: instanced slabs, arches,
-  buttresses, exit gateways, torches, the hub teleport gate; biome tint/fog;
-  day-night + weather.
-- `app/utils/hubEditor.ts` — the dev-only hub prop editor's 3D controller (fly
-  camera, ground raycast, click-to-place / select / drag, keyboard nudges). Owns
-  its own `editorGroup` on the scene root and renders selectable per-prop clones;
-  driven by `useEditor` state and mounted by `MazeScene` when its `editor` prop is
-  set (dev-only, tree-shaken from prod). The 2D palette/inspector is `game-ui`'s
-  `EditorPanel.vue`.
-- `app/components/MiniMap.vue` — round WoW-style minimap (top-right), fogged;
-  explored-tile bitmaps per floor. It only ever shows *your* current floor —
-  there is no in-game full-tower map (removed as anti-cheat, so a racer can't
-  scout opponents; see SpectatorView).
-- `app/components/SpectatorView.vue` — the full-tower spectator broadcast: every
-  floor + live runner markers. Takes a `revealAll` prop that bypasses fog (a
-  spectator has explored nothing). Reachable ONLY from the main menu's "Watch as
-  spectator" (never mid-run).
-- `CharacterPreview*.client.vue`, `CharacterLineup*.client.vue` — model preview
-  rendering for onboarding (coordinate visuals with `game-ui`, which owns the
-  surrounding UI).
+- `app/components/MazeScene.vue` — the arena: the sand disc + rune circle, the
+  backdrop shell that keeps raw sky out of the gaps between kit pieces, the
+  instanced batches built from `plan.props`, the Oracle rig, and the
+  sky/day-night + weather clock.
+- `app/utils/composeColosseum.ts` — the procedural colosseum composition as a
+  flat list of `HubPropPlacement`s (ground arcade of arches + columns, the raked
+  stone seating rings, the arched upper wall + flags, the statues flanking the
+  door). It is both the pre-bake visual fallback and the seed the dev editor
+  bakes into `hub-structure.json`; after baking, pieces flow through
+  `plan.props` instead and this is only the bake input.
+- `app/utils/hubEditor.ts` — the dev-only world editor's 3D controller (fly
+  camera, ground raycast, click-to-place / select / drag, keyboard nudges, the
+  draggable Oracle marker ring). Owns its own `editorGroup` on the scene root and
+  renders selectable per-prop clones; driven by `useEditor` state and mounted by
+  `MazeScene` when its `editor` prop is set (dev-only, tree-shaken from prod).
+  The 2D palette/inspector is `game-ui`'s `EditorPanel.vue`.
+- `app/components/MiniMap.vue` — round WoW-style minimap (top-right), north-up
+  and centred on you. The arena is one small known map, so nothing is fogged; it
+  draws `occupancyGrid(plan)` (tiles + rasterized solid props, from `world-sim`)
+  and a dot on `HUB_LAYOUT.door` as the one landmark in a radially symmetric
+  space.
+- `CharacterPreview*.client.vue` — model preview rendering for onboarding
+  (coordinate visuals with `game-ui`, which owns the surrounding UI).
 - `app/utils/characterModels.ts` — the shared GLB loader + scene/clip cache for
   the onboarding character models, plus `preloadCharacterAssets()` (idempotent,
-  sequential — see the WebP gotcha below). The gate's `CharacterPreviewModel`
-  reads from it, and `index.vue` warms it from the menu (visitors only) so
-  "Create your runner" opens with no fetch/parse. Distinct from `MazeScene`'s own
-  in-world character cache (meshopt loader, shared with props/monsters).
-- `MenuPortal*.client.vue` — the main-menu hero: the hub's teleport gate on a
-  transparent canvas with a fixed hero camera (you own the scene; `game-ui` owns
-  the surrounding menu chrome).
+  sequential — see the WebP gotcha below), which `CharacterPreviewModel` kicks
+  off after its first rebuild so switching outfits in the gate never waits on a
+  fetch/parse. Distinct from `MazeScene`'s own in-world character cache (meshopt
+  loader, shared with props).
+- `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
+  `material.map` on the cloth materials only (`MI_Peasant*`/`MI_Ranger*`), with
+  materials cloned per rig so a swap never leaks into the shared template.
 - `app/utils/textures.ts` — procedural/canvas textures and normal maps.
-- `app/utils/portal.ts` — the shared `buildPortal({ light })` that builds the
-  teleport gate: a modeled stone ruin (`/models/portal_gate.glb`, generated by
-  `scripts/make_portal.py`, loaded async) framing the energy rift (receding
-  swirl-tunnel cone, hot pulsing core, glowing rim, spinning rune circles,
-  motes). Model contract: objects named `Shard_*` are free-floating (bobbed/spun
-  in `update`), material `Rune` is emissive (pulsed in `update`); the gate tags
-  its own shadow flags because `MazeScene.tagShadows` runs before the async
-  attach. Used by BOTH the in-world hub (`MazeScene`) and the menu hero
-  (`MenuPortal` — whose stage carries lights for the gate's standard materials)
-  so they never drift. Returns `{ root, update }` — the caller positions `root`
-  and calls `update(elapsed, dt)` from its own render loop. Change the gate
-  HERE, not in either consumer.
+- `app/utils/palette.ts` — the brand palette (`PALETTE` / `PALETTE_HEX`), shared
+  with the 2D UI and the generated art. Use it instead of hardcoding accents.
 
 ## Invariants & context
 1. **Client prediction uses the SHARED kinematics** (`shared/utils/maze.ts` →
@@ -78,64 +70,51 @@ receive geometry over the wire.
    *perpendicular* to travel (and forward to catch up) while driving — never
    backward into it — and freeze small disagreement while idle. A plain
    "always ease toward `self`" blend brings back the rubber-band-into-invisible-
-   walls (corridors) and the release-a-key glide (hub); keep the `RECONCILE_*`
-   split intact.
-2. **No geometry over the socket.** Regenerate floors locally from the seed in
-   `welcome`/`maze`. Only player snapshots (`state`) arrive.
+   walls and the release-a-key glide; keep the `RECONCILE_*` split intact.
+2. **No geometry over the socket.** The arena is built locally from
+   `generateHub()` plus the committed layout JSON. Only player snapshots
+   (`state`) arrive.
 3. **Day/night + weather are driven by the server clock** (`welcome.now`), not
-   local time — keep them synced so all players see the same sky.
-4. 4 biomes — index **0 Stone / 1 Sunken (water) / 2 Verdant (overgrown) / 3 Magma
-   (lava)** — tinted materials + fog + speed mods. Magma keeps the procedural
-   emissive-crack ground (slabs hide the glow); the hub is a cobbled village on a
-   grass plane (no dungeon slabs). Architecture is the Quaternius Ultimate Modular
-   Ruins pack, which **does** have a straight-wall set (`Wall`, `Wall_Half`,
-   `Wall_Broken/Hole`, `Wall_Overgrown`, 4×4 `Wall_Arch*`, `Window_*`, `Doors_*`,
-   `Curve_*`) — all used by `placeModularWalls`/`placeArchitecture`. Verdant swaps
-   the overgrown variants.
-   The **hub village** (`buildVillageHub`) composes the Medieval Village MegaKit on
-   its native 2-unit grid: walls are 2 w × 3.12 h (`STOREY`), `buildHouse` derives
-   everything from a `HubHouse` rect + `front` — stone `Wall_UnevenBrick_*` ground
-   floor, jettied (`JETTY` 0.3) plaster/timber upper, and a footprint-matched gable
-   roof (`Roof_RoundTiles_{gableSpan}x{ridgeLen}`, ridge along the front axis;
-   native roofs span their gable across X, so ridge-along-world-X placements rotate
-   π/2; `Roof_Front_Brick{4|6}` close the gable ends). Roads (plaza disc, street,
-   door spurs, curb rings) are cosmetic meshes in `buildHubRoads` — collision stays
-   in `world-sim`'s tile stamps.
-5. Characters play Idle/Run/Jump/Roll from state, per-player assignment + accent
-   tint. Jump/Roll mid-air crossfades are only lightly verified — tune timescale/
+   local time — keep them synced so all players see the same sky. The arena runs
+   the full cycle; don't pin it to a fixed time of day.
+4. **The arena is the Ruins + Castle kits, composed as rings.** Ground arcade of
+   `Arch_Round` + `Column_Round` (torches and alternating `Flag_Wall` between),
+   a continuous rake of stepped seating slabs rising up-and-back *behind* the
+   arcade, an arched upper wall, and statues flanking the door. Rotation is
+   "front (+Z) faces the arena centre". Collision never comes from any of this —
+   it's the tile ring in `world-sim`'s `generateHub`, so a piece moved for looks
+   changes nothing the server simulates.
+5. Characters play idle/run/jump/dash from state (mapped to the shared library's
+   `Idle_Loop`/`Jog_Fwd_Loop`/`Jump_Loop`/`Sprint_Loop`), per-player assignment +
+   accent tint. Mid-air crossfades are only lightly verified — tune timescale/
    crossfade if they look off.
-6. **Wall-face panels are stretched, not fixed-size.** `placeModularWalls` scales
-   each module to the `CELL_TILES`-wide room face and `WALL_PANEL_TOP` height via
-   the `PANEL_W`/`PANEL_H` native-size tables (base `Wall` 2×2; doors ~2.3–2.5 wide;
-   the grand `Wall_Arch*` are natively 4×4 — all stretched to the C-wide face). Add
-   a new panel ⇒ add its native w/h to *both* tables, or it renders NaN. Floor
-   slabs use `FLOOR_TILE_Y` for a flush top (see `assets`).
-7. **Eager vs deferred prop load.** `PROP_NAMES` (structural: floors, walls, arches,
-   columns, doors) loads before the first floor paints; `PROP_DECOR_NAMES` (banners,
-   bear traps, the water bridge, extra scatter) streams after, with the fantasy
-   furniture. `instantiateModule` returns `null` until a template loads, so
-   decorative pieces pop in on the follow-up `buildFloor` — keep anything structural
-   in the eager list so the first paint isn't missing panels.
+6. **Load only what the arena draws.** `ARENA_KINDS` is every kind referenced by
+   `plan.props` plus `composeColosseum()`, and `arenaOnly()` filters each catalog
+   list through it, so play never waits on the ~200 kit models the arena doesn't
+   use. In editor mode (`EDITING`) that filter is bypassed and every catalog
+   loads, because the whole palette must be placeable. Wave 1 (`PROP_NAMES`)
+   paints the arena; wave 2 (`PROP_DECOR_NAMES`, `CASTLE_NAMES`, and in the
+   editor the rest) triggers a second `buildFloor` — `instantiateModule` returns
+   `null` until a template loads, so late pieces pop in on that rebuild.
 
 ## Known rendering gotchas (from ROADMAP)
-- **Hub props render instanced, not cloned.** `buildVillageHub` batches
-  `plan.props` into one `InstancedMesh` per kind via `instantiateModule` — the
-  clone-per-prop `placeProps` path is dungeon-floors only. The prop editor filters
-  `hand`-flagged props out of that batch (its `editor` prop) and renders its own
-  selectable clones instead. Prop template clones **share materials** with the
-  template (`clone(true)`), so a selection highlight must be a `BoxHelper`, never a
-  material tint (tinting would recolor every clone of that kind).
-- **The village is data-driven, not procedural at render.** `composeVillage`
-  (pure `{kind,x,y,z,rot,scale,s3?}` pieces via an `emit` collector — the old
-  `buildHouse`/`buildHubMarket`/`buildHubGate` logic, verbatim) is the single
+- **Arena props render instanced, not cloned.** `renderPlanProps` batches
+  `plan.props` into one `InstancedMesh` per kind via `instantiateModule`. The
+  editor filters `hand`-flagged props out of that batch (its `editor` prop) and
+  renders its own selectable clones instead. Prop template clones **share
+  materials** with the template (`clone(true)`), so a selection highlight must be
+  a `BoxHelper`, never a material tint (tinting would recolor every clone of that
+  kind).
+- **The colosseum is data-driven, not procedural at render.** `composeColosseum`
+  (pure `{kind,x,y,z,rot,scale,s3?}` pieces via an `emit` collector) is the single
   source the editor bakes into `hub-structure.json`. Once baked, those pieces flow
   through `plan.props` and render via the instanced solids loop (`propMatrix`
-  honors `z` elevation + `s3` per-axis scale); `composeVillage` is then only the
-  bake input. Pre-bake, `renderComposed(composeVillage())` is the normal-play
+  honors `z` elevation + `s3` per-axis scale); `composeColosseum` is then only the
+  bake input. Pre-bake, `renderComposed(composeColosseum())` is the normal-play
   fallback (visual only, no collision). Editor mode never uses that fallback —
   `MazeScene`'s `onMounted` seeds the editable structure layer from
-  `composeVillage` so the controller's clones own the village. Only the tower
-  shaft, roads, and portal stay procedural always.
+  `composeColosseum` so the controller's clones own the arena. Only the sand, the
+  rune circle and the backdrop shell stay procedural always.
 - Pointer lock throws `WrongDocumentError` inside the Claude preview iframe; real
   tabs/deploy are fine. A delta-look fallback covers embeds — keep it.
 - Camera boom only considers the wall grid, not prop heights — it can clip
@@ -148,10 +127,10 @@ receive geometry over the wire.
   concurrent `loadAsync` calls races it, and the not-supported fallback crashes
   reading `.uri` of the missing source. Load a multi-character roster
   **sequentially** (the first model warms WebP, the rest decode reliably) — see
-  `CharacterLineupModels` and `preloadCharacterAssets()` in `characterModels.ts`
-  (the menu preloader, which loads the whole roster). Single loads (the gate) and
-  real browsers (WebP always supported) don't trip it; `MazeScene` loads
-  concurrently but real users are fine.
+  `preloadCharacterAssets()` in `characterModels.ts`, which walks the whole roster
+  one at a time. Single loads (the gate's preview) and real browsers (WebP always
+  supported) don't trip it; `MazeScene` loads concurrently but real users are
+  fine.
 
 ## Working style
 Prefer instancing for repeated architecture. Keep per-frame work lean. When you

@@ -16,7 +16,7 @@ import type { Player } from '#shared/types/game'
  * Submitting POSTs to /api/auth (which sets the signed identity cookie); on
  * success the page opens the socket and drops into the hub.
  */
-const emit = defineEmits<{ done: [identity: Player], back: [] }>()
+const emit = defineEmits<{ done: [identity: Player] }>()
 
 const toast = useToast()
 
@@ -64,7 +64,7 @@ async function submit() {
     emit('done', identity)
   }
   catch {
-    toast.add({ title: 'Could not enter the tower', description: 'Please try again.', color: 'error', icon: 'i-lucide-triangle-alert' })
+    toast.add({ title: 'Could not enter the arena', description: 'Please try again.', color: 'error', icon: 'i-lucide-triangle-alert' })
     submitting.value = false
   }
 }
@@ -106,17 +106,9 @@ onMounted(() => input.value?.inputRef?.focus())
       >
       <div class="flex flex-col leading-tight">
         <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">TEMPEST</span>
-        <span class="text-[11px] text-muted">Create your runner</span>
+        <span class="text-[11px] text-muted">Create your character</span>
       </div>
     </div>
-
-    <!-- Back to the main menu. -->
-    <UButton
-      color="neutral"
-      icon="i-lucide-x"
-      class="absolute right-6 top-5 z-10 rounded-full"
-      @click="emit('back')"
-    />
 
     <!-- Left: creation controls. -->
     <div class="absolute left-6 top-24 z-10 flex max-h-[calc(100vh-12rem)] w-80 flex-col gap-4 overflow-y-auto rounded-lg ring ring-white/5 bg-black/35 p-4 backdrop-blur">
@@ -245,7 +237,7 @@ onMounted(() => input.value?.inputRef?.focus())
         <UInput
           ref="input"
           v-model="username"
-          placeholder="Name your runner"
+          placeholder="Name your character"
           :maxlength="20"
           color="neutral"
           size="lg"

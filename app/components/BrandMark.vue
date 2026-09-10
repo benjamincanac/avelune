@@ -1,13 +1,11 @@
 <script setup lang="ts">
 /**
- * The TEMPEST wordmark with the live "N in the tower" line and its status dot —
- * shared by the main menu (atmospheric, over the portal) and the in-game HUD
- * (inside a card). This is purely presentational: the caller supplies the count
- * and the dot colour (connection status in-game, population liveness on the
- * menu) and frames/positions it via the root `class`.
+ * The TEMPEST wordmark with the live "N in the arena" line and its status dot.
+ * Purely presentational: the caller supplies the count and the dot colour
+ * (connection status) and frames/positions it via the root `class`.
  */
 withDefaults(defineProps<{
-  /** Runners in the tower; null hides the line until the first probe resolves. */
+  /** Players in the arena; null hides the line until the first probe resolves. */
   count: number | null
   /** Tailwind `bg-*` utility for the status dot. */
   dotClass?: string
@@ -37,7 +35,7 @@ withDefaults(defineProps<{
           class="size-1.5 rounded-full"
           :class="dotClass"
         />
-        {{ count }} in the tower
+        {{ count }} in the arena
       </span>
     </div>
   </div>

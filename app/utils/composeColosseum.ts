@@ -80,8 +80,8 @@ export function composeColosseum(): HubPropPlacement[] {
     emit('Castle_Watchtower', cx + Math.cos(a) * (wallR + 1.5), 0, cz + Math.sin(a) * (wallR + 1.5), faceIn(Math.cos(a), Math.sin(a)), 2.2)
   }
 
-  // Guardian statues flanking the north door.
-  const dz = HUB_LAYOUT.door.y + 3.4
+  // Guardian statues watching the arena from its north rim.
+  const dz = 16.4
   emit('Statue_Stag', cx - 3.4, 0, dz, faceIn(-0.5, -1), 0.8)
   emit('Statue_Fox', cx + 3.4, 0, dz, faceIn(0.5, -1), 0.9)
 

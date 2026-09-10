@@ -3,9 +3,9 @@
 // WebGL game — there is no server-rendered "page" to assert on; you must drive the
 // live canvas. This is the harness the /run-mmo skill points at.
 //
-// Usage:  node .claude/skills/run-mmo/driver.mjs [hub|floor]
-//   hub    (default) enter the hub and screenshot it
-//   floor  hub, then walk onto the portal to reach Floor 1 (Stone Dungeon) and shoot that
+// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk]
+//   arena  (default) enter the arena and screenshot it
+//   walk   arena, then hold forward for a few seconds before shooting
 //
 // Env:
 //   MMO_URL  explicit base url, skips port autodetect        (e.g. http://localhost:3001)
@@ -20,7 +20,7 @@ const require = createRequire(import.meta.url)
 const PW = process.env.MMO_PW || '/opt/homebrew/lib/node_modules/playwright'
 const { chromium } = require(PW)
 
-const mode = (process.argv[2] || 'hub').toLowerCase()
+const mode = (process.argv[2] || 'arena').toLowerCase()
 const OUT = process.env.MMO_OUT || `/tmp/mmo-${mode}.png`
 
 // Software WebGL — headless Chromium has no GPU; without these the canvas is black.
@@ -52,10 +52,10 @@ console.log(`→ ${url}  (mode=${mode})`)
 await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 })
 await page.waitForTimeout(1200)
 
-// Onboarding. A fresh browser has no character cookie, so the menu shows "Create
-// your runner" (there is NO one-click Play). Create → fill the name → Enter (the
-// button is disabled until the name is non-empty). A machine WITH a saved cookie
-// shows an enter/play button instead, so try that first.
+// Onboarding. There is no landing menu: a fresh browser (no character cookie)
+// lands straight on character creation, so fill the name and Enter (the button
+// is disabled until the name is non-empty). A browser WITH a saved cookie is
+// already in the arena and the name field never appears.
 const click = async (rx) => {
   const b = page.getByRole('button', { name: rx })
   if (await b.count()) {
@@ -64,10 +64,9 @@ const click = async (rx) => {
   }
   return false
 }
-if (!(await click(/enter the tower|^play$|^enter$|climb/i))) {
-  await click(/create/i)
-  await page.waitForTimeout(700)
-  await page.getByPlaceholder(/name your runner/i).fill('Probe').catch(() => {})
+const nameField = page.getByPlaceholder(/name your character/i)
+if (await nameField.count()) {
+  await nameField.fill('Probe').catch(() => {})
   await page.waitForTimeout(200)
   await click(/^enter$/i)
 }
@@ -99,20 +98,14 @@ if (!live) {
   process.exit(1)
 }
 
-if (mode === 'floor') {
-  // Spawn faces the great door across the arena; hold forward to walk to it →
-  // teleport to Floor 1. Keys are global keydown listeners, but click the canvas
-  // first to focus it. (The colosseum arena is a longer walk than the old hub.)
+if (mode === 'walk') {
+  // Walk across the sand, to prove movement + collision are live. Keys are
+  // global keydown listeners, but click the canvas to focus.
   await page.locator('canvas').click({ position: { x: 640, y: 400 } }).catch(() => {})
   await page.keyboard.down('KeyW')
-  await page.waitForTimeout(8000)
+  await page.waitForTimeout(4000)
   await page.keyboard.up('KeyW')
-  // Poll the HUD header until it leaves "The Hub".
-  for (let i = 0; i < 12; i++) {
-    const label = await page.evaluate(() => document.querySelector('header')?.innerText || '')
-    if (/Floor\s+1/i.test(label)) break
-    await page.waitForTimeout(1000)
-  }
+  await page.waitForTimeout(600)
 }
 
 await page.screenshot({ path: OUT })

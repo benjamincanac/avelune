@@ -1,8 +1,8 @@
 /**
  * The Tempest brand palette — the Rimuru slime blues that replace the old
  * emerald green (`#00dc82`). One source of truth for the accent color across
- * the 2D UI (via the Nuxt UI `primary` ramp in main.css), the 3D scene (portal /
- * door glow, minimap markers), and generated art (logo, OG image).
+ * the 2D UI (via the Nuxt UI `primary` ramp in main.css), the 3D scene (the
+ * arena's rune circle, minimap markers), and generated art (logo, OG image).
  */
 export const PALETTE = {
   /** Primary accent — the slime blue. */

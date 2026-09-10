@@ -1,7 +1,7 @@
 /**
  * Wire protocol shared between the browser client and the WebSocket server.
  *
- * Every frame is JSON with a `t` (type) discriminator. Positions are in maze
+ * Every frame is JSON with a `t` (type) discriminator. Positions are in arena
  * tile units (floats) and heading angles in radians. The server simulates
  * positions authoritatively; the heading is client-owned (mouse-look must
  * feel instant, and a heading can't be exploited — movement is still
@@ -12,7 +12,7 @@
 export interface Player {
   id: string
   name: string
-  /** A CSS color (hsl) used for the body accent, label, and leaderboard. */
+  /** A CSS color (hsl) used for the body accent and label. */
   color: string
   /** Chosen character model basename (see shared/utils/characters). */
   character: string
@@ -24,11 +24,6 @@ export interface Player {
   z: number
   /** Heading in radians; forward is (cos angle, sin angle) in tile space. */
   angle: number
-  /** Current floor (0 = hub). */
-  floor: number
-  /** Deepest floor reached. */
-  best: number
-  deaths: number
 }
 
 /** Which movement controls are held: forward/back and strafe left/right. */
@@ -48,19 +43,8 @@ export interface PlayerState {
   z: number
   /** Heading in radians. */
   a: number
-  /** Floor index. */
-  f: number
   /** Mid-dash right now (drives the roll animation remotely). */
   d?: boolean
-  /** Dying right now — lying dead before the hub respawn (drives the death clip). */
-  dead?: boolean
-}
-
-/** Best clear time for one floor today. */
-export interface FloorRecord {
-  floor: number
-  name: string
-  ms: number
 }
 
 /** Messages the client sends to the server. */
@@ -73,20 +57,12 @@ export type ClientMessage
 
 /** Messages the server sends to the client. */
 export type ServerMessage
-  // `self` is null for spectators — they watch the tower without a character.
-  = | { t: 'welcome', self: Player | null, players: Player[], seed: number, now: number, records: FloorRecord[] }
+  = | { t: 'welcome', self: Player, players: Player[], now: number }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
     | { t: 'state', players: PlayerState[] }
-    /** `f` is the sender's floor, so chat panels can filter to nearby runners. */
-    | { t: 'chat', id: string, text: string, f: number }
-    /** A hazard killed someone; they're back in the hub. */
-    | { t: 'death', id: string, floor: number, cause: string }
-    /** Someone left `floor` for `to`: the next floor down, or — stepping onto
-     *  the hub door — their deepest floor, resuming their climb (or the hub,
-     *  when they clear the deepest authored floor). */
-    | { t: 'clear', id: string, name: string, floor: number, to: number, ms: number, best: number, record: boolean }
+    | { t: 'chat', id: string, text: string }
     /** This identity connected from another tab/window and that newer socket
      *  took over — only one live session per player is allowed. The client
      *  shows the reason and stops reconnecting (a reconnect would kick the new
@@ -97,9 +73,9 @@ export type ServerMessage
 export const MAX_CHAT_LENGTH = 120
 
 /**
- * The hub Oracle speaks in the shared floor chat like any runner, but as a
- * reserved sender id (never a real player). The client renders this id with the
- * Oracle's name/accent instead of looking it up in the roster.
+ * The Oracle speaks in the shared chat like any player, but as a reserved
+ * sender id (never a real player). The client renders this id with the Oracle's
+ * name/accent instead of looking it up in the roster.
  */
 export const ORACLE_ID = 'oracle'
 export const ORACLE_NAME = 'The Oracle'

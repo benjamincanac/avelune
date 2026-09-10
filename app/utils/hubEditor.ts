@@ -1,7 +1,6 @@
 import {
   Box3,
   BoxHelper,
-  CircleGeometry,
   Color,
   DoubleSide,
   Group,
@@ -16,7 +15,6 @@ import {
 import type { Object3D, PerspectiveCamera, Scene } from 'three'
 import { watch } from 'vue'
 import type { Ref, WatchStopHandle } from 'vue'
-import type { Trap } from '#shared/utils/maze'
 import type { EditorPlacement, EditorSelection, EditorTool, MarkerKind } from '~/composables/useEditor'
 import { PALETTE_HEX } from '~/utils/palette'
 
@@ -26,16 +24,14 @@ import { PALETTE_HEX } from '~/utils/palette'
  */
 interface EditorState {
   placements: Ref<EditorPlacement[]>
-  traps: Ref<Trap[]>
   selected: Ref<number | null>
   selection: Ref<EditorSelection>
   tool: Ref<EditorTool>
   paletteKind: Ref<string | null>
   dirty: Ref<boolean>
-  /** The active floor's draggable markers (reactive; mutated in the 'marker'
-   *  tool). Hub exposes `oracle`; dungeon floors expose `start` + `exit`. */
+  /** The draggable markers (reactive; mutated in the 'marker' tool). */
   getMarkers: () => Partial<Record<MarkerKind, { x: number, y: number }>>
-  /** Snapshot the active floor as an undo step (also marks dirty). */
+  /** Snapshot the doc as an undo step (also marks dirty). */
   commit: () => void
   undo: () => void
   redo: () => void
@@ -47,8 +43,7 @@ interface HubEditorOptions {
   canvas: HTMLCanvasElement
   getTemplate: (kind: string) => Group | undefined
   editor: EditorState
-  /** Current floor's grid extent (tiles) — bounds placement + seeds the camera.
-   *  Read dynamically so a floor switch changes the editable area. */
+  /** The arena's grid extent (tiles) — bounds placement + seeds the camera. */
   getSize: () => number
 }
 
@@ -57,8 +52,6 @@ export interface HubEditor {
   update: (dt: number) => void
   /** Re-clone every placement (call once templates finish loading). */
   rebuild: () => void
-  /** Re-seat the fly camera over the current floor's centre (on a floor switch). */
-  focus: () => void
   /** Tear down: detach listeners, drop scene objects, stop watchers. */
   dispose: () => void
 }
@@ -67,9 +60,9 @@ const FLY_SPEED = 8
 const FLY_BOOST = 4
 const LOOK_SENSITIVITY = 0.0025
 const PITCH_LIMIT = 1.45
-/** Editor fly-camera seed: a 3/4 overhead view aimed at the floor centre.
+/** Editor fly-camera seed: a 3/4 overhead view aimed at the arena centre.
  *  `CAM_PITCH` is a fixed downward tilt; `CAM_H` sets the height as a fraction
- *  of the floor size (so hub and floors both frame fully); `CAM_BACK` is the
+ *  of the arena size (so the whole extent frames); `CAM_BACK` is the
  *  Z-offset-per-height that puts the look ray exactly on the centre — i.e.
  *  −cot(pitch). */
 const CAM_PITCH = -0.9
@@ -98,8 +91,8 @@ function isTyping(): boolean {
 /**
  * Drives the dev prop editor inside the live hub scene: a free-fly camera,
  * click-to-place / select / drag on the ground, and keyboard nudges — all
- * operating on `editor.placements` (the working copy of hub-props.json). The
- * clones live in a dedicated group on the scene root so the daily scatter (a
+ * operating on `editor.placements` (the working copy of the arena's JSON). The
+ * clones live in a dedicated group on the scene root so the rendered arena (a
  * separate InstancedMesh pass) is present but unselectable, and so a scene
  * `floorGroup.clear()` never wipes them.
  */
@@ -114,9 +107,9 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   box.visible = false
   scene.add(box)
 
-  // Flat gizmos for traps (red discs) and the spawn/exit markers (rings) — the
-  // non-prop editable bits. Kept in their own group so a placement rebuild or a
-  // scene `floorGroup.clear()` never wipes them.
+  // Flat ring gizmos for the point markers — the non-prop editable bits. Kept in
+  // their own group so a placement rebuild or a scene `floorGroup.clear()` never
+  // wipes them.
   const gizmoGroup = new Group()
   gizmoGroup.name = 'editorGizmos'
   scene.add(gizmoGroup)
@@ -150,10 +143,9 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   // moves past a threshold, so a plain click selects without moving anything. On
   // activation we record a grab offset (target pos − ground hit) so it tracks the
   // cursor by delta instead of teleporting its origin onto the ray. The target is
-  // a placement, a trap, or a spawn/exit marker depending on the active tool.
+  // a placement or a point marker, depending on the active tool.
   type DragTarget
     = { kind: 'placement', index: number }
-      | { kind: 'trap', index: number }
       | { kind: 'marker', which: MarkerKind }
   let dragTarget: DragTarget | null = null
   let dragging = false
@@ -193,55 +185,21 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     return mesh
   }
 
-  /** Redraw the trap discs + spawn/exit rings for the active floor. Cheap (a
-   *  handful of meshes), so just rebuilt whenever traps/markers/selection change. */
+  /** Redraw the point-marker rings. Cheap (a handful of meshes), so just rebuilt
+   *  whenever a marker moves or the selection changes. */
   function renderGizmos() {
     gizmoGroup.clear()
     const sel = editor.selection.value
-    editor.traps.value.forEach((t, i) => {
-      const on = sel?.type === 'trap' && sel.index === i
-      const disc = flat(new Mesh(
-        new CircleGeometry(0.55, 24),
-        new MeshBasicMaterial({ color: new Color(on ? '#ff8a8a' : '#f43f5e'), transparent: true, opacity: on ? 0.9 : 0.55, side: DoubleSide }),
-      ))
-      disc.position.set(t.x, 0.06, t.y)
-      gizmoGroup.add(disc)
-      if (on) {
-        const ring = flat(new Mesh(
-          new RingGeometry(0.6, 0.74, 24),
-          new MeshBasicMaterial({ color: new Color('#ffffff'), transparent: true, opacity: 0.9, side: DoubleSide }),
-        ))
-        ring.position.set(t.x, 0.07, t.y)
-        gizmoGroup.add(ring)
-      }
-    })
-    const m = editor.getMarkers()
-    const marker = (x: number, y: number, hex: string, on: boolean) => {
+    const hex: Record<MarkerKind, string> = { oracle: '#7fd0ff' }
+    for (const [which, pos] of Object.entries(editor.getMarkers()) as [MarkerKind, { x: number, y: number }][]) {
+      const on = sel?.type === 'marker' && sel.which === which
       const ring = flat(new Mesh(
         new RingGeometry(0.4, 0.62, 28),
-        new MeshBasicMaterial({ color: new Color(hex), transparent: true, opacity: on ? 1 : 0.7, side: DoubleSide }),
+        new MeshBasicMaterial({ color: new Color(hex[which]), transparent: true, opacity: on ? 1 : 0.7, side: DoubleSide }),
       ))
-      ring.position.set(x, 0.07, y)
+      ring.position.set(pos.x, 0.07, pos.y)
       gizmoGroup.add(ring)
     }
-    const hex: Record<MarkerKind, string> = { start: '#22c55e', exit: '#8b7bff', oracle: '#7fd0ff' }
-    for (const [which, pos] of Object.entries(m) as [MarkerKind, { x: number, y: number }][]) {
-      marker(pos.x, pos.y, hex[which], sel?.type === 'marker' && sel.which === which)
-    }
-  }
-
-  /** Index of the trap within `r` tiles of a ground point, or null. */
-  function nearestTrap(g: { x: number, y: number }, r = 0.8): number | null {
-    let best: number | null = null
-    let bestD = r * r
-    editor.traps.value.forEach((t, i) => {
-      const d = (t.x - g.x) ** 2 + (t.y - g.y) ** 2
-      if (d < bestD) {
-        bestD = d
-        best = i
-      }
-    })
-    return best
   }
 
   /** The marker within `r` tiles of a ground point, or null (nearest wins). */
@@ -353,21 +311,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     const tool = editor.tool.value
     const g = groundHit()
 
-    // Trap tool: click drops a new trap (or grabs the one under the cursor).
-    if (tool === 'trap') {
-      if (!g) return
-      let idx = nearestTrap(g)
-      if (idx == null) {
-        editor.traps.value.push({ x: g.x, y: g.y, period: 3, duration: 1, phase: 0 })
-        idx = editor.traps.value.length - 1
-        editor.commit()
-      }
-      editor.selection.value = { type: 'trap', index: idx }
-      armDrag({ kind: 'trap', index: idx }, e)
-      return
-    }
-
-    // Marker tool: grab the nearest spawn/exit ring.
+    // Marker tool: grab the nearest marker ring.
     if (tool === 'marker') {
       if (!g) return
       const which = nearestMarker(g)
@@ -376,8 +320,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       return
     }
 
-    // Select tool: stamp an armed palette kind, else pick a placement (falling
-    // back to a nearby trap so traps stay selectable without switching tools).
+    // Select tool: stamp an armed palette kind, else pick a placement.
     const kind = editor.paletteKind.value
     if (kind) {
       if (!g) return
@@ -387,14 +330,8 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       return
     }
     const pi = pickIndex()
-    if (pi != null) {
-      editor.selection.value = { type: 'placement', index: pi }
-      armDrag({ kind: 'placement', index: pi }, e)
-      return
-    }
-    const ti = g ? nearestTrap(g) : null
-    editor.selection.value = ti != null ? { type: 'trap', index: ti } : null
-    if (ti != null) armDrag({ kind: 'trap', index: ti }, e)
+    editor.selection.value = pi != null ? { type: 'placement', index: pi } : null
+    if (pi != null) armDrag({ kind: 'placement', index: pi }, e)
   }
 
   function onMouseMove(e: MouseEvent) {
@@ -428,12 +365,10 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       return
     }
 
-    // Trap / marker: drag on the ground plane, updating the data live.
+    // Marker: drag on the ground plane, updating the data live.
     dragPlane.constant = 0
     if (!raycaster.ray.intersectPlane(dragPlane, hit)) return
-    const cur = dragTarget.kind === 'trap'
-      ? editor.traps.value[dragTarget.index]
-      : editor.getMarkers()[dragTarget.which]
+    const cur = editor.getMarkers()[dragTarget.which]
     if (!cur) return
     if (!dragging) {
       const dx = e.clientX - dragStartX
@@ -468,9 +403,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       }
       return
     }
-    const cur = target.kind === 'trap'
-      ? editor.traps.value[target.index]
-      : editor.getMarkers()[target.which]
+    const cur = editor.getMarkers()[target.which]
     if (cur) {
       cur.x = round3(cur.x)
       cur.y = round3(cur.y)
@@ -523,15 +456,10 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       else editor.paletteKind.value = null
     }
     else if (e.code === 'Delete' || e.code === 'Backspace') {
-      // Delete the selected placement or trap (markers can't be removed).
+      // Delete the selected placement (markers can't be removed).
       const sel = editor.selection.value
       if (sel?.type === 'placement') {
         editor.placements.value.splice(sel.index, 1)
-        editor.selection.value = null
-        editor.commit()
-      }
-      else if (sel?.type === 'trap') {
-        editor.traps.value.splice(sel.index, 1)
         editor.selection.value = null
         editor.commit()
       }
@@ -607,9 +535,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   const stops: WatchStopHandle[] = [
     watch(editor.placements, reconcile, { deep: true }),
     watch(editor.selected, refreshHighlight),
-    // Traps + spawn/exit rings redraw on any of their edits, a selection change,
-    // or a floor switch (which swaps the traps array / resets selection).
-    watch(editor.traps, renderGizmos, { deep: true }),
+    // Marker rings redraw on a selection change (a drag calls renderGizmos itself).
     watch(editor.selection, renderGizmos),
   ]
 
@@ -637,21 +563,14 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     if (box.visible) box.update()
   }
 
-  /** Seat the fly camera as a 3/4 overhead view aimed at the floor centre,
-   *  height scaled to the floor size so the whole extent frames in the 70° FOV. */
+  /** Seat the fly camera as a 3/4 overhead view aimed at the arena centre,
+   *  height scaled to the arena size so the whole extent frames in the 70° FOV. */
   function seatCamera() {
     const s = getSize()
     const h = s * CAM_H
     camPos.set(s / 2, h, s / 2 + h * CAM_BACK)
     yaw = 0
     pitch = CAM_PITCH
-  }
-
-  /** Re-seat the fly camera over the current floor's centre and redraw gizmos
-   *  (traps/markers belong to the floor that was just switched to). */
-  function focus() {
-    seatCamera()
-    renderGizmos()
   }
 
   function dispose() {
@@ -671,5 +590,5 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     gizmoGroup.clear()
   }
 
-  return { update, rebuild, focus, dispose }
+  return { update, rebuild, dispose }
 }
