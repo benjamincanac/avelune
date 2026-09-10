@@ -8,13 +8,14 @@
  * a component or the WS handler.
  *
  * The arena is fixed, not procedural. Its visible pieces are authored once in
- * the dev editor and committed as JSON (`hub-structure.json` for the colosseum
- * shell, `hub-props.json` for free-standing clutter), so no geometry ever
+ * the dev editor and committed as JSON (`courtyard-structure.json` for the colosseum
+ * shell, `courtyard-props.json` for free-standing clutter), so no geometry ever
  * travels over the WebSocket — only players.
  */
 
-import hubProps from '../data/hub-props.json'
-import hubStructure from '../data/hub-structure.json'
+import hubProps from '../data/courtyard-props.json'
+import hubStructure from '../data/courtyard-structure.json'
+import { COURTYARD, COURTYARD_ASSETS } from './courtyard'
 
 /** How far players move, in tiles per second. */
 export const PLAYER_SPEED = 3.2
@@ -50,20 +51,20 @@ export interface PropSpec {
   /** Hand-placed via the dev editor — lets the editor isolate and re-render just
    *  the props it owns. */
   hand?: boolean
-  /** 3D elevation (height off the ground) — for baked building pieces (upper
-   *  floors, roofs). Render-only: collision stays ground-based (see makeProp). */
+  /** 3D elevation (height off the ground) for building pieces. Render-only:
+   *  collision stays ground-based, including for elevated solid kinds. */
   z?: number
-  /** Per-axis scale `[x, y, z]` for the handful of stretched building pieces
-   *  (market canopy, gate arch). Render-only; overrides uniform `scale`. */
+  /** Per-axis scale `[x, y, z]`. Overrides uniform `scale` for rendering,
+   *  collision footprints, and top height. */
   s3?: [number, number, number]
 }
 
 /**
- * A hand-placed prop as stored in `shared/data/hub-props.json` (gameplay props)
- * or `shared/data/hub-structure.json` (baked village pieces), written by the dev
+ * A hand-placed prop as stored in `shared/data/courtyard-props.json` (gameplay props)
+ * or `shared/data/courtyard-structure.json` (baked village pieces), written by the dev
  * editor. `top`/`r` are never stored — they're always derived through `makeProp`
- * so server collision and client rendering stay in lockstep. `z` (elevation) and
- * `s3` (per-axis scale) are optional render-only extras.
+ * so server collision and client rendering stay in lockstep. `z` is render-only
+ * elevation; `s3` scales both the visible mesh and its collision dimensions.
  */
 export interface HubPropPlacement {
   kind: string
@@ -96,6 +97,11 @@ export interface FloorPlan {
  */
 interface SolidProp { top: number, r: number, box?: [number, number] }
 const SOLID_PROPS: Record<string, SolidProp> = {
+  ...Object.fromEntries(Object.entries(COURTYARD_ASSETS).map(([kind, asset]) => [kind,
+    'radius' in asset
+      ? { top: asset.height, r: asset.radius }
+      : { top: asset.height, r: Math.hypot(asset.width / 2, asset.depth / 2), box: [asset.width / 2, asset.depth / 2] },
+  ])),
   // Radii track each model's real footprint (measured), so collision hugs the
   // visible mesh instead of a fat invisible ring around it. `Bricks` is left
   // out on purpose: its mesh is a long, tall, thin wall (~1.8×0.55×1.6) that no
@@ -120,7 +126,7 @@ const SOLID_PROPS: Record<string, SolidProp> = {
   Rock_Medium_3: { top: 1.8, r: 0.95 },
   Prop_Crate: { top: 0.9, r: 0.55 },
   Prop_Wagon: { top: 1.2, r: 1.05 },
-  // Ground-level village building pieces (baked into hub-structure.json). Tall
+  // Ground-level village building pieces (baked into courtyard-structure.json). Tall
   // `top` (unjumpable) so house walls block; ~1-tile radius so a chain of 2-unit
   // wall panels reads as a solid perimeter. The door frame + gate arch are left
   // OUT so their openings stay walkable. Upper-floor/roof kinds are never listed
@@ -199,7 +205,7 @@ export function createRng(seed: number): () => number {
  * A gigantic colosseum: players spawn on the open arena sand in the middle, and
  * an unbroken ring of tiles under the tiered stands walls it in (the parapet
  * visuals sit on top of it). There is no way out — the arena is the whole world.
- * Everything visible is a hand-placed kit piece (baked into hub-structure.json);
+ * Everything visible is a hand-placed kit piece (baked into courtyard-structure.json);
  * only the sand and the ring are procedural.
  */
 export const HUB_LAYOUT = {
@@ -210,19 +216,18 @@ export const HUB_LAYOUT = {
   /** The solid stands ring begins here (tiles at radius ≥ this are wall). */
   wallInner: 13,
   /** Spawn, on the sand just south of centre. */
-  start: { x: 28, y: 32 },
+  start: { x: 28, y: 39 },
 }
 
 export function generateHub(): FloorPlan {
   const size = HUB_LAYOUT.size
-  const { center, wallInner } = HUB_LAYOUT
   const tiles = new Uint8Array(size * size)
 
-  // Solid stands ring: every tile outside the arena is wall.
+  // Garden walls enclose the town. Interior buildings and furniture collide
+  // through their authored footprints, shared with the art templates.
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const d = Math.hypot(x + 0.5 - center.x, y + 0.5 - center.y)
-      if (d >= wallInner) tiles[y * size + x] = 1
+      if (x < COURTYARD.min || x >= COURTYARD.max || y < COURTYARD.min || y >= COURTYARD.max) tiles[y * size + x] = 1
     }
   }
   // Explicit border ring (defensive — the arena annulus already covers the edges).
@@ -235,8 +240,8 @@ export function generateHub(): FloorPlan {
 
   // Every visible piece (arcade, columns, stands, statues) is a hand placement
   // baked into the committed JSON — appended here, run through makeProp so the
-  // server simulates collision exactly as the client renders. `z`/`s3` are
-  // render-only extras carried onto the spec.
+  // server uses the same dimensions as the client. `z` is render-only;
+  // `s3` also scales the collision footprint and top height.
   const props: PropSpec[] = []
   const placements = [...hubStructure, ...hubProps] as HubPropPlacement[]
   for (const p of placements) {
@@ -315,8 +320,10 @@ export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
     if (prop.bx != null && prop.by != null) {
       const c = Math.cos(prop.rot)
       const s = Math.sin(prop.rot)
-      const lx = dx * c + dy * s
-      const ly = -dx * s + dy * c
+      // Placements use Three.js Y rotation: world X = local X*c + local Z*s,
+      // world Z = -local X*s + local Z*c. Invert that transform here.
+      const lx = dx * c - dy * s
+      const ly = dx * s + dy * c
       if (Math.abs(lx) > prop.bx || Math.abs(ly) > prop.by) continue
     }
     top = prop.top

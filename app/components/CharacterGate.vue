@@ -100,7 +100,7 @@ onMounted(() => input.value?.inputRef?.focus())
     <!-- Brand. -->
     <div class="absolute left-6 top-5 z-10 flex items-center gap-2.5">
       <img
-        src="/logo.svg"
+        src="/logo.svg?v=wind"
         alt="Tempest"
         class="size-9 rounded-md"
       >

@@ -43,6 +43,8 @@ export interface UseGame {
   chatLog: Ref<ChatMessage[]>
   /** Open the socket. Called once the identity cookie exists. */
   connect: () => void
+  /** Close the socket and prevent reconnects while the page is at the gate. */
+  disconnect: () => void
   setInput: (input: MoveInput) => void
   setLook: (angle: number) => void
   sendAction: (kind: 'jump' | 'dash') => void
@@ -144,7 +146,7 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Tempest, ${msg.self.name}. Talk to the Oracle on the sand, or just say hello. Press Esc for the menu.`)
+          announce(`Welcome to Tempest, ${msg.self.name}. Meet the Oracle by the northern garden, explore the courtyard, or just say hello. Press Esc for the menu.`)
         }
         break
       case 'join':
@@ -271,7 +273,24 @@ export function useGame(): UseGame {
   }
 
   function connect() {
+    closed = false
+    kicked.value = null
     open()
+  }
+
+  function disconnect() {
+    closed = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+    }
+    stopHeartbeat()
+    socket?.close()
+    socket = undefined
+    selfId.value = null
+    players.clear()
+    count.value = 0
+    status.value = 'disconnected'
   }
 
   /** Report which movement keys are held. Only sends when the set changes. */
@@ -323,6 +342,7 @@ export function useGame(): UseGame {
     serverNow,
     chatLog,
     connect,
+    disconnect,
     setInput,
     setLook,
     sendAction,

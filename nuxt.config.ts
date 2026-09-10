@@ -54,7 +54,7 @@ export default defineNuxtConfig({
         { name: 'twitter:site', content: site.twitter },
       ],
       link: [
-        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg?v=wind' },
         { rel: 'canonical', href: canonical },
       ],
       script: [

@@ -8,9 +8,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
-  CircleGeometry,
   Color,
-  CylinderGeometry,
   DirectionalLight,
   FogExp2,
   Group,
@@ -33,7 +31,9 @@ import {
   SphereGeometry,
   Sprite,
   SpriteMaterial,
+  Texture,
   Vector3,
+  WebGLRenderer,
 } from 'three'
 import type { AnimationAction, AnimationClip } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
@@ -51,34 +51,24 @@ import {
   JUMP_VELOCITY,
   PLAYER_SPEED,
   isWalkable,
+  surfaceHeight,
   stepBody,
 } from '#shared/utils/maze'
-import {
-  CASTLE_NAMES,
-  CRYPT_NAMES,
-  DUNGEON_NAMES,
-  FANTASY_NAMES,
-  NATURE_NAMES,
-  PROP_DECOR_NAMES,
-  PROP_NAMES,
-  VILLAGE_NAMES,
-} from '#shared/utils/propCatalog'
-import HUB_STRUCTURE from '#shared/data/hub-structure.json'
-import HUB_ORACLE from '#shared/data/hub-oracle.json'
-import { composeColosseum } from '~/utils/composeColosseum'
+import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
+import { createCourtyardAssets } from '~/utils/courtyardAssets'
+import { createCourtyardScene } from '~/utils/courtyardScene'
+import { COURTYARD_LANDSCAPE_NAMES } from '~/utils/courtyardLandscape'
+import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
-import type { StonePalette } from '~/utils/textures'
-import { makeGrassTexture, makeRuneCircleTexture } from '~/utils/textures'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
-import { PALETTE } from '~/utils/palette'
 
 /**
  * Tempest's 3D world, built imperatively with three.js inside the Tres context.
  *
- * Tres provides the renderer, scene, camera, and render loop. The arena is one
- * hand-authored colosseum: a sand floor ringed by baked kit pieces, drawn as
+ * Tres provides the renderer, scene, camera, and render loop. The courtyard
+ * uses authored placements of custom buildings, furniture and trees, drawn as
  * instanced batches. The sky, sun, fog, and rain are driven by a day/night +
  * weather clock derived from the server's time, so every player sees the same
  * evening storm roll in.
@@ -111,7 +101,16 @@ const oracle = useOracle()
 
 const { scene, camera: cameraManager, renderer } = useTresContext()
 const camera = cameraManager.activeCamera
-const { onBeforeRender } = useLoop()
+const { onBeforeRender, render } = useLoop()
+let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
+render((notify) => {
+  const active = camera.value
+  const gl = renderer.instance
+  if (!active || !(gl instanceof WebGLRenderer)) return
+  pipeline ??= createCourtyardRenderer(gl, scene.value, active)
+  pipeline.render(active)
+  notify()
+})
 
 // Dev-only world editor: created in onMounted when `editor` is set (see the
 // bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
@@ -123,9 +122,8 @@ let ed: ReturnType<typeof useEditor> | null = null
 const DAY_MS = 15 * 60 * 1000
 
 /** The meadow the arena sits on, and the haze around it. */
-const GROUND_PALETTE: StonePalette = { base: '#5f8440', dark: '#496a31', mortar: '#6d5c3d', moss: '#82a850', mossAmount: 0.5 }
-const FOG_COLOR = '#3f4d34'
-const FOG_DENSITY = 0.014
+const FOG_COLOR = '#b4cbbf'
+const FOG_DENSITY = 0.008
 
 /* -------------------------------------------------------------------------- */
 /* Static scene: lights, sky, rain                                            */
@@ -139,7 +137,7 @@ const ambient = new AmbientLight('#8899bb', 0.4)
 scene.value.add(ambient)
 
 /** Sky/ground fill for soft outdoor bounce light. */
-const hemi = new HemisphereLight('#bcd4ff', '#5a6a3a', 0.55)
+const hemi = new HemisphereLight('#d3e9ff', '#b8a278', 1.3)
 scene.value.add(hemi)
 
 /**
@@ -161,7 +159,7 @@ sun.shadow.normalBias = 0.03
 scene.value.add(sun, sun.target)
 
 /** Warm torch light that follows your character. */
-const torchLight = new PointLight('#ffc98a', 5, 11, 1.7)
+const torchLight = new PointLight('#ffc98a', 1.1, 7, 1.7)
 scene.value.add(torchLight)
 
 /** Rain: a box of points recycled around the camera. */
@@ -197,7 +195,7 @@ function computeSky(now: number) {
   const sunAngle = t * Math.PI * 2 - Math.PI / 2
   const sunHeight = Math.sin(sunAngle)
   const seconds = now / 1000
-  let overcast = clamp01(0.5 + 0.45 * Math.sin(seconds / 197) + 0.3 * Math.sin(seconds / 71 + 2.1))
+  let overcast = clamp01(0.22 + 0.42 * Math.sin(seconds / 197) + 0.22 * Math.sin(seconds / 71 + 2.1))
   let rainAmount = clamp01((overcast - 0.68) / 0.32)
   let dayness = clamp01(sunHeight * 2 + 0.15)
 
@@ -213,9 +211,9 @@ function computeSky(now: number) {
   return { sunAngle, sunHeight, dayness, overcast, rain: rainAmount }
 }
 
-const skyDay = new Color('#7d99bd')
-const skyDusk = new Color('#8a5a40')
-const skyNight = new Color('#05070d')
+const skyDay = new Color('#7fbddd')
+const skyDusk = new Color('#d49b85')
+const skyNight = new Color('#253a59')
 const skyColor = new Color()
 const fogColor = new Color()
 
@@ -336,30 +334,11 @@ const sunDir = new Vector3()
 /* Arena geometry                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** The arena is hand-authored and constant — build its plan once. */
+/** The arena is hand-authored and constant, in play and in the editor alike —
+ *  build its plan once and read it everywhere. */
 const hubPlan = generateHub()
 
-function getPlan(): FloorPlan {
-  return hubPlan
-}
-
-let currentPlan = getPlan()
-
-/** There is only one map, so the editor always edits the arena's plan. */
-function editorPlan(): FloorPlan {
-  return getPlan()
-}
-
-/** Procedural grass under and around the arena, built once. */
-let groundTexture: CanvasTexture | null = null
-function ensureGroundTexture(): CanvasTexture {
-  if (!groundTexture) {
-    groundTexture = makeGrassTexture(7000, GROUND_PALETTE)
-    groundTexture.wrapS = RepeatWrapping
-    groundTexture.wrapT = RepeatWrapping
-  }
-  return groundTexture
-}
+let courtyard: ReturnType<typeof createCourtyardScene> | null = null
 
 /** Everything world-shaped lives here so a rebuild can swap it wholesale. */
 const floorGroup = new Group()
@@ -370,7 +349,7 @@ scene.value.add(floorGroup)
 // buildFloor can reset it on a rebuild.
 /** Where the Oracle stands, in tiles. Editable via the hub 'Oracle' marker: in
  *  the editor it follows the live (draggable) marker; in play it's the saved
- *  position from hub-oracle.json. */
+ *  position from courtyard-oracle.json. */
 function oraclePos(): { x: number, y: number } {
   if (props.editor && ed?.current.value.oracle) return ed.current.value.oracle
   const [x, y] = HUB_ORACLE as [number, number]
@@ -406,80 +385,37 @@ function tagShadows(root: Group) {
   })
 }
 
-function buildFloor() {
+function clearFloor() {
+  if (courtyard) {
+    floorGroup.remove(courtyard.group)
+    courtyard.dispose()
+    courtyard = null
+  }
+  // Instance buffers and cloned materials belong to this floor; template
+  // geometries are reused on the next build and stay alive until unmount.
+  floorGroup.traverse((obj) => {
+    if (!(obj instanceof InstancedMesh)) return
+    obj.dispose()
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material]
+    for (const material of materials) material.dispose()
+  })
   floorGroup.clear()
+}
+
+function buildFloor() {
+  clearFloor()
   // floorGroup.clear() detached the Oracle; drop the ref so it gets rebuilt.
   oracleRig = null
 
-  const plan = currentPlan
+  const plan = hubPlan
 
-  // The meadow the colosseum stands on — the sand disc covers its middle.
-  const ground = ensureGroundTexture()
-  ground.repeat.set(plan.width / 2, plan.height / 2)
-  const meadow = new Mesh(
-    new PlaneGeometry(plan.width, plan.height),
-    new MeshStandardMaterial({ map: ground, roughness: 1 }),
-  )
-  meadow.rotation.x = -Math.PI / 2
-  meadow.position.set(plan.width / 2, 0, plan.height / 2)
-  floorGroup.add(meadow)
-
-  buildColosseumHub(plan)
+  courtyard = createCourtyardScene(ed?.placements.value ?? plan.props, propTemplates)
+  floorGroup.add(courtyard.group)
+  renderPlanProps(plan)
   tagShadows(floorGroup)
   // Re-sync the editor's own selectable clones (templates may have just
   // finished loading, so this runs after each build phase).
   editorCtl?.rebuild()
-}
-
-/* -------------------------------------------------------------------------- */
-/* Colosseum arena                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Build the arena: a sand floor with a glowing rune circle, a backdrop shell so
- * the gaps between kit pieces never show raw sky, and every baked kit piece
- * from `plan.props`. Collision comes from the
- * shared tile stamps in `generateHub`, not from anything drawn here.
- */
-function buildColosseumHub(plan: FloorPlan) {
-  const { center, arenaRadius } = HUB_LAYOUT
-
-  // --- Procedural base (never editable): the sand arena floor and a backdrop
-  // shell. Everything else (arcade, columns, tiered stands, statues) is
-  // editable baked pieces.
-  const sand = new Mesh(
-    new CircleGeometry(arenaRadius + 1.5, 56),
-    new MeshStandardMaterial({ color: new Color('#c2a878'), roughness: 1 }),
-  )
-  sand.rotation.x = -Math.PI / 2
-  sand.position.set(center.x, 0.02, center.y)
-  floorGroup.add(sand)
-
-  // A glowing slime-blue rune circle inlaid in the sand.
-  const runes = new Mesh(
-    new CircleGeometry(arenaRadius * 0.7, 64),
-    new MeshBasicMaterial({ map: makeRuneCircleTexture(4242), color: new Color(PALETTE.slime), transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false }),
-  )
-  runes.rotation.x = -Math.PI / 2
-  runes.position.set(center.x, 0.05, center.y)
-  floorGroup.add(runes)
-
-  const backdrop = new Mesh(
-    new CylinderGeometry(30, 30, 26, 48, 1, true),
-    new MeshStandardMaterial({ color: new Color('#2b3038'), side: BackSide, roughness: 1 }),
-  )
-  backdrop.position.set(center.x, 13, center.y)
-  floorGroup.add(backdrop)
-
-  // --- Editable colosseum kit pieces. Pre-bake, render the procedural
-  // composition (visual only, no collision until baked); once baked the pieces
-  // flow through plan.props. In editor mode the controller owns the seeded
-  // clones, so skip the fallback here.
-  if (!props.editor && !HUB_STRUCTURE.length) renderComposed(composeColosseum())
-
-  // --- Solid + hand-placed pieces from the shared plan, rendered exactly where
-  // the server simulates their footprints.
-  renderPlanProps(plan)
 }
 
 /**
@@ -509,20 +445,6 @@ function propMatrix(p: HubPropPlacement): Matrix4 {
   return p.s3
     ? placementMatrixScaled(p.x, p.z ?? 0, p.y, p.rot, p.s3[0], p.s3[1], p.s3[2])
     : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale)
-}
-
-/** Render a composed piece list instanced (pre-bake fallback only). */
-function renderComposed(pieces: HubPropPlacement[]) {
-  const byKind = new Map<string, Matrix4[]>()
-  for (const p of pieces) {
-    const arr = byKind.get(p.kind) ?? []
-    arr.push(propMatrix(p))
-    byKind.set(p.kind, arr)
-  }
-  for (const [kind, mats] of byKind) {
-    const g = instantiateModule(kind, mats)
-    if (g) floorGroup.add(g)
-  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -572,10 +494,6 @@ function ensureClips() {
   })
 }
 
-// Prop template name lists (PROP_NAMES, PROP_DECOR_NAMES, NATURE_NAMES,
-// VILLAGE_NAMES, FANTASY_NAMES) live in #shared/utils/propCatalog so the dev
-// editor can share them; imported at the top of this file.
-
 const placementDummy = new Object3D()
 function placementMatrix(x: number, y: number, z: number, rotY: number, scale: number): Matrix4 {
   placementDummy.position.set(x, y, z)
@@ -622,21 +540,26 @@ function instantiateModule(name: string, placements: Matrix4[], tint = '#ffffff'
   return group
 }
 
-const propTemplates = new Map<string, Group>()
-
-/**
- * The bush models reference a leaf texture that didn't survive the
- * .blend → GLB conversion, so their `Texture_Leaves` material arrives
- * untextured and pure white. Paint it foliage green so bushes read as
- * greenery instead of white blobs.
- */
-const LEAF_GREEN = new Color('#4f6f3a')
-function fixupPropMaterials(root: Group) {
-  root.traverse((obj) => {
-    if (obj instanceof Mesh && (obj.material as MeshStandardMaterial)?.name === 'Texture_Leaves') {
-      (obj.material as MeshStandardMaterial).color.copy(LEAF_GREEN)
-    }
-  })
+const propTemplates = createCourtyardAssets()
+const retiredTemplates: Group[] = []
+let sceneDisposed = false
+function releaseTemplates(templates: Iterable<Group>) {
+  const geometries = new Set<BufferGeometry>()
+  const materials = new Set<MeshStandardMaterial>()
+  const textures = new Set<Texture>()
+  for (const root of templates) {
+    root.traverse((object) => {
+      if (!(object instanceof Mesh)) return
+      geometries.add(object.geometry)
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        materials.add(material)
+        for (const value of Object.values(material)) if (value instanceof Texture) textures.add(value)
+      }
+    })
+  }
+  for (const geometry of geometries) geometry.dispose()
+  for (const material of materials) material.dispose()
+  for (const texture of textures) texture.dispose()
 }
 
 // Load one dir's models into the shared template map. Resilient: a single
@@ -647,7 +570,10 @@ async function loadTemplates(dir: string, names: readonly string[]) {
   await Promise.all(names.map(async (name) => {
     try {
       const gltf = await gltfLoader.loadAsync(`/models/${dir}/${name}.glb`)
-      fixupPropMaterials(gltf.scene)
+      if (sceneDisposed) {
+        releaseTemplates([gltf.scene])
+        return
+      }
       propTemplates.set(name, gltf.scene)
     }
     catch (err) {
@@ -656,43 +582,50 @@ async function loadTemplates(dir: string, names: readonly string[]) {
   }))
 }
 
-/** In the editor the whole palette must be placeable, so every catalog loads. */
-const EDITING = import.meta.dev && !!props.editor
-
-/**
- * Every kind the arena actually draws: the baked structure (via `plan.props`)
- * plus the pre-bake composition. In play we download only these, so the arena
- * never waits on the ~200 kit models it doesn't reference.
- */
-const ARENA_KINDS = new Set<string>([
-  ...hubPlan.props.map(p => p.kind),
-  ...composeColosseum().map(p => p.kind),
-])
-function arenaOnly(names: readonly string[]): readonly string[] {
-  return EDITING ? names : names.filter(name => ARENA_KINDS.has(name))
+/** Normalize detailed assets without baking their quantized vertex attributes. */
+function fitTemplate(source: Group, width: number | null, height: number, depth: number | null) {
+  source.updateMatrixWorld(true)
+  const bounds = new Box3().setFromObject(source, true)
+  const size = bounds.getSize(new Vector3())
+  const center = bounds.getCenter(new Vector3())
+  const offset = new Group()
+  offset.position.set(-center.x, -bounds.min.y, -center.z)
+  offset.add(source.clone(true))
+  const fitted = new Group()
+  fitted.scale.set(width ? width / size.x : height / size.y, height / size.y, depth ? depth / size.z : height / size.y)
+  fitted.add(offset)
+  return fitted
 }
 
-// Wave 1 is the structural kit the arena is built from — nothing paints until
-// it lands. Wave 2 streams the decorative pieces (and, in the editor, the rest
-// of the palette) and triggers a second build, so late arrivals pop in.
-Promise.all([
-  loadTemplates('props', arenaOnly(PROP_NAMES)),
-]).then(() => {
+loadTemplates('courtyard', ['fountain', 'inn', 'shop', 'tower', ...COURTYARD_LANDSCAPE_NAMES]).then(() => {
+  if (sceneDisposed) return
+  for (const [kind, file] of [['Courtyard_Inn', 'inn'], ['Courtyard_Shop', 'shop'], ['Courtyard_Tower', 'tower'], ['Courtyard_Fountain', 'fountain'], ['Courtyard_Tree', 'tree']] as const) {
+    const template = propTemplates.get(file)
+    if (template) {
+      const previous = propTemplates.get(kind)
+      if (previous) retiredTemplates.push(previous)
+      propTemplates.set(kind, template)
+    }
+  }
+  const planter = propTemplates.get('Courtyard_Planter')
+  if (planter) {
+    for (const x of [-0.9, 0, 0.9]) {
+      const source = propTemplates.get('bush')
+      if (!source) continue
+      const bush = fitTemplate(source, 1, 0.55, 0.95)
+      bush.position.set(x, 0.64, 0)
+      planter.add(bush)
+    }
+    for (const x of [-1.1, -0.4, 0.4, 1.1]) {
+      const source = propTemplates.get('flowers')
+      if (!source) continue
+      const flowers = fitTemplate(source, null, 0.55, null)
+      flowers.position.set(x, 0.68, 0.2)
+      planter.add(flowers)
+    }
+  }
   buildFloor()
-  return Promise.all([
-    loadTemplates('props', arenaOnly(PROP_DECOR_NAMES)),
-    loadTemplates('castle', arenaOnly(CASTLE_NAMES)),
-    ...(EDITING
-      ? [
-          loadTemplates('nature', NATURE_NAMES),
-          loadTemplates('village', VILLAGE_NAMES),
-          loadTemplates('fantasy', FANTASY_NAMES),
-          loadTemplates('dungeon', DUNGEON_NAMES),
-          loadTemplates('crypt', CRYPT_NAMES),
-        ]
-      : []),
-  ])
-}).then(() => buildFloor())
+})
 
 /* -------------------------------------------------------------------------- */
 /* Players                                                                    */
@@ -727,7 +660,7 @@ function makeTextSprite(draw: (ctx: CanvasRenderingContext2D, canvas: HTMLCanvas
   // Text stays crisp without mipmap blur, and the bubble canvas grows to a
   // non-power-of-two height, so skip mipmaps entirely.
   texture.minFilter = LinearFilter
-  const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true }))
+  const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false }))
   // Nameplate size (512×128 canvas at 4:1). Bubbles keep this only until their
   // first message, then rescale themselves to fit their wrapped text.
   sprite.scale.set(1.6, 0.4, 1)
@@ -924,8 +857,8 @@ function angleDelta(to: number, from: number): number {
 /* -------------------------------------------------------------------------- */
 
 const local = {
-  x: currentPlan.start.x,
-  y: currentPlan.start.y,
+  x: hubPlan.start.x,
+  y: hubPlan.start.y,
   z: 0,
   vz: 0,
   grounded: true,
@@ -954,7 +887,7 @@ watch(() => props.game.selfId.value, (id: string | null) => {
 buildFloor()
 
 /** Longest the third-person boom extends behind the player, in tiles. */
-const MAX_BOOM = 2.6
+const MAX_BOOM = 3.6
 /** Camera's collision half-width, so the boom samples its footprint, not a hairline. */
 const CAM_RADIUS = 0.32
 /** Smoothed boom distance: snaps in past walls, eases back out (see the render loop). */
@@ -966,10 +899,11 @@ let boomDist = MAX_BOOM
  * (centre plus both flanks) at each step so it can't slip through a wall corner
  * and briefly expose the void behind it. Returns the last clear distance.
  */
-function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: number): number {
+function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: number, height: number): number {
   const px = -dirZ // unit perpendicular to the boom, for width sampling
   const pz = dirX
-  const blocked = (x: number, z: number) => !isWalkable(currentPlan, Math.floor(x), Math.floor(z))
+  const blocked = (x: number, z: number) => !isWalkable(hubPlan, Math.floor(x), Math.floor(z))
+    || surfaceHeight(hubPlan, x, z) > height - CAM_RADIUS
   for (let d = 0.3; d < maxDist; d += 0.08) {
     const sx = hx + dirX * d
     const sz = hy + dirZ * d
@@ -986,9 +920,9 @@ function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: n
 let cameraConfigured = false
 function configureCamera() {
   if (cameraConfigured || !(camera.value instanceof PerspectiveCamera)) return
-  camera.value.fov = 70
+  camera.value.fov = 62
   camera.value.near = 0.05
-  camera.value.far = 90
+  camera.value.far = 260
   camera.value.updateProjectionMatrix()
   cameraConfigured = true
 }
@@ -1093,6 +1027,7 @@ onBeforeRender(({ delta, elapsed }) => {
   const dt = Math.min(delta, 0.1)
   const now = Date.now()
   const serverNow = props.game.serverNow()
+  courtyard?.update(serverNow / 1000)
   const selfId = props.game.selfId.value
   const self = selfId ? props.game.players.get(selfId) : undefined
 
@@ -1146,7 +1081,7 @@ onBeforeRender(({ delta, elapsed }) => {
       // free-orbit mouse-look never spins us on the spot while standing still.
       local.facing += angleDelta(Math.atan2(dy, dx), local.facing) * (1 - Math.exp(-dt * CHARACTER_TURN_RATE))
     }
-    stepBody(currentPlan, local, dx, dy, dt)
+    stepBody(hubPlan, local, dx, dy, dt)
 
     const ex = self.x - local.x
     const ey = self.y - local.y
@@ -1200,11 +1135,11 @@ onBeforeRender(({ delta, elapsed }) => {
     // Boom collision: snap IN immediately when a wall intrudes (so the camera
     // never lags behind it and flashes the void), but ease back OUT smoothly so
     // it zooms rather than popping once the wall is clear.
-    const targetBoom = clipBoom(headX, headZ, -Math.cos(yaw), -Math.sin(yaw), MAX_BOOM)
+    const camHeight = Math.max(local.z + 0.35, local.z + 1.5 + pitch * 1.8)
+    const targetBoom = clipBoom(headX, headZ, -Math.cos(yaw), -Math.sin(yaw), MAX_BOOM, Math.min(camHeight, local.z + 1))
     boomDist = targetBoom < boomDist
       ? targetBoom
       : boomDist + (targetBoom - boomDist) * (1 - Math.exp(-dt * 9))
-    const camHeight = Math.max(local.z + 0.35, local.z + 1.5 + pitch * 1.8)
     camera.value.position.set(
       headX - Math.cos(yaw) * boomDist,
       camHeight,
@@ -1246,14 +1181,14 @@ onBeforeRender(({ delta, elapsed }) => {
 
     fogColor.set(FOG_COLOR)
     fogColor.lerp(skyColor, 0.25)
-    fogColor.multiplyScalar(0.35 + 0.65 * sky.dayness)
+    fogColor.lerp(skyNight, (1 - sky.dayness) * 0.72)
     fog.color.copy(fogColor)
     fog.density = FOG_DENSITY * (1 + sky.rain * 0.5 + sky.overcast * 0.15)
 
     const daylight = Math.max(sky.sunHeight, 0)
     sun.intensity = daylight > 0
-      ? daylight * 0.9 * (1 - sky.overcast * 0.75)
-      : 0.08
+      ? 0.6 + daylight * 2.2 * (1 - sky.overcast * 0.55)
+      : 0.55
     sun.color.set(daylight > 0 ? (daylight < 0.3 ? '#ffb877' : '#fff2dd') : '#7788bb')
     sun.position.set(
       local.x + Math.cos(sky.sunAngle) * 40,
@@ -1272,7 +1207,8 @@ onBeforeRender(({ delta, elapsed }) => {
 
     // Ambient stays low outdoors so the sun's shadows actually read; the
     // hemisphere fill softens them without flattening.
-    ambient.intensity = 0.12 + sky.dayness * 0.28 * (1 - sky.overcast * 0.5)
+    hemi.intensity = 0.75 + sky.dayness * 0.6
+    ambient.intensity = 0.32 + sky.dayness * 0.42 * (1 - sky.overcast * 0.3)
 
     rainMaterial.opacity = sky.rain * 0.7
     rain.visible = sky.rain > 0.02
@@ -1431,12 +1367,6 @@ if (import.meta.dev) {
     const canvas = renderer.instance?.domElement
     if (!canvas || !scene.value) return
     ed = useEditor()
-    // Before the arena is baked, seed the editable structure layer from the
-    // procedural composition so every kit piece is immediately selectable and
-    // the first save writes hub-structure.json (the bake).
-    if (!HUB_STRUCTURE.length) ed.seedStructure(composeColosseum())
-    // Build the editor's working copy of the arena (persisted across a save-reload).
-    currentPlan = editorPlan()
     buildFloor()
     editorCtl = createHubEditor({
       scene: scene.value,
@@ -1449,18 +1379,21 @@ if (import.meta.dev) {
     editorCtl.rebuild()
     // Rebuild the scene on any structural change (seed / undo / redo). The
     // controller re-clones its placements off its own deep watch.
-    watch(() => ed!.structureVersion.value, () => {
-      currentPlan = editorPlan()
-      buildFloor()
-    })
+    watch(() => ed!.structureVersion.value, buildFloor)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).__editor = ed
   })
 }
 
 onUnmounted(() => {
+  sceneDisposed = true
+  pipeline?.dispose()
+  clearFloor()
   editorCtl?.dispose()
   editorCtl = null
+  releaseTemplates([...propTemplates.values(), ...retiredTemplates])
+  propTemplates.clear()
+  retiredTemplates.length = 0
   scene.value.remove(ambient, hemi, sun, sun.target, torchLight, rain, skyDome, cloudDome, sunGlow, floorGroup, playerGroup)
 })
 

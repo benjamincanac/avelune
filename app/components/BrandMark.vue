@@ -20,7 +20,7 @@ withDefaults(defineProps<{
 <template>
   <div class="flex items-center gap-2.5">
     <img
-      src="/logo.svg"
+      src="/logo.svg?v=wind"
       alt="Tempest"
       class="rounded-md"
       :class="size"

@@ -112,6 +112,22 @@ function resume() {
   gameScene.value?.requestLock()
 }
 
+/** Leave the arena and clear the saved identity before showing the gate again. */
+async function logout() {
+  try {
+    await $fetch('/api/auth', { method: 'DELETE' })
+  }
+  catch {
+    return
+  }
+  game.disconnect()
+  identity.value = null
+  showMenu.value = false
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+  keyboard.value?.unlock()
+  view.value = 'creating'
+}
+
 /**
  * The browser exits fullscreen on a tap of Escape and this can't be cancelled
  * with preventDefault — so hitting Escape to unfocus the chat or open the game
@@ -318,6 +334,14 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
                 color="neutral"
                 block
                 @click="resume"
+              />
+              <UButton
+                label="Log out"
+                icon="i-lucide-log-out"
+                color="neutral"
+                variant="ghost"
+                block
+                @click="logout"
               />
             </div>
           </div>

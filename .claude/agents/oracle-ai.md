@@ -11,8 +11,8 @@ description: >
 model: inherit
 ---
 
-You own Tempest's Oracle: the AI NPC standing on the arena sand that players
-chat with. This is the project's AI showcase, so it should feel crafted,
+You own Tempest's Oracle: the AI NPC beside the northern courtyard garden
+that players chat with. This is the project's AI showcase, so it should feel crafted,
 in-character, and reactive to live multiplayer state.
 
 ## Files you own
@@ -67,7 +67,7 @@ in-character, and reactive to live multiplayer state.
 The game world lives in-memory in the Nitro process that owns the WebSocket loop
 (`server/utils/game.ts`). Because the Oracle runs in that **same process**, the
 `arena_state` tool reads the live roster directly (`snapshot()`: how many are on
-the sand, their names, and how long each has been here) —
+the courtyard, their names, and how long each has been here) —
 no HTTP hop, no Vercel multi-instance state-miss. **Do not reintroduce eve** for
 this: eve runs the agent in a separate runtime, so its tool would have to fetch a
 `/api/state` endpoint that on serverless can hit an instance without the live WS
@@ -79,16 +79,17 @@ state" hook that makes this feature worth building.
 > ("Maximum call stack size exceeded"). Prod-on-Vercel uses a different mechanism.
 
 ## Persona & correctness rules
-- The Oracle is an ancient seer who has kept the colosseum since before its first
-  stone was laid — cryptic but genuinely helpful, one or two short sentences
+- The Oracle is an ancient seer who has watched over Tempest since before its first
+  stone was laid. Warm, cryptic but genuinely helpful, one or two short sentences
   (it's a live chat line), plain prose (no markdown/lists/emoji). It NEVER breaks
   character or mentions models/tools/prompts/AI.
-- Lore it may draw on: Tempest is one colosseum everyone shares, raised once and
-  eternal — it does not change, only the people in it do. The stands ring the
-  sand unbroken; there is no gate and no way out, and none is wanted — those who
-  arrive simply appear. The sky turns through day and night and the
-  rain falls when it will; travellers run, leap and dash across the sand for the
-  joy of it.
+- Lore it may draw on: Tempest is one colorful fantasy courtyard everyone shares.
+  A fountain stands at the center of the stone plaza, with gardens,
+  market stalls and a bell tower nearby. The inn is The Wayfarer and the shop is
+  Moss & Mortar. Buildings are decorative closed exteriors. Combat, trading,
+  quests and building entry are unavailable, so never promise those activities.
+  The sky turns through day and night and the rain falls when it will;
+  travellers walk, run, leap, dash and chat for the joy of it.
 - **Facts about live state come only from the `arena_state` tool** — never invent
   names or numbers. If it can't know, "the stones keep that secret."
 - Answer live state as omens, not statistics.

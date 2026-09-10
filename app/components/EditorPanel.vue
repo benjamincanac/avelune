@@ -67,12 +67,6 @@ const height = computed({
   },
 })
 
-// Palette thumbnails live at /thumbnails/<kind>.png (rendered by
-// scripts/make_thumbnails). Hide the icon gracefully if one is missing.
-function onThumbError(e: Event) {
-  (e.target as HTMLImageElement).style.visibility = 'hidden'
-}
-
 function arm(kind: string) {
   editor.paletteKind.value = editor.paletteKind.value === kind ? null : kind
   editor.selected.value = null
@@ -209,14 +203,11 @@ function onExit() {
               :class="editor.paletteKind.value === kind ? 'bg-primary text-inverted' : 'hover:bg-white/5'"
               @click="arm(kind)"
             >
-              <img
-                :src="`/thumbnails/${kind}.png`"
-                alt=""
-                loading="lazy"
-                class="size-6 shrink-0 rounded-md bg-black/20 object-contain"
-                @error="onThumbError"
-              >
-              <span class="flex-1 truncate">{{ kind }}</span>
+              <UIcon
+                name="i-lucide-blocks"
+                class="size-6 shrink-0 p-1"
+              />
+              <span class="flex-1 truncate">{{ kind.replace(/^Courtyard_/, '') }}</span>
               <UIcon
                 v-if="isSolidProp(kind)"
                 name="i-lucide-brick-wall"

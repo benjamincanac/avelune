@@ -11,7 +11,7 @@ description: >
 model: inherit
 ---
 
-You own everything Tempest draws in 3D. The arena is built locally from the
+You own everything Tempest draws in 3D. The courtyard is built locally from the
 shared module and the committed layout JSON — you render it and predict motion;
 you never receive geometry over the wire.
 
@@ -26,15 +26,21 @@ you never receive geometry over the wire.
   Chrome refuses re-lock for ~1.25s after an Escape-exit, so a failed
   `requestLock()` is normal — clicking the world recovers.
 - `app/components/MazeScene.vue` — the arena: the sand disc + rune circle, the
-  backdrop shell that keeps raw sky out of the gaps between kit pieces, the
+  terrain and architecture surrounding the playable space, the
   instanced batches built from `plan.props`, the Oracle rig, and the
   sky/day-night + weather clock.
-- `app/utils/composeColosseum.ts` — the procedural colosseum composition as a
-  flat list of `HubPropPlacement`s (ground arcade of arches + columns, the raked
-  stone seating rings, the arched upper wall + flags, the statues flanking the
-  door). It is both the pre-bake visual fallback and the seed the dev editor
-  bakes into `hub-structure.json`; after baking, pieces flow through
-  `plan.props` instead and this is only the bake input.
+- `app/utils/courtyardAssets.ts` creates the custom town templates, merges geometry
+  by material and registers them for both instancing and editor selection. Shared
+  dimensions come from `shared/utils/courtyard.ts`.
+- `app/utils/courtyardScene.ts` owns paving, gardens, the sparring circle, distant
+  animated pennants and fountain placement. `fountainWater.ts` owns gravity driven
+  droplets, impact splashes and the basin surface. Its fixed timestep wave solver
+  is visual only; shared player collision continues to use the solid fountain
+  footprint. Dispose each water effect separately before generic scenery disposal. `courtyardLandscape.ts` owns sculpted
+  terrain, original botanical model instances and GPU grass wind. `courtyardTextures.ts` owns the
+  runtime pigment maps. Dispose this scenery when rebuilding the floor.
+- `app/utils/composeColosseum.ts` is the retained legacy composition. The current
+  map does not use it or the old `hub-*.json` layouts.
 - `app/utils/hubEditor.ts` — the dev-only world editor's 3D controller (fly
   camera, ground raycast, click-to-place / select / drag, keyboard nudges, the
   draggable Oracle marker ring). Owns its own `editorGroup` on the scene root and
@@ -71,33 +77,38 @@ you never receive geometry over the wire.
    backward into it — and freeze small disagreement while idle. A plain
    "always ease toward `self`" blend brings back the rubber-band-into-invisible-
    walls and the release-a-key glide; keep the `RECONCILE_*` split intact.
-2. **No geometry over the socket.** The arena is built locally from
+2. **No geometry over the socket.** The courtyard is built locally from
    `generateHub()` plus the committed layout JSON. Only player snapshots
    (`state`) arrive.
 3. **Day/night + weather are driven by the server clock** (`welcome.now`), not
    local time — keep them synced so all players see the same sky. The arena runs
    the full cycle; don't pin it to a fixed time of day.
-4. **The arena is the Ruins + Castle kits, composed as rings.** Ground arcade of
-   `Arch_Round` + `Column_Round` (torches and alternating `Flag_Wall` between),
-   a continuous rake of stepped seating slabs rising up-and-back *behind* the
-   arcade, an arched upper wall, and statues flanking the door. Rotation is
-   "front (+Z) faces the arena centre". Collision never comes from any of this —
-   it's the tile ring in `world-sim`'s `generateHub`, so a piece moved for looks
-   changes nothing the server simulates.
+4. **The courtyard uses custom templates and authored JSON placements.**
+   `courtyard-structure.json` holds buildings and walls, `courtyard-props.json`
+   holds furniture and trees. Custom kinds start with `Courtyard_` and have no
+   direct catalog GLB path. `createCourtyardAssets()` supplies furniture and
+   fallback templates. Original GLBs under `models/courtyard` replace buildings,
+   trees and fountain after loading, for both play and editor.
+   Collision comes from their shared dimensions, not from mesh raycasting.
 5. Characters play idle/run/jump/dash from state (mapped to the shared library's
    `Idle_Loop`/`Jog_Fwd_Loop`/`Jump_Loop`/`Sprint_Loop`), per-player assignment +
    accent tint. Mid-air crossfades are only lightly verified — tune timescale/
    crossfade if they look off.
-6. **Load only what the arena draws.** `ARENA_KINDS` is every kind referenced by
-   `plan.props` plus `composeColosseum()`, and `arenaOnly()` filters each catalog
-   list through it, so play never waits on the ~200 kit models the arena doesn't
-   use. In editor mode (`EDITING`) that filter is bypassed and every catalog
-   loads, because the whole palette must be placeable. Wave 1 (`PROP_NAMES`)
-   paints the arena; wave 2 (`PROP_DECOR_NAMES`, `CASTLE_NAMES`, and in the
-   editor the rest) triggers a second `buildFloor` — `instantiateModule` returns
-   `null` until a template loads, so late pieces pop in on that rebuild.
+6. **Load only what the arena draws.** Play loads the original `courtyard`
+   models in both play and editor. The palette and save allow-list contain only
+   courtyard kinds; legacy environment kits and thumbnails are not shipped. Register completed custom
+   templates before `buildFloor()` so editor selection and instancing agree.
+7. `courtyardRenderer.ts` owns the render loop's EffectComposer with contact
+   occlusion, restrained bloom and one OutputPass. Call Tres's render notification
+   after rendering. Dispose the pipeline on unmount. Landscape instances borrow
+   template geometry/materials, so remove and dispose the landscape separately
+   before generic scenery disposal, never dispose those borrowed resources.
 
 ## Known rendering gotchas (from ROADMAP)
+- GTAO's normal override ignores sprite alpha maps. Hide sprites only during
+  the occlusion pass and restore their visibility afterward, or nameplates cast
+  rectangular panels as the camera turns. Text sprites also disable depth writes
+  while retaining depth testing against the world.
 - **Arena props render instanced, not cloned.** `renderPlanProps` batches
   `plan.props` into one `InstancedMesh` per kind via `instantiateModule`. The
   editor filters `hand`-flagged props out of that batch (its `editor` prop) and
@@ -105,20 +116,13 @@ you never receive geometry over the wire.
   materials** with the template (`clone(true)`), so a selection highlight must be
   a `BoxHelper`, never a material tint (tinting would recolor every clone of that
   kind).
-- **The colosseum is data-driven, not procedural at render.** `composeColosseum`
-  (pure `{kind,x,y,z,rot,scale,s3?}` pieces via an `emit` collector) is the single
-  source the editor bakes into `hub-structure.json`. Once baked, those pieces flow
-  through `plan.props` and render via the instanced solids loop (`propMatrix`
-  honors `z` elevation + `s3` per-axis scale); `composeColosseum` is then only the
-  bake input. Pre-bake, `renderComposed(composeColosseum())` is the normal-play
-  fallback (visual only, no collision). Editor mode never uses that fallback —
-  `MazeScene`'s `onMounted` seeds the editable structure layer from
-  `composeColosseum` so the controller's clones own the arena. Only the sand, the
-  rune circle and the backdrop shell stay procedural always.
+- The courtyard is data-driven. The editor saves `courtyard-structure.json`,
+  `courtyard-props.json` and `courtyard-oracle.json`. Both play and editor use
+  the same custom templates. The legacy colosseum files stay untouched.
 - Pointer lock throws `WrongDocumentError` inside the Claude preview iframe; real
   tabs/deploy are fine. A delta-look fallback covers embeds — keep it.
-- Camera boom only considers the wall grid, not prop heights — it can clip
-  through tall props at close range.
+- Camera boom samples the wall grid and shared solid prop heights along its
+  width. It uses conservative clearance for the head-to-camera path.
 - `.client.vue` suffix / `<ClientOnly>` matters: three.js is browser-only, never
   let scene code run during SSR.
 - **Character GLBs carry `EXT_texture_webp` textures** — the top-level

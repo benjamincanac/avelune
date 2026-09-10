@@ -30,20 +30,30 @@ files the game loads, and the scripts that do it.
   emissive-pulsed, and compressing needs `gltf-transform optimize --join false
   --flatten false --instance false` or the named nodes get merged away.
 - `scripts/make_og.py` — social OG image.
-- `public/models/**` — the shipped `.glb` output (characters, props, fantasy,
-  monsters, nature) and `textures/`.
+- `scripts/build_courtyard_nature.py` authors the original `tree.glb`, `bush.glb`,
+  `flowers.glb` and `rock.glb` under `public/models/courtyard/`. It uses smooth
+  geometry and painted vertex colors without textures. Run headless; `--render`
+  writes `/tmp/tempest-nature.png`. Preserve `COLOR_0` and vertex-color materials
+  when optimizing or assembling these models. Their exported bases sit at Y=0.
+- `scripts/build_courtyard_fountain.py` builds the original courtyard fountain
+  at `public/models/courtyard/fountain.glb`. Run it headless without arguments;
+  optional `--render` creates a studio preview after exporting.
+- `public/models/**` — the shipped `.glb` output: character models and shared
+  animations, the Oracle monster, and the original courtyard models.
 
 ## Environment (cold-start facts)
 - **Blender 5.1.2** at `/Applications/Blender.app/Contents/MacOS/Blender`. Scripts
   run headless:
   `"/Applications/Blender.app/Contents/MacOS/Blender" --background --python scripts/<x>.py -- <args>`
+- The local source library is `/Users/benjamincanac/GitHub/quaternius`, not
+  `~/Downloads/quaternius`. It remains available for future authored exports.
 - Quaternius packs come from Google Drive folders linked on quaternius.com pack
   pages (`gdown --folder`). Newer packs (Universal*, Modular Outfits) are
   **itch.io-only behind Cloudflare** — they need a manual download dropped into
   the pipeline; you can't fetch them headlessly.
-- Compression target (ROADMAP §1): a `gltf-transform` meshopt pass over
-  `public/models/**` — ~6 MB today, should roughly halve. Don't regress mesh/anim
-  correctness for size.
+- Keep `public/models/**` limited to active assets. New models should be
+  reproducible from a generator, and superseded kit folders should be removed
+  rather than retained as dead weight.
 
 ## Invariants
 1. **Characters share one animation set.** `scene-3d` drives clips by exact
@@ -78,8 +88,26 @@ files the game loads, and the scripts that do it.
    defect distinct from the runtime WebP-probe race `scene-3d` documents — both
    surface the same `.uri` error, both must be handled.
 
+6. **Decode normalized attributes before baking transforms.** Optimized village
+   GLBs use normalized Int16 position accessors. Convert positions, normals and
+   UVs to float through attribute getters before `applyMatrix4`; writing world
+   coordinates into the quantized arrays clips or wraps them. Preserve source
+   texture materials and foliage alpha masking when composing templates.
+7. **The fountain basin is open for runtime water at Y=0.48.** The generator
+   exports Blender Z as glTF Y and joins geometry into four material meshes.
+   Limestone and relief carry vertex colors, brass and celadon use their own
+   materials. Preserve those colors when optimizing; water and its animation
+   belong to the runtime scenery, not the static GLB.
+
+8. **Original architecture uses the same authored placement footprints.**
+   `scripts/build_courtyard_architecture.py` exports `inn.glb`, `shop.glb` and
+   `tower.glb` under `public/models/courtyard`. Ground is Y=0, front is +Z.
+   Roof overhangs and carved trim are decorative. Material groups retain smooth
+   normals; these models use no downloaded textures. Run Blender headlessly with
+   `--python scripts/build_courtyard_architecture.py -- --render` for previews.
+
 ## Ruins pack (convert_props.py) specifics
-- Source: `~/Downloads/quaternius/ultimate-modular-ruins-pack/Blends` (91 `.blend`).
+- Source: `/Users/benjamincanac/GitHub/quaternius/ultimate-modular-ruins-pack/Blends` (91 `.blend`).
   `"…/Blender" --background --python scripts/convert_props.py -- <that dir> public/models/props`
   It prints `DIMS <name>: w x d x h` per model — read those to choose placement scales.
 - **83 of 91 are converted**; the 8 deliberately skipped are dupes/junk: `Brick`

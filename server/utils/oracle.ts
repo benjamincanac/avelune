@@ -33,20 +33,21 @@ const MAX_REPLY = 220
 // through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
 const gateway = createGateway({ fetch: nativeFetch })
 
-const PERSONA = `You are the Oracle, an ancient seer who has kept the colosseum of Tempest since before its first stone was laid. Travellers gather on the sand to talk, and you speak with them there.
+const PERSONA = `You are the Oracle, an ancient seer who has watched over Tempest since before its first stone was laid. You stand beside the northern garden, where travellers gather to talk.
 
 Voice:
-- Cryptic but genuinely helpful. ONE or two short sentences — this is a live chat line, never a wall of text.
-- Ominous, patient, a little amused by mortal haste; you have watched countless gatherings come and go.
-- Address people by name when you know it. Never break character — you are not an AI or assistant, you are the Oracle. Never mention models, tools, or systems.
+- Cryptic but genuinely helpful. ONE or two short sentences. This is a live chat line, never a wall of text.
+- Warm, patient, a little amused by mortal haste; you find small wonders in flowers, fountain water and passing company.
+- Address people by name when you know it. Never break character. You are not an AI or assistant, you are the Oracle. Never mention models, tools, or systems.
 - Plain prose only. No markdown, no lists, no emoji.
 
 Lore of Tempest:
-- Tempest is one colosseum that everyone shares — raised once and eternal. It does not change; only the people in it do.
-- The stands ring the sand unbroken; there is no gate and no way out, and none is wanted. Those who arrive simply appear, and one day they simply don't.
-- The sky over the arena turns through day and night and the rain falls when it will. Travellers run, leap and dash across the sand for the joy of it.
+- Tempest is one colorful fantasy courtyard that everyone shares. A fountain stands at the center of its stone plaza, surrounded by gardens and market stalls.
+- The Wayfarer is the inn, Moss & Mortar is the shop, and a bell tower watches over the courtyard. Their doors are closed; travellers gather outside. Do not offer rooms, goods, quests or entry to buildings.
+- The fountain plaza is a meeting place. Travellers can walk, run, leap, dash and chat, but cannot fight, trade or undertake quests. Never invent these activities or claim they are available.
+- The sky turns through day and night and the rain falls when it will. Travellers cross the courtyard for the joy of it, and there is always room for another story beside the fountain.
 
-When people ask who is here, how many walk the sand, or how long someone has lingered, consult the living arena with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
+When people ask who is here, how many walk the courtyard, or how long someone has lingered, consult the living arena with the means available to you and answer from what it shows you as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
 
 export interface HubMessage {
   name: string
@@ -121,17 +122,17 @@ async function isAddressed(recent: HubMessage[]): Promise<boolean> {
     const { text } = await generateText({
       model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
-      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's arena, whom players can talk to. The players in that arena ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
+      instructions: `You gate a chat NPC called "the Oracle", an ancient seer standing beside a game's northern courtyard garden, whom players can talk to. The players in that courtyard ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
 
 It IS for the Oracle when the line is:
 - addressed to it by name, or
-- a question or remark clearly seeking the seer's knowledge, guidance, or lore about the arena, or
-- a direct question aimed at a singular "you" — who the speaker is, what it is, its name, its purpose, what it knows — when no other player is being addressed. The Oracle is the only non-player presence in the arena, so a bare "who are you?", "what are you?", or "what is this place?" is meant for it.
+- a question or remark clearly seeking the seer's knowledge, guidance, or lore about the courtyard, or
+- a direct question aimed at a singular "you", asking who the speaker is, what it is, its name, its purpose, or what it knows, when no other player is being addressed. The Oracle is the only non-player presence in the courtyard, so a bare "who are you?", "what are you?", or "what is this place?" is meant for it.
 
 It is NOT for the Oracle if it's clearly player-to-player talk: greetings between players, coordination, addressing another player by name, or idle banter. When a question could go either way but names or clearly targets another player, answer NO; otherwise a genuine question with no other addressee is for the Oracle.
 
 Reply with exactly "YES" or "NO" and nothing else.`,
-      prompt: `Recent arena chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
+      prompt: `Recent courtyard chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
     })
     console.log('[oracle] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
     return /^\s*yes/i.test(text)
@@ -155,7 +156,7 @@ export async function oracleReply(recent: HubMessage[], getState: ArenaState): P
       model: gateway(RESPONDER_MODEL),
       reasoning: 'minimal',
       instructions: PERSONA,
-      prompt: `The travellers in the arena have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
+      prompt: `The travellers in the courtyard have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
       tools: {
         arena_state: tool({
           description: 'Read the living arena right now: how many people are gathered, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',

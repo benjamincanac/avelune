@@ -1,13 +1,13 @@
-# Tempest — a multiplayer colosseum on Vercel WebSockets
+# Tempest, a 3D multiplayer world on Vercel
 
 [![License: MIT](https://img.shields.io/github/license/benjamincanac/tempest?color=black)](https://github.com/benjamincanac/tempest/blob/main/LICENSE)
 [![Nuxt](https://img.shields.io/badge/Nuxt-black?logo=nuxt&logoColor=00DC82)](https://nuxt.com)
 
-A shared 3D world built with **Nuxt** and **[TresJS](https://tresjs.org)** on [Vercel Functions WebSockets](https://vercel.com/docs/functions/websockets). Everyone spawns on the sand of the same colosseum, walks around under a moving sky, and talks in a shared chat. An AI Oracle stands in the arena and answers when you speak to it, reading the live state of the game to do so.
+A shared 3D world built with **Nuxt** and **[TresJS](https://tresjs.org)** on [Vercel Functions WebSockets](https://vercel.com/docs/functions/websockets). Everyone shares a colorful fantasy courtyard with a central fountain plaza, market stalls and gardens. An AI Oracle answers when you speak to it, reading the live state of the game to do so.
 
-It's a demo of two things: a real authoritative game loop running inside a Vercel Function with one WebSocket per player, and an AI NPC wired directly into that loop.
+The project demonstrates how to build a 3D MMO on Vercel, starting with authoritative movement, shared world state, persistent character identity and an AI NPC inside the game loop.
 
-Everything is simulated server-side and fanned out over the socket. No database, no game engine backend, no image assets. The world, the textures and the 3D models are code and bundled data.
+Everything is simulated server-side and fanned out over the socket. No database or separate game engine backend. The world, the textures and the 3D models are code and bundled data.
 
 > [!NOTE]
 > WebSockets in Vercel Functions are in [beta](https://vercel.com/docs/release-phases#beta).
@@ -29,8 +29,8 @@ The Oracle needs an `AI_GATEWAY_API_KEY`. Without one it just stays quiet.
 
 ## The world
 
-- **The arena.** One colosseum, shared by everyone. Open sand ringed by unbroken tiered stands, with a rune circle inlaid in the middle. There is no way out; the arena is the whole world. Every visible piece is a hand-placed kit piece.
-- **The Oracle.** An ancient seer on the sand. It listens to the chat and answers only when it decides a line was meant for it, in character, and it can look up who is actually in the arena right now before it does.
+- **The courtyard.** A central fountain plaza surrounded by gardens, market stalls, The Wayfarer inn and Moss & Mortar shop. Buildings and stalls are scenery; combat, trading and interiors are not implemented. Architecture and furniture are editable placements with shared collision dimensions.
+- **The Oracle.** An ancient seer beside the northern garden. It listens to the chat and answers only when it decides a line was meant for it, in character, and it can look up who is actually in the arena right now before it does.
 - **The sky.** A full day/night cycle and drifting weather (clear, overcast, rain), shared by everyone through the server clock.
 
 ## How it works
@@ -39,7 +39,7 @@ Nitro v3 ships native [crossws](https://crossws.h3.dev) WebSocket support that w
 
 ### The world never goes over the wire
 
-The arena is hand-authored into [`shared/data/hub-structure.json`](shared/data/hub-structure.json) and built by `generateHub()` in [`shared/utils/maze.ts`](shared/utils/maze.ts): collision tiles, spawn, and every prop with its footprint. Server and client build the identical world from the identical data, the server for collision, the client for rendering and prediction. The socket only ever carries players.
+The arena is hand-authored into [`shared/data/courtyard-structure.json`](shared/data/courtyard-structure.json) and built by `generateHub()` in [`shared/utils/maze.ts`](shared/utils/maze.ts): collision tiles, spawn, and every prop with its footprint. Server and client build the identical world from the identical data, the server for collision, the client for rendering and prediction. The socket only ever carries players.
 
 ### Authoritative simulation, client-owned heading
 
@@ -65,9 +65,9 @@ The cookie rides the same-origin WebSocket upgrade and [`server/api/ws.ts`](serv
 
 ### Art from code (plus a CC0 ruin or two)
 
-- **Textures.** The arena sand and the runic circle are drawn onto canvases at runtime ([`app/utils/textures.ts`](app/utils/textures.ts)).
+- **Textures.** Subtle plaster, stone and sand textures are drawn at runtime ([`app/utils/courtyardTextures.ts`](app/utils/courtyardTextures.ts)).
 - **Characters.** Composed from Quaternius' CC0 *Universal* packs by [`scripts/convert_universal_characters.py`](scripts/convert_universal_characters.py): an outfit from *Modular Character Outfits – Fantasy*, a head from *Universal Base Characters* trimmed to the neck with a mix-and-match hairstyle, and a shared clip set from *Universal Animation Library* 1 & 2. Because every body, outfit and animation shares one 65-bone universal skeleton, the clips ship once in `animations.glb` (skeleton only, no mesh) and bind to every character by bone name with no retargeting. The chosen colorway dyes just the outfit cloth at runtime. Idle, run, jump and roll are driven by movement state, including for remote players.
-- **Architecture.** Arches, columns, rails, stairs, torches and watchtowers come from [Quaternius](https://quaternius.com)' CC0 *Ultimate Modular Ruins Pack*, converted to GLB by [`scripts/convert_props.py`](scripts/convert_props.py). The arena is dressed by hand in an in-game editor and its pieces render as `InstancedMesh` batches, one per kind.
+- **Architecture.** Original Blender models in `public/models/courtyard` provide the buildings, fountain and vegetation. Their generators live in `scripts/build_courtyard_*.py`. Custom furniture and fallback templates in [`app/utils/courtyardAssets.ts`](app/utils/courtyardAssets.ts) merge geometry by material before instancing. Dimensions in [`shared/utils/courtyard.ts`](shared/utils/courtyard.ts) define the collision footprints. The world editor uses the same courtyard templates. Legacy environment kits and their thumbnails are no longer shipped. Sculpted terrain and animated grass are generated in `app/utils/courtyardLandscape.ts`; the render pipeline adds contact occlusion and restrained bloom.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ app/
 
 shared/
 ├── types/game.ts             # wire protocol
-├── data/hub-structure.json   # the hand-authored arena
+├── data/courtyard-structure.json # authored courtyard buildings
 └── utils/maze.ts             # arena generation, collision, shared kinematics
 
 server/

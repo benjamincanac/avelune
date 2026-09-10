@@ -1,24 +1,21 @@
 import type { HubPropPlacement } from '#shared/utils/maze'
 import { HUB_LAYOUT } from '#shared/utils/maze'
-import propsSeed from '#shared/data/hub-props.json'
-import structureSeed from '#shared/data/hub-structure.json'
-import oracleSeed from '#shared/data/hub-oracle.json'
+import propsSeed from '#shared/data/courtyard-props.json'
+import structureSeed from '#shared/data/courtyard-structure.json'
+import oracleSeed from '#shared/data/courtyard-oracle.json'
 
 /**
  * Shared state for the dev-only world editor.
  *
- * There is one map — the colosseum arena — so there is one working document:
+ * There is one courtyard map and one working document:
  * every placement in the arena plus the Oracle's position. `save()` writes it
  * back to the repo's JSON in a single call (`POST /api/editor/save`).
  *
  * Placements keep a two-layer model so the exploded structure and the
- * free-standing clutter persist to their own files (`hub-structure.json` /
- * `hub-props.json`). `top`/`r` collision is never stored — it's derived through
+ * free-standing clutter persist to their own files (`courtyard-structure.json` /
+ * `courtyard-props.json`). `top`/`r` collision is never stored — it's derived through
  * `makeProp`, so server collision and client render stay in lockstep.
  *
- * Before the colosseum is baked (`hub-structure.json` empty), `MazeScene` seeds
- * the structure layer from its procedural composition via `seedStructure`, so
- * it's immediately editable and the first save IS the bake.
  */
 export const EDITOR_REENTER_KEY = 'tempest:editor-reenter'
 

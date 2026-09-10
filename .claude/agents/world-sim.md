@@ -15,18 +15,21 @@ authoritative server and the client's prediction/rendering both build from
 independently.
 
 ## Files you own
-- `shared/utils/maze.ts` — the arena (`HUB_LAYOUT` + `generateHub`), collision,
+- `shared/utils/maze.ts` — the world (`HUB_LAYOUT` + `generateHub`), collision,
   elevation (walkable props), `stepBody` kinematics, the movement constants both
   sides read, and `occupancyGrid` (a display-only wall raster for the minimap).
 - `shared/utils/characters.ts` — character roster / assignment logic.
+- `shared/utils/courtyard.ts` — the courtyard bounds, arena/fountain positions,
+  and `COURTYARD_ASSETS` dimensions shared by collision and the art templates.
 - `shared/utils/propCatalog.ts` — the GLB template name lists (moved out of
   `MazeScene.vue`) plus `PROP_CATALOG` / `ALL_PROP_KINDS`. Shared so the client
   renderer and the dev prop editor agree on what's placeable. A prop `kind` is a
   GLB basename; its directory is implied by which list it's in.
-- `shared/data/hub-props.json` — the arena's hand-placed free-standing props (see invariant 4).
-- `shared/data/hub-structure.json` — the "exploded" colosseum (every arch/column/
-  seating slab/statue as an editable piece), baked from the client's procedural
-  composer (see invariant 4).
+- `shared/data/courtyard-props.json` — the courtyard's hand-placed furniture,
+  trees, fountain, and lanterns (see invariant 4).
+- `shared/data/courtyard-structure.json` — editable village buildings and
+  perimeter walls (see invariant 4). The old `hub-*.json` placements remain
+  legacy colosseum data and are not loaded by `generateHub`.
 - `shared/data/hub-oracle.json` — the Oracle's stand position as a bare `[x, y]`
   array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
   scene and the editor; written by the editor's save route.
@@ -40,30 +43,31 @@ independently.
    functions so they never disagree. If you're tempted to put physics in a
    component or the WS handler, stop — it belongs in `shared/utils/maze.ts`.
 2. **The arena is committed data, not a seed.** `generateHub()` takes no
-   arguments and returns the same plan every time: the tile ring is computed
-   from `HUB_LAYOUT`, everything else is read from the committed JSON. `createRng`
+   arguments and returns the same plan every time: the tile boundary is computed
+   from `COURTYARD`, everything else is read from the committed JSON. `createRng`
    survives only for cosmetic hashing that must stay stable across reloads
    (procedural textures) — never for gameplay state. No geometry travels over
    the socket, only players.
-3. **`HUB_LAYOUT` is the arena's shared truth** (56×56), so the collision tiles
-   and the client's rendered colosseum can never drift: `center`, `arenaRadius`
-   (the open sand), `wallInner` (tiles at radius ≥ this are wall), and `start`
-   (spawn). `generateHub` stamps the annulus outside `arenaRadius` as solid,
-   unbroken — the arena has no exit — plus a defensive border ring. Units are tiles; `PLAYER_RADIUS` and prop radii
+3. **`HUB_LAYOUT` sets the 56×56 grid and spawn; `COURTYARD` sets its playable
+   bounds and landmarks.** `generateHub` stamps tiles outside `[min, max)` on
+   either axis as solid, plus a defensive border ring. The former colosseum
+   radius does not determine movement. Buildings and furniture collide through
+   their authored footprints. Units are tiles; `PLAYER_RADIUS` and prop radii
    too. Keep tunables as exported constants so both sides read the same numbers.
 4. **The arena loads its props/pieces from two committed JSON files**, both
    written by the dev editor and both appended to `plan.props` (each
-   `hand: true`) through `makeProp`. `hub-props.json` = free-standing clutter;
-   `hub-structure.json` = the exploded colosseum (arcade arches, columns, seating
-   slabs, statues…). Placements are `{kind, x, y, rot, scale, z?, s3?}`: `z` = 3D
-   elevation and `s3` = per-axis scale are **render-only** (carried onto the spec)
-   — collision stays ground-based, so only ground-level (`z≈0`) kinds in
-   `SOLID_PROPS` block. A `SOLID_PROPS` entry is a collision disc (`r`), or an
+   `hand: true`) through `makeProp`. `courtyard-props.json` = furniture and
+   landscaping; `courtyard-structure.json` = buildings and walls. Placements are
+   `{kind, x, y, rot, scale, z?, s3?}`: `z` is render-only elevation; `s3` overrides
+   uniform scale for both rendering and collision. Collision stays ground-based
+   even when a solid kind is placed above ground. A `SOLID_PROPS` entry is a collision disc (`r`), or an
    oriented box (`box: [localX, localY]`) for wall/panel kinds a circle can't fit
    — `r` is then its bounding radius for broad-phase. Arches, doorways and
-   entrances stay OUT so their openings remain walkable. Never store `top`/`r` in
-   the JSON — always derive via `makeProp`. `hub-structure.json` empty ⇒ not yet
-   baked (client shows the procedural composer output instead).
+   entrances stay OUT so their openings remain walkable. Courtyard entries derive
+   from `COURTYARD_ASSETS`, which also supplies the art template dimensions.
+   Never store `top`/`r` in the JSON; always derive via `makeProp`. Box collision
+   must invert Three.js Y rotation: `localX = dx*cos - dy*sin`,
+   `localY = dx*sin + dy*cos`. The opposite signs mirror diagonal footprints.
 
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
@@ -82,4 +86,6 @@ agent are told what moved.
   named exported constants alongside the existing ones.
 - After changes to generation or kinematics, sanity-check that `stepBody`
   produces identical results given identical inputs (that's the whole contract).
+- `pnpm exec jiti scripts/world-test.ts` checks spawn, boundaries, courtyard
+  obstacles, diagonal boxes, bench jumping, and deterministic movement.
 - The protocol test is `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`.

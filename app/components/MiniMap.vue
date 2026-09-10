@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { generateHub, occupancyGrid } from '#shared/utils/maze'
+import { COURTYARD } from '#shared/utils/courtyard'
+import oracle from '#shared/data/courtyard-oracle.json'
 import type { UseGame } from '~/composables/useGame'
 
 /**
@@ -11,7 +13,7 @@ const props = defineProps<{ game: UseGame }>()
 
 const SIZE = 172
 /** Half-extent of the window, in tiles. */
-const RANGE = 11
+const RANGE = 22
 
 const canvas = useTemplateRef('canvas')
 
@@ -38,8 +40,8 @@ function draw() {
   ctx.fillRect(0, 0, SIZE, SIZE)
 
   const toScreen = (wx: number, wy: number) => ({
-    x: SIZE / 2 + (wx - self.x) * scale,
-    y: SIZE / 2 + (wy - self.y) * scale,
+    x: SIZE / 2 + (wx - self.rx) * scale,
+    y: SIZE / 2 + (wy - self.ry) * scale,
   })
 
   const minX = Math.max(0, Math.floor(self.x - RANGE))
@@ -49,11 +51,37 @@ function draw() {
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {
       const wall = occ[ty * plan.width + tx] === 1
-      ctx.fillStyle = wall ? '#4a5468' : '#232c3d'
+      ctx.fillStyle = wall ? '#666751' : '#b0a787'
       const { x, y } = toScreen(tx, ty)
       ctx.fillRect(x, y, scale + 0.5, scale + 0.5)
     }
   }
+
+  const arena = toScreen(COURTYARD.arena.x, COURTYARD.arena.y)
+  ctx.fillStyle = '#d4bb87'
+  ctx.strokeStyle = '#eee0bb'
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.arc(arena.x, arena.y, COURTYARD.arena.radius * scale, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  for (const prop of plan.props) {
+    if (!['Courtyard_Tree', 'Courtyard_Fountain'].includes(prop.kind)) continue
+    const point = toScreen(prop.x, prop.y)
+    ctx.fillStyle = prop.kind === 'Courtyard_Tree' ? '#65815a' : '#73c5c5'
+    ctx.beginPath()
+    ctx.arc(point.x, point.y, (prop.kind === 'Courtyard_Tree' ? 1.8 * prop.scale : prop.r) * scale, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  const npc = toScreen(oracle[0]!, oracle[1]!)
+  ctx.fillStyle = '#b9eaff'
+  ctx.beginPath()
+  ctx.moveTo(npc.x, npc.y - 3.5)
+  ctx.lineTo(npc.x + 3, npc.y)
+  ctx.lineTo(npc.x, npc.y + 3.5)
+  ctx.lineTo(npc.x - 3, npc.y)
+  ctx.closePath()
+  ctx.fill()
 
   // Everyone else, then you as an oriented arrow.
   for (const player of props.game.players.values()) {
@@ -102,6 +130,8 @@ onBeforeUnmount(() => clearInterval(timer))
     ref="canvas"
     :width="SIZE"
     :height="SIZE"
+    role="img"
+    aria-label="Courtyard map showing the fountain plaza, Oracle and players"
     class="pointer-events-auto drop-shadow-lg"
   />
 </template>

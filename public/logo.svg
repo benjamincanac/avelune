@@ -1,53 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- Tempest: the rift gate. The colosseum arch, the swirling portal, and
-       the slime at the threshold. -->
-  <defs>
-    <radialGradient id="halo" cx="50%" cy="45%" r="58%">
-      <stop offset="0%" stop-color="#6FB7FF" stop-opacity="0.5"/>
-      <stop offset="100%" stop-color="#6FB7FF" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="rift" cx="50%" cy="48%" r="65%">
-      <stop offset="0%" stop-color="#3E58C9"/>
-      <stop offset="60%" stop-color="#2B2E7C"/>
-      <stop offset="100%" stop-color="#181B45"/>
-    </radialGradient>
-    <clipPath id="opening">
-      <path d="M 86 202 V 142 A 42 42 0 0 1 170 142 V 202 Z"/>
-    </clipPath>
-  </defs>
-
-  <rect width="256" height="256" rx="56" fill="#0A0F1D"/>
-  <ellipse cx="128" cy="142" rx="96" ry="96" fill="url(#halo)"/>
-
-  <!-- Stone gate: round arch on stepped plinths. -->
-  <path d="M 66 202 V 138 A 62 62 0 0 1 190 138 V 202 Z" fill="#8FA0BE"/>
-  <rect x="54" y="202" width="148" height="14" rx="5" fill="#8FA0BE"/>
-  <rect x="44" y="216" width="168" height="11" rx="5" fill="#66779A"/>
-
-  <!-- Glowing runes on the pylons. -->
-  <g fill="#8fe0ff">
-    <rect x="72" y="148" width="9" height="9" rx="2" transform="rotate(45 76.5 152.5)"/>
-    <rect x="72" y="170" width="9" height="9" rx="2" transform="rotate(45 76.5 174.5)" opacity="0.75"/>
-    <rect x="175" y="148" width="9" height="9" rx="2" transform="rotate(45 179.5 152.5)"/>
-    <rect x="175" y="170" width="9" height="9" rx="2" transform="rotate(45 179.5 174.5)" opacity="0.75"/>
-  </g>
-
-  <!-- The rift. -->
-  <path d="M 86 202 V 142 A 42 42 0 0 1 170 142 V 202 Z" fill="url(#rift)"/>
-  <g clip-path="url(#opening)">
-    <g fill="none" stroke-linecap="round">
-      <g transform="rotate(-30 128 146)">
-        <path d="M 128 115 a 31 31 0 1 1 -31 31" stroke="#79C6FF" stroke-width="10"/>
-      </g>
-      <g transform="rotate(100 128 146)">
-        <path d="M 128 126 a 20 20 0 1 1 -20 20" stroke="#A5DEFF" stroke-width="9"/>
-      </g>
-      <g transform="rotate(230 128 146)">
-        <path d="M 128 136 a 10 10 0 1 1 -10 10" stroke="#E9F8FF" stroke-width="8"/>
-      </g>
-    </g>
-    <circle cx="128" cy="146" r="6" fill="#F4FBFF"/>
-    <circle cx="104" cy="122" r="2.4" fill="#BFE8FF" opacity="0.9"/>
-    <circle cx="157" cy="170" r="2" fill="#BFE8FF" opacity="0.7"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <title>Tempest</title>
+  <!-- Three sweeping currents around an open center. -->
+  <path d="M48 7C25 7 8 24 8 46C8 60 15 72 28 79C20 66 22 51 33 43C41 37 50 37 58 41C48 31 44 19 48 7Z" fill="#CCE9F6"/>
+  <path d="M48 7C25 7 8 24 8 46C8 60 15 72 28 79C20 66 22 51 33 43C41 37 50 37 58 41C48 31 44 19 48 7Z" transform="rotate(120 48 48)" fill="#93B9E8"/>
+  <path d="M48 7C25 7 8 24 8 46C8 60 15 72 28 79C20 66 22 51 33 43C41 37 50 37 58 41C48 31 44 19 48 7Z" transform="rotate(240 48 48)" fill="#F7FCFC"/>
 </svg>

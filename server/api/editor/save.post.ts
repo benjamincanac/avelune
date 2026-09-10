@@ -7,7 +7,7 @@ import { resolveDataDir } from '../../utils/editorFiles'
 
 /**
  * `POST /api/editor/save` — dev-only. The single save endpoint for the world
- * editor: overwrites `hub-props.json`, `hub-structure.json` and `hub-oracle.json`
+ * editor: overwrites `courtyard-props.json`, `courtyard-structure.json` and `courtyard-oracle.json`
  * in one call from the editor's working doc. Dev-only + committed files (Vercel
  * prod FS is read-only, and the world ships bundled). Coordinates are rounded
  * and rotations normalized so diffs stay small.
@@ -57,9 +57,9 @@ export default defineEventHandler(async (event) => {
   const dir = await resolveDataDir()
   const write = (name: string, data: unknown) => writeFile(join(dir, name), `${JSON.stringify(data, null, 2)}\n`)
 
-  await write('hub-props.json', hubProps.map(normPiece))
-  await write('hub-structure.json', hubStructure.map(normPiece))
-  if (oracle) await write('hub-oracle.json', [round3(oracle[0]), round3(oracle[1])])
+  await write('courtyard-props.json', hubProps.map(normPiece))
+  await write('courtyard-structure.json', hubStructure.map(normPiece))
+  if (oracle) await write('courtyard-oracle.json', [round3(oracle[0]), round3(oracle[1])])
 
   return { ok: true as const, hubProps: hubProps.length, hubStructure: hubStructure.length }
 })
