@@ -112,4 +112,13 @@ export default defineNuxtConfig({
       websocket: true,
     },
   },
+
+  // The Nitro v3 beta's rolldown build mishandles @nuxt/icon's local server
+  // bundle: the dynamic `import('@iconify-json/*/icons.json', { with: { type:
+  // 'json' } })` is chunked but the call site keeps the bare specifier, which
+  // crashes on Vercel (no node_modules in /var/task) with ERR_MODULE_NOT_FOUND.
+  // 'remote' swaps those imports for CDN fetches, so nothing resolves locally.
+  icon: {
+    serverBundle: 'remote',
+  },
 })
