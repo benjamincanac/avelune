@@ -336,19 +336,9 @@ const sunDir = new Vector3()
 /* Arena geometry                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** The arena is hand-authored and constant — build its plan once. */
+/** The arena is hand-authored and constant, in play and in the editor alike —
+ *  build its plan once and read it everywhere. */
 const hubPlan = generateHub()
-
-function getPlan(): FloorPlan {
-  return hubPlan
-}
-
-let currentPlan = getPlan()
-
-/** There is only one map, so the editor always edits the arena's plan. */
-function editorPlan(): FloorPlan {
-  return getPlan()
-}
 
 /** Procedural grass under and around the arena, built once. */
 let groundTexture: CanvasTexture | null = null
@@ -411,7 +401,7 @@ function buildFloor() {
   // floorGroup.clear() detached the Oracle; drop the ref so it gets rebuilt.
   oracleRig = null
 
-  const plan = currentPlan
+  const plan = hubPlan
 
   // The meadow the colosseum stands on — the sand disc covers its middle.
   const ground = ensureGroundTexture()
@@ -924,8 +914,8 @@ function angleDelta(to: number, from: number): number {
 /* -------------------------------------------------------------------------- */
 
 const local = {
-  x: currentPlan.start.x,
-  y: currentPlan.start.y,
+  x: hubPlan.start.x,
+  y: hubPlan.start.y,
   z: 0,
   vz: 0,
   grounded: true,
@@ -969,7 +959,7 @@ let boomDist = MAX_BOOM
 function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: number): number {
   const px = -dirZ // unit perpendicular to the boom, for width sampling
   const pz = dirX
-  const blocked = (x: number, z: number) => !isWalkable(currentPlan, Math.floor(x), Math.floor(z))
+  const blocked = (x: number, z: number) => !isWalkable(hubPlan, Math.floor(x), Math.floor(z))
   for (let d = 0.3; d < maxDist; d += 0.08) {
     const sx = hx + dirX * d
     const sz = hy + dirZ * d
@@ -1146,7 +1136,7 @@ onBeforeRender(({ delta, elapsed }) => {
       // free-orbit mouse-look never spins us on the spot while standing still.
       local.facing += angleDelta(Math.atan2(dy, dx), local.facing) * (1 - Math.exp(-dt * CHARACTER_TURN_RATE))
     }
-    stepBody(currentPlan, local, dx, dy, dt)
+    stepBody(hubPlan, local, dx, dy, dt)
 
     const ex = self.x - local.x
     const ey = self.y - local.y
@@ -1435,8 +1425,8 @@ if (import.meta.dev) {
     // procedural composition so every kit piece is immediately selectable and
     // the first save writes hub-structure.json (the bake).
     if (!HUB_STRUCTURE.length) ed.seedStructure(composeColosseum())
-    // Build the editor's working copy of the arena (persisted across a save-reload).
-    currentPlan = editorPlan()
+    // Draw the arena for the editor to work over (the controller clones the
+    // hand-placed pieces on top as individually selectable objects).
     buildFloor()
     editorCtl = createHubEditor({
       scene: scene.value,
@@ -1449,10 +1439,7 @@ if (import.meta.dev) {
     editorCtl.rebuild()
     // Rebuild the scene on any structural change (seed / undo / redo). The
     // controller re-clones its placements off its own deep watch.
-    watch(() => ed!.structureVersion.value, () => {
-      currentPlan = editorPlan()
-      buildFloor()
-    })
+    watch(() => ed!.structureVersion.value, buildFloor)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).__editor = ed
   })
