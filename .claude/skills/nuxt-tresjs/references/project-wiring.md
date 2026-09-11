@@ -12,14 +12,14 @@
 
 - `nuxt.config.ts` — `modules: ['@nuxt/ui', '@tresjs/nuxt']`; no `tres` options set.
 - `app/components/GameScene.client.vue` — hosts `<TresCanvas>` and owns all input (keys, pointer lock, mouse deltas). Client-only by filename.
-- `app/components/MazeScene.vue` — the whole 3D world, built imperatively inside the Tres context; its template is a bare `<TresGroup />`. Only ever mounted under GameScene, so it never renders on the server.
+- `app/components/ArenaScene.vue` — the whole 3D world, built imperatively inside the Tres context; its template is a bare `<TresGroup />`. Only ever mounted under GameScene, so it never renders on the server.
 - `app/components/CharacterPreview*.client.vue` — the onboarding turntable, a second small canvas.
 - `app/utils/{textures,stadium,appearance,characterModels}.ts` — three.js helpers; they touch `document` and are only imported from the client components above.
 
 ## The Nuxt side
 
 - SSR is on. Anything touching `window`, `document` or WebGL at import or setup time sits in a `.client.vue` component, under `<ClientOnly>`, or behind `import.meta.client`. `@tresjs/nuxt` ships `TresCanvas` as a client + server pair, so the canvas itself is safe; your own three.js code is not.
-- `@tresjs/nuxt` auto-imports the `@tresjs/core` composables (`useTresContext`, `useLoop`, `useLoader`, `extend`, …), registers the `Tres*` components, and patches the Vue compiler so `<TresMesh>` and friends resolve. Explicit imports (`import { useLoop, useTresContext } from '@tresjs/core'`) still work and are what MazeScene does.
+- `@tresjs/nuxt` auto-imports the `@tresjs/core` composables (`useTresContext`, `useLoop`, `useLoader`, `extend`, …), registers the `Tres*` components, and patches the Vue compiler so `<TresMesh>` and friends resolve. Explicit imports (`import { useLoop, useTresContext } from '@tresjs/core'`) still work and are what ArenaScene does.
 - Cross-layer state (chat bubbles, Oracle speech) flows through Nuxt `useState` composables (`useGame`, `useOracle`), not props into the canvas.
 - `shared/**` is also run by the server: it must stay free of three.js and DOM imports.
 

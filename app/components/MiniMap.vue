@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { generateHub, occupancyGrid } from '#shared/utils/maze'
+import { generateArena, occupancyGrid } from '#shared/utils/arena'
 import type { UseGame } from '~/composables/useGame'
 
 /**
@@ -16,7 +16,7 @@ const RANGE = 11
 const canvas = useTemplateRef('canvas')
 
 /** The arena never changes — build the plan and its wall raster once. */
-const plan = generateHub()
+const plan = generateArena()
 /** Display wall grid: tiles plus rasterized solid props. */
 const occ = occupancyGrid(plan)
 

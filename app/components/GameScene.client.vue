@@ -278,7 +278,7 @@ defineExpose({ pointerLocked, requestLock })
       :tone-mapping="ACESFilmicToneMapping"
       :tone-mapping-exposure="1.05"
     >
-      <MazeScene
+      <ArenaScene
         :game="game"
         :held="held"
         :view="view"

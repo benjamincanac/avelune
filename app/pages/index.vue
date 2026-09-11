@@ -191,28 +191,27 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         @unlock="showMenu = true"
       />
 
-      <!-- Top-left: identity + connection status. -->
-      <header class="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-2">
+      <!-- Left column: identity + connection status on top, the chat filling the rest. -->
+      <div class="pointer-events-none absolute inset-y-4 left-4 z-10 flex w-92 flex-col gap-2">
         <BrandMark
           :count="game.count.value"
           :dot-class="statusColor"
           size="size-8"
-          class="pointer-events-auto rounded-lg bg-black/45 px-3 py-2 backdrop-blur"
+          class="pointer-events-auto self-start rounded-lg bg-black/45 px-3 py-2 backdrop-blur"
         />
-      </header>
+        <ChatPanel
+          :game="game"
+          class="min-h-0 flex-1"
+        />
+      </div>
 
       <!-- Top-right: minimap. -->
       <aside class="pointer-events-none absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
         <MiniMap :game="game" />
       </aside>
 
-      <!-- Bottom-left: chat. -->
-      <div class="pointer-events-none absolute bottom-4 left-4 z-10">
-        <ChatPanel :game="game" />
-      </div>
-
-      <!-- Oracle: a discovery hint when near it. The Oracle answers in the
-           chat when addressed — no separate dialog. -->
+      <!-- Oracle: a discovery hint when near it. The Oracle answers questions
+           about Vercel in the chat when addressed — no separate dialog. -->
       <Transition
         enter-active-class="transition duration-200 ease-out"
         enter-from-class="opacity-0 translate-y-2"
@@ -224,7 +223,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
           class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex justify-center"
         >
           <span class="flex items-center gap-1.5 rounded-full bg-black/60 px-3.5 py-1.5 text-[13px] text-highlighted ring ring-white/10 backdrop-blur">
-            The Oracle listens — <span class="text-muted">speak to it in chat</span>
+            The Oracle listens — <span class="text-muted">ask about Vercel in chat</span>
           </span>
         </div>
       </Transition>

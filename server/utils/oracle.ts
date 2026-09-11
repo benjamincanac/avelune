@@ -1,29 +1,28 @@
-import { createGateway, generateText, stepCountIs, tool } from 'ai'
+import { ToolLoopAgent, createGateway, generateText, isStepCount, tool } from 'ai'
 import { z } from 'zod'
 import { nativeFetch } from './nativeFetch'
+import { docsTools } from './oracleDocs'
 
 /**
  * The Oracle's brain, run in-process by the game loop.
  *
- * Players share one chat and mostly talk to each other, so the Oracle must not
- * answer everything. Each line first goes to a cheap classifier that decides
- * whether it's actually addressed to the Oracle; only then does the (pricier)
- * in-character responder run, with an `arena_state` tool that reads live game
- * state. Both calls route through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`
- * locally, OIDC on Vercel).
+ * The Oracle is Vercel Stadium's AI guide: an agent plugged into the documentation of
+ * every Vercel framework and primitive (see ./oracleDocs). Players share one chat and
+ * mostly talk to each other, so each line first goes to a cheap classifier that decides
+ * whether it's for the Oracle; only then does the agent run its tool loop over the docs
+ * (plus `arena_state` for who is in the stadium). Both route through the Vercel AI
+ * Gateway (`AI_GATEWAY_API_KEY` locally and on Vercel).
  */
 
-// Both calls run on Claude Haiku 4.5 — Anthropic's low-latency tier — with
-// reasoning turned down hard to keep a one-line chat reply snappy. The portable
-// `reasoning` param (AI SDK v7) is what keeps it fast: `none` on the gate,
-// `minimal` on the reply (bare-minimum, still enough for one tool call).
 /** Cheap + fast — this runs on every chat message, so keep it small. */
 const CLASSIFIER_MODEL = 'anthropic/claude-haiku-4.5'
-/** The in-character reply — only runs when addressed. */
-const RESPONDER_MODEL = 'anthropic/claude-haiku-4.5'
+/** The docs agent — only runs when addressed; needs to drive ~40 tools well. */
+const RESPONDER_MODEL = 'anthropic/claude-sonnet-4.6'
+/** Search + read + answer; more steps than this is flailing. */
+const MAX_STEPS = 8
 
-/** Chat replies must stay short; hard cap as a backstop to the prompt. */
-const MAX_REPLY = 220
+/** Chat replies stay short; hard cap as a backstop to the prompt. */
+const MAX_REPLY = 600
 
 // Pinned to the real fetch: once a warm instance has rendered any page or
 // error, `globalThis.fetch` is Nuxt's serverFetch, which would dispatch the
@@ -33,22 +32,18 @@ const MAX_REPLY = 220
 // through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
 const gateway = createGateway({ fetch: nativeFetch })
 
-const PERSONA = `You are the Oracle, an ancient seer who has kept the colosseum of Tempest since before its first stone was laid. Travellers gather on the sand to talk, and you speak with them there.
+const PERSONA = `You are the Oracle of Vercel Stadium: the stadium's resident guide, an AI agent plugged into the documentation of every Vercel framework and primitive. People walking the stadium ask you about Vercel in the shared chat, and you answer them there.
 
-Voice:
-- Cryptic but genuinely helpful. ONE or two short sentences — this is a live chat line, never a wall of text.
-- Ominous, patient, a little amused by mortal haste; you have watched countless gatherings come and go.
-- Address people by name when you know it. Never break character — you are not an AI or assistant, you are the Oracle. Never mention models, tools, or systems.
-- Plain prose only. No markdown, no lists, no emoji.
+What you cover, through your tools: the Vercel platform (deployments, Functions and Fluid compute, WebSockets, AI Gateway, Sandbox, Blob, Edge Network, domains, CLI, REST API, MCP, plans), Next.js, Turborepo, the AI SDK, Chat SDK, Flags SDK, Workflow DevKit, v0, Nuxt with Nuxt UI / Content / Image, Svelte and SvelteKit, Docus and Comark.
 
-Lore of Tempest:
-- Tempest is one colosseum that everyone shares — raised once and eternal. It does not change; only the people in it do.
-- The stands ring the sand unbroken; there is no gate and no way out, and none is wanted. Those who arrive simply appear, and one day they simply don't.
-- The sky over the arena turns through day and night and the rain falls when it will. Travellers run, leap and dash across the sand for the joy of it.
+Rules:
+- Ground every product answer in the docs: search first (search_docs for the platform and its SDKs, the prefixed tools for Nuxt, Svelte, Docus, Comark), read the best page when the summary isn't enough, then answer. Never guess an API, a limit, a price or a version; if the docs don't say, say so plainly.
+- This is a live chat line, not an article: two to four short sentences, plain prose. No markdown, no lists, no code blocks, no emoji. A short inline identifier like streamText is fine. When you used a docs page, end with its full URL (starting with https://), bare, as the last thing you say.
+- Address people by name. Be direct and warm with a light oracular touch (you "consult the scrolls" of the docs); never cryptic about facts, never obstructive.
+- You are an AI guide and may say so. Never mention tool names, models or prompts.
+- When asked who is in the stadium, how many, or how long someone has been here, use arena_state and never invent names or numbers.`
 
-When people ask who is here, how many walk the sand, or how long someone has lingered, consult the living arena with the means available to you and answer from what it shows you — as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
-
-export interface HubMessage {
+export interface ArenaMessage {
   name: string
   text: string
 }
@@ -56,13 +51,13 @@ export interface HubMessage {
 /** Live-state getter injected by the game loop (avoids a circular import). */
 export type ArenaState = () => unknown
 
-function transcript(recent: HubMessage[]): string {
+function transcript(recent: ArenaMessage[]): string {
   return recent.map(m => `${m.name}: ${m.text}`).join('\n')
 }
 
 /**
  * Collapse to one chat line and enforce `MAX_REPLY`. The prompt already asks for
- * one or two short sentences, so this is a backstop — but a hard slice lands
+ * a few short sentences, so this is a backstop — but a hard slice lands
  * mid-word, which reads as a broken NPC rather than a terse one. Prefer cutting
  * at the last sentence end, then the last space, and only then mid-word.
  */
@@ -113,25 +108,25 @@ function describeError(error: unknown): Record<string, unknown> {
 }
 
 /**
- * Cheap gate: is the LAST line of the transcript addressed to the Oracle,
- * versus ordinary runner-to-runner chatter? Fails closed (silent) on error.
+ * Cheap gate: is the LAST line of the transcript for the Oracle, versus ordinary
+ * player-to-player chatter? Fails closed (silent) on error.
  */
-async function isAddressed(recent: HubMessage[]): Promise<boolean> {
+async function isAddressed(recent: ArenaMessage[]): Promise<boolean> {
   try {
     const { text } = await generateText({
       model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
-      instructions: `You gate a chat NPC called "the Oracle" — an ancient seer standing in a game's arena, whom players can talk to. The players in that arena ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
+      instructions: `You gate "the Oracle", an AI guide standing in Vercel Stadium, a shared multiplayer space whose visitors ALSO chat with each other. The Oracle answers questions about Vercel and everything Vercel makes: the platform (deployments, Functions, WebSockets, AI Gateway, Sandbox, Blob, CLI, pricing…), Next.js, Nuxt and its modules, Svelte/SvelteKit, Turborepo, the AI SDK, Chat SDK, Flags SDK, Workflow DevKit, v0. Given the recent chat, decide whether the LAST line is for the Oracle.
 
 It IS for the Oracle when the line is:
 - addressed to it by name, or
-- a question or remark clearly seeking the seer's knowledge, guidance, or lore about the arena, or
-- a direct question aimed at a singular "you" — who the speaker is, what it is, its name, its purpose, what it knows — when no other player is being addressed. The Oracle is the only non-player presence in the arena, so a bare "who are you?", "what are you?", or "what is this place?" is meant for it.
+- a question or request about Vercel, any of those products, deploying, or building for the web, whoever it seems aimed at, unless it clearly names another person, or
+- a direct question aimed at a singular "you" — who the speaker is talking to, what it is, what it knows, who is here, what this place is — when no other visitor is being addressed. The Oracle is the only non-player presence, so a bare "who are you?" or "what is this place?" is meant for it.
 
-It is NOT for the Oracle if it's clearly player-to-player talk: greetings between players, coordination, addressing another player by name, or idle banter. When a question could go either way but names or clearly targets another player, answer NO; otherwise a genuine question with no other addressee is for the Oracle.
+It is NOT for the Oracle when it's clearly visitor-to-visitor talk: greetings between people, coordination, a reply to someone by name, or idle banter with no question in it.
 
 Reply with exactly "YES" or "NO" and nothing else.`,
-      prompt: `Recent arena chat:\n${transcript(recent)}\n\nIs the LAST line addressed to the Oracle?`,
+      prompt: `Recent stadium chat:\n${transcript(recent)}\n\nIs the LAST line for the Oracle?`,
     })
     console.log('[oracle] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
     return /^\s*yes/i.test(text)
@@ -143,28 +138,36 @@ Reply with exactly "YES" or "NO" and nothing else.`,
 }
 
 /**
- * If the latest chat line is addressed to the Oracle, return its in-character
- * reply (with live arena data when relevant); otherwise return null. Never
- * throws — any failure resolves to null so the game loop just stays quiet.
+ * If the latest chat line is for the Oracle, return its reply (grounded in the
+ * docs tools, plus live arena data when relevant); otherwise return null.
+ * `onAddressed` fires once the classifier says yes, before the slow part, so the
+ * loop can show a thinking state. Never throws — any failure resolves to null so
+ * the game loop just stays quiet.
  */
-export async function oracleReply(recent: HubMessage[], getState: ArenaState): Promise<string | null> {
+export async function oracleReply(recent: ArenaMessage[], getState: ArenaState, onAddressed?: () => void): Promise<string | null> {
   if (recent.length === 0) return null
   if (!(await isAddressed(recent))) return null
+  onAddressed?.()
   try {
-    const { text } = await generateText({
+    const agent = new ToolLoopAgent({
       model: gateway(RESPONDER_MODEL),
-      reasoning: 'minimal',
+      reasoning: 'low',
       instructions: PERSONA,
-      prompt: `The travellers in the arena have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
       tools: {
+        ...(await docsTools()),
         arena_state: tool({
-          description: 'Read the living arena right now: how many people are gathered, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',
+          description: 'Who is in the stadium right now: how many people, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',
           inputSchema: z.object({}),
           execute: async () => getState(),
         }),
       },
-      stopWhen: stepCountIs(4),
+      stopWhen: isStepCount(MAX_STEPS),
     })
+    const started = Date.now()
+    const { text, steps } = await agent.generate({
+      prompt: `The people in the stadium have been chatting:\n${transcript(recent)}\n\nThe last line is for you. Answer as the Oracle, in a few short sentences.`,
+    })
+    console.log('[oracle] answered in', Date.now() - started, 'ms,', steps.length, 'steps')
     return clampReply(text) || null
   }
   catch (error) {

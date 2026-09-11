@@ -1,5 +1,5 @@
 /**
- * Tempest's world: one hand-authored colosseum arena.
+ * Vercel Stadium's world: one hand-authored stadium arena.
  *
  * Everything that decides where a body can stand lives here — the arena's tile
  * grid, prop collision footprints, and the kinematics. The authoritative server
@@ -8,12 +8,12 @@
  * a component or the WS handler.
  *
  * The arena is fixed, not procedural.
- * Its hand-placed pieces are committed as JSON: `hub-structure.json` (kit pieces), `hub-props.json` (clutter).
+ * Its hand-placed pieces are committed as JSON: `arena-structure.json` (kit pieces), `arena-props.json` (clutter).
  * So no geometry ever travels over the WebSocket — only players.
  */
 
-import hubProps from '../data/hub-props.json'
-import hubStructure from '../data/hub-structure.json'
+import hubProps from '../data/arena-props.json'
+import hubStructure from '../data/arena-structure.json'
 
 /** How far players move, in tiles per second. */
 export const PLAYER_SPEED = 3.2
@@ -55,8 +55,8 @@ export interface PropSpec {
 }
 
 /**
- * A hand-placed prop as stored in `shared/data/hub-props.json` (gameplay props)
- * or `shared/data/hub-structure.json` (kit pieces), both edited by hand.
+ * A hand-placed prop as stored in `shared/data/arena-props.json` (gameplay props)
+ * or `shared/data/arena-structure.json` (kit pieces), both edited by hand.
  * `top`/`r` are never stored — they're always derived through `makeProp`
  * so server collision and client rendering stay in lockstep. `z` (elevation) and
  * `s3` (per-axis scale) are optional render-only extras.
@@ -116,7 +116,7 @@ const SOLID_PROPS: Record<string, SolidProp> = {
   Rock_Medium_3: { top: 1.8, r: 0.95 },
   Prop_Crate: { top: 0.9, r: 0.55 },
   Prop_Wagon: { top: 1.2, r: 1.05 },
-  // Ground-level village building pieces (baked into hub-structure.json). Tall
+  // Ground-level village building pieces (baked into arena-structure.json). Tall
   // `top` (unjumpable) so house walls block; ~1-tile radius so a chain of 2-unit
   // wall panels reads as a solid perimeter. The door frame + gate arch are left
   // OUT so their openings stay walkable. Upper-floor/roof kinds are never listed
@@ -188,17 +188,17 @@ export function createRng(seed: number): () => number {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The colosseum layout, shared so `generateHub` (collision tiles) and the
+ * The stadium layout, shared so `generateArena` (collision tiles) and the
  * client renderer (arena sand, stands) never drift apart. World
  * coords in tiles (1 tile = 1 unit).
  *
- * A gigantic colosseum: players spawn on the open arena sand in the middle, and
+ * A gigantic stadium: players spawn on the open arena sand in the middle, and
  * an unbroken ring of tiles under the tiered stands walls it in (the parapet
  * visuals sit on top of it). There is no way out — the arena is the whole world.
- * Everything visible is a hand-placed kit piece (baked into hub-structure.json);
+ * Everything visible is a hand-placed kit piece (baked into arena-structure.json);
  * only the sand and the ring are procedural.
  */
-export const HUB_LAYOUT = {
+export const ARENA_LAYOUT = {
   size: 56,
   center: { x: 28, y: 28 },
   /** Open arena radius — players roam freely inside this. */
@@ -209,9 +209,9 @@ export const HUB_LAYOUT = {
   start: { x: 28, y: 32 },
 }
 
-export function generateHub(): FloorPlan {
-  const size = HUB_LAYOUT.size
-  const { center, wallInner } = HUB_LAYOUT
+export function generateArena(): FloorPlan {
+  const size = ARENA_LAYOUT.size
+  const { center, wallInner } = ARENA_LAYOUT
   const tiles = new Uint8Array(size * size)
 
   // Solid stands ring: every tile outside the arena is wall.
@@ -243,7 +243,7 @@ export function generateHub(): FloorPlan {
     width: size,
     height: size,
     tiles,
-    start: { ...HUB_LAYOUT.start },
+    start: { ...ARENA_LAYOUT.start },
     props,
   }
 }

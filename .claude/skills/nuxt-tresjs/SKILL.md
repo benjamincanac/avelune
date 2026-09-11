@@ -1,6 +1,6 @@
 ---
 name: nuxt-tresjs
-description: Hub for this project's 3D layer — Nuxt × TresJS × three.js. Routes 3D work to the right reference (vanilla three.js API via the threejs-* skills with their known r185 inaccuracies, bundled TresJS docs with v5 deltas, the global nuxt skill) and explains how this codebase wires them (imperative scene under TresCanvas, client-only, useLoop). Use when touching MazeScene/GameScene, the camera, lights or shadows, materials and textures, GLTF models or animation, post-processing, or any Tres/three code inside a Nuxt component.
+description: Hub for this project's 3D layer — Nuxt × TresJS × three.js. Routes 3D work to the right reference (vanilla three.js API via the threejs-* skills with their known r185 inaccuracies, bundled TresJS docs with v5 deltas, the global nuxt skill) and explains how this codebase wires them (imperative scene under TresCanvas, client-only, useLoop). Use when touching ArenaScene/GameScene, the camera, lights or shadows, materials and textures, GLTF models or animation, post-processing, or any Tres/three code inside a Nuxt component.
 ---
 
 # Nuxt × TresJS × three.js
@@ -55,7 +55,7 @@ docs assume both — treat their components as "available if added", not present
 - [ ] Take the three.js API from the matching threejs-* skill
 - [ ] Check threejs-skill-corrections.md for that skill's known misses
 - [ ] Translate vanilla patterns to Tres (translation table in the corrections file)
-- [ ] Gameplay-affecting math (position, collision, elevation) goes to shared/utils/maze.ts, never the scene
+- [ ] Gameplay-affecting math (position, collision, elevation) goes to shared/utils/arena.ts, never the scene
 - [ ] Verify in the running game, not just typecheck (see the run-mmo skill)
 ```
 

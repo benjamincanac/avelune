@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Convert curated Quaternius MegaKit models (Stylized Nature + Medieval Village)
-# to small, self-contained GLBs for the nature-village hub.
+# to small, self-contained GLBs (kit catalog; nothing places them in the stadium today).
 #
 # The kits ship .gltf + .bin + shared texture atlases; gltf-transform's `optimize`
 # resizes textures, dedups, prunes, and meshopt-compresses each into one GLB. The

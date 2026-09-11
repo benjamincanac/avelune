@@ -2,7 +2,7 @@
 name: world-sim
 description: >
   The shared arena, kinematics, and gameplay types — the code that BOTH server
-  and client must agree on. Use for anything in shared/utils/maze.ts (arena
+  and client must agree on. Use for anything in shared/utils/arena.ts (arena
   generation, collision, elevation, stepBody), shared/utils/characters.ts, or
   shared/types/game.ts (Player, PlayerState, MoveInput,
   ClientMessage/ServerMessage). Reach for this whenever a change touches player
@@ -10,12 +10,12 @@ description: >
 model: inherit
 ---
 
-You own Tempest's shared world layer — the single source of truth that the
+You own Vercel Stadium's shared world layer — the single source of truth that the
 authoritative server and the client's prediction/rendering both build from
 independently.
 
 ## Files you own
-- `shared/utils/maze.ts` — the arena (`HUB_LAYOUT` + `generateHub`), collision,
+- `shared/utils/arena.ts` — the arena (`ARENA_LAYOUT` + `generateArena`), collision,
   elevation (walkable props), `stepBody` kinematics, the movement constants both
   sides read, and `occupancyGrid` (a display-only wall raster for the minimap).
 - `shared/utils/characters.ts` — the roster (one look in two bodies: `Developer`
@@ -23,13 +23,13 @@ independently.
   `characterModel()` maps unknown `character` strings to the male body, so old
   cookies still render) plus the accent-colour rules.
 - `shared/utils/propCatalog.ts` — the GLB template name lists (moved out of
-  `MazeScene.vue`). A prop `kind` is a GLB basename; its directory is implied by
+  `ArenaScene.vue`). A prop `kind` is a GLB basename; its directory is implied by
   which list it's in.
-- `shared/data/hub-props.json` — the arena's hand-placed free-standing props (see invariant 4).
-- `shared/data/hub-structure.json` — an optional hand-edited kit-piece layer,
+- `shared/data/arena-props.json` — the arena's hand-placed free-standing props (see invariant 4).
+- `shared/data/arena-structure.json` — an optional hand-edited kit-piece layer,
   empty by default: the stadium bowl is procedural client code (`scene-3d`'s
   `app/utils/stadium.ts`) and never passes through here (see invariant 4).
-- `shared/data/hub-oracle.json` — the Oracle's stand position as a bare `[x, y]`
+- `shared/data/arena-oracle.json` — the Oracle's stand position as a bare `[x, y]`
   array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
   scene; edited by hand.
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, and the
@@ -40,22 +40,22 @@ independently.
    here**, not in the server or a client component. The server sim
    (`server/utils/game.ts`) and client prediction call the SAME exported
    functions so they never disagree. If you're tempted to put physics in a
-   component or the WS handler, stop — it belongs in `shared/utils/maze.ts`.
-2. **The arena is committed data, not a seed.** `generateHub()` takes no
+   component or the WS handler, stop — it belongs in `shared/utils/arena.ts`.
+2. **The arena is committed data, not a seed.** `generateArena()` takes no
    arguments and returns the same plan every time: the tile ring is computed
-   from `HUB_LAYOUT`, everything else is read from the committed JSON. `createRng`
+   from `ARENA_LAYOUT`, everything else is read from the committed JSON. `createRng`
    survives only for cosmetic hashing that must stay stable across reloads
    (procedural textures) — never for gameplay state. No geometry travels over
    the socket, only players.
-3. **`HUB_LAYOUT` is the arena's shared truth** (56×56), so the collision tiles
-   and the client's rendered colosseum can never drift: `center`, `arenaRadius`
+3. **`ARENA_LAYOUT` is the arena's shared truth** (56×56), so the collision tiles
+   and the client's rendered stadium can never drift: `center`, `arenaRadius`
    (the open sand), `wallInner` (tiles at radius ≥ this are wall), and `start`
-   (spawn). `generateHub` stamps the annulus outside `arenaRadius` as solid,
+   (spawn). `generateArena` stamps the annulus outside `arenaRadius` as solid,
    unbroken — the arena has no exit — plus a defensive border ring. Units are tiles; `PLAYER_RADIUS` and prop radii
    too. Keep tunables as exported constants so both sides read the same numbers.
 4. **The arena loads its props/pieces from two committed JSON files**, both
-   edited by hand (the in-game editor is gone) and both appended to `plan.props` through `makeProp`. `hub-props.json` = free-standing clutter;
-   `hub-structure.json` = kit pieces placed as structure (normally none — the
+   edited by hand (the in-game editor is gone) and both appended to `plan.props` through `makeProp`. `arena-props.json` = free-standing clutter;
+   `arena-structure.json` = kit pieces placed as structure (normally none — the
    stadium bowl is procedural). Placements are `{kind, x, y, rot, scale, z?, s3?}`: `z` = 3D
    elevation and `s3` = per-axis scale are **render-only** (carried onto the spec)
    — collision stays ground-based, so only ground-level (`z≈0`) kinds in
@@ -69,10 +69,11 @@ independently.
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
 `action` (`jump`|`dash`), `chat`, `ping`. Server→client: `welcome`, `join`,
-`leave`, `state`, `chat`, `kicked`, `pong`. `welcome` carries `{self, players,
+`leave`, `state`, `chat`, `kicked`, `pong`, `oracle`. `welcome` carries `{self, players,
 now}` — `self` is always a `Player`, and `now` is the server clock the client's
 day/night + weather run on. `chat` is `{id, text}` with no scoping; the Oracle
-speaks through the reserved `ORACLE_ID` sender, never a roster player. `kicked`
+speaks through the reserved `ORACLE_ID` sender, never a roster player, and
+`oracle` is `{thinking: boolean}` while it consults the docs. `kicked`
 carries a `reason` and boots a socket when the same identity opens another
 (single session per player). When you change a frame's shape, flag both
 consumers explicitly — the change is not done until `server-net` and the client

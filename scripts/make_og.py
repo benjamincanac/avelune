@@ -1,9 +1,9 @@
-"""Render Tempest's OG image (1200x630) from the game's own assets.
+"""Render the OG image (1200x630). STALE: still the old game's medieval door scene, not the stadium.
 
 Run headless:
   Blender --background --python scripts/make_og.py -- <models_dir> <out_png>
 
-Scene: slab floor, the colosseum's monumental great door with slime-blue
+Scene (old game): slab floor, the monumental great door with slime-blue
 glowing runes as the hero set piece, guardian statues, two adventurers posed
 from their shared-skeleton idle clip, torchlight — and the title as
 camera-locked text so it renders crisp like an overlay.
@@ -32,7 +32,7 @@ scene = bpy.context.scene
 # the same gltf-transform CLI the repo's convert scripts use.
 _DECOMP_DIR = tempfile.mkdtemp(prefix="og_glb_")
 
-# Brand accent: Tempest slime blue (tagline / exact brand value).
+# Brand accent: Vercel Stadium slime blue (tagline / exact brand value).
 SLIME = (0.576, 0.725, 0.910)
 # The brand blue is pale and high-luminance, so as raw emission/light it clips
 # to white under AgX. This saturated sibling (same cornflower hue) survives the
@@ -108,7 +108,7 @@ for o in slab_source:
     o.hide_render = True
 
 # ---------------------------------------------------------------------------
-# Hero set piece: the colosseum's monumental great door.
+# Hero set piece: the old game's monumental great door.
 # ---------------------------------------------------------------------------
 DOOR_Y = 3.3            # depth of the door plane
 DOOR_TARGET_H = 4.1     # world height in metres (seated with base on the floor)
@@ -252,7 +252,7 @@ def add_text(body, local_y, size, color, strength, spacing=1.0):
     return text
 
 
-add_text("TEMPEST", 0.92, 0.52, (1, 1, 1), 4, spacing=1.32)
+add_text("VERCEL STADIUM", 0.92, 0.52, (1, 1, 1), 4, spacing=1.32)
 # Lower strength so the pale brand blue reads as blue instead of clipping white.
 add_text("THE GREAT DUNGEON", 0.74, 0.125, SLIME, 3, spacing=1.7)
 

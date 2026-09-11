@@ -4,13 +4,13 @@ description: >
   3D asset pipeline — Blender headless conversion, glTF processing/compression,
   and the models under public/models/**. Use for the scripts/*.py + scripts/*.sh
   conversion tooling (convert_props.py, convert_universal_characters.py,
-  rebuild_animations.py, make_assets.py, convert_fantasy.sh, convert_kits.sh),
+  rebuild_animations.py, convert_fantasy.sh, convert_kits.sh),
   the OG image generator (make_og.py), gltf-transform compression, and importing
   new Quaternius packs. NOT for how models are rendered in-game (that's scene-3d).
 model: inherit
 ---
 
-You own Tempest's asset pipeline: turning source packs into the optimized `.glb`
+You own Vercel Stadium's asset pipeline: turning source packs into the optimized `.glb`
 files the game loads, and the scripts that do it.
 
 ## Files you own
@@ -20,21 +20,26 @@ files the game loads, and the scripts that do it.
   Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
   `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start/Loop/Land`, `Roll`, …), one NLA
   track per clip so the exporter emits one animation each.
-- `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`,
+- `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`,
   `scripts/convert_new_kits.py` — batch conversion entry points.
-- `scripts/make_door.py` / `scripts/make_portal.py` — built the arena's great
-  door (`colosseum_door.glb`) and the older `portal_gate.glb`. Both are now
-  unloaded: the door was removed when the dungeon was cut, so the scripts and
-  GLBs are dead weight kept only as reference. If you resurrect either, note the
-  contract: objects named `Shard_*` are animated and material `Rune` is
-  emissive-pulsed, and compressing needs `gltf-transform optimize --join false
-  --flatten false --instance false` or the named nodes get merged away.
-- `scripts/make_og.py` — social OG image.
-- `public/models/**` — the shipped `.glb` output (characters, props, fantasy,
-  monsters, nature) and `textures/`.
+- `scripts/make_door.py` — built `colosseum_door.glb`, the old game's great door.
+  Nothing loads it in play any more; it survives only because `make_og.py` still
+  renders it. Contract if you touch it: objects named `Shard_*` are animated and
+  material `Rune` is emissive-pulsed, and compressing needs `gltf-transform
+  optimize --join false --flatten false --instance false` or the named nodes get
+  merged away. (`make_portal.py`, `make_assets.py`, `portal_gate.glb`,
+  `character.glb`, `torch.glb` and `models/monsters` were removed with the old game.)
+- `scripts/make_og.py` — social OG image. **Stale:** it still stages the medieval
+  door + statues; the stadium needs a new hero render.
+- `public/models/**` — the shipped `.glb` output (characters, plus the props /
+  fantasy / dungeon / crypt / castle / nature / village kits) and `textures/`. With
+  both arena JSON layers empty, no kit GLB loads in play — they are catalog only.
 
 ## Environment (cold-start facts)
-- **Blender 5.1.2** at `/Applications/Blender.app/Contents/MacOS/Blender`. Scripts
+- **Blender 5.1.2** was at `/Applications/Blender.app/Contents/MacOS/Blender` —
+  missing as of 2026-09-11 (and `~/Downloads/quaternius` with it), so check
+  before promising a re-export; the runtime remix in `app/utils/developerLook.ts`
+  exists because of that. Scripts
   run headless:
   `"/Applications/Blender.app/Contents/MacOS/Blender" --background --python scripts/<x>.py -- <args>`
 - Quaternius packs come from Google Drive folders linked on quaternius.com pack
@@ -51,7 +56,7 @@ files the game loads, and the scripts that do it.
    `rebuild_animations.py` output stable; renaming a clip silently breaks
    playback.
 2. **Props are authored for instancing** — consistent origins/scale so
-   `MazeScene.vue` can batch them. The Ruins pack **does** have a full straight-wall
+   `ArenaScene.vue` can batch them. The Ruins pack **does** have a full straight-wall
    set — `Wall` (plain 2×2 panel), `Wall_Half`, `Wall_Broken`, `Wall_Hole`,
    `Wall_Overgrown`, the 4×4 `Wall_Arch*` variants, `Window_*`, `Doors_*`, and
    `Curve_*` corners — all converted, though the arena only places a handful of

@@ -1,5 +1,5 @@
 /**
- * The GLB template name lists `MazeScene.vue` loads from `/models/<dir>/<name>.glb`.
+ * The GLB template name lists `ArenaScene.vue` loads from `/models/<dir>/<name>.glb`.
  * A prop `kind` is exactly a GLB basename; the directory is implied by which list it appears in.
  * Only kinds referenced by the arena JSON download; the rest is the catalog of converted kits.
  */

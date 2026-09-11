@@ -1,8 +1,8 @@
 {
-  "name": "tempest",
+  "name": "vercel-stadium",
   "private": true,
   "type": "module",
-  "description": "Tempest — a multiplayer colosseum dungeon on Vercel WebSockets. An authoritative Nitro game loop simulating a shared, hand-built dungeon, rendered with TresJS, over one realtime connection per player.",
+  "description": "Vercel Stadium — a shared 3D stadium on Vercel WebSockets with the Oracle, an AI agent plugged into the docs of every Vercel framework and primitive. Authoritative Nitro game loop, TresJS rendering, one realtime connection per player.",
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=24"
@@ -28,6 +28,7 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^2.0.46",
     "@iconify-json/lucide": "^1.2.112",
     "@iconify-json/simple-icons": "^1.2.86",
     "@nuxt/ui": "^4.9.0",

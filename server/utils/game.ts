@@ -6,11 +6,11 @@ import {
   DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
-  generateHub,
+  generateArena,
   stepBody,
-} from '#shared/utils/maze'
+} from '#shared/utils/arena'
 import type { Identity } from './session'
-import type { HubMessage } from './oracle'
+import type { ArenaMessage } from './oracle'
 import { oracleReply } from './oracle'
 
 /**
@@ -53,7 +53,7 @@ interface Session {
 }
 
 /** The one arena. Hand-authored and constant, so it's built once at boot. */
-const PLAN = generateHub()
+const PLAN = generateArena()
 
 const sessions = new Map<string, Session>()
 
@@ -172,7 +172,7 @@ export interface Connection {
 }
 
 /**
- * A read-only snapshot of the living arena, for the Oracle's `arena_state`
+ * A read-only snapshot of the living stadium, for the Oracle's `arena_state`
  * tool. Because this runs in the same process as the authoritative game loop,
  * it reads the real in-memory roster directly — no HTTP hop, and always the
  * true state (unlike a separate service, which on serverless could miss the
@@ -191,35 +191,41 @@ export function snapshot() {
 
 /* -------------------------------------------------------------------------- */
 /* Oracle: listens to the arena chat and answers only when a message is        */
-/* actually addressed to it (the classifier in ./oracle decides).              */
+/* actually addressed to it (the classifier in ./oracle decides). While it     */
+/* consults the docs, everyone sees an `oracle` thinking frame.                */
 /* -------------------------------------------------------------------------- */
 
 /** Recent arena chat as context for the Oracle (players' lines and its own). */
-const hubChat: HubMessage[] = []
-const HUB_CHAT_CONTEXT = 12
+const arenaChat: ArenaMessage[] = []
+const ARENA_CHAT_CONTEXT = 12
 /** One reply in flight at a time, plus a cooldown after each — anti-flood. */
 let oracleBusy = false
 let oracleQuietUntil = 0
 const ORACLE_COOLDOWN = 4000
 
 function considerOracle(name: string, text: string) {
-  hubChat.push({ name, text })
-  if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
+  arenaChat.push({ name, text })
+  if (arenaChat.length > ARENA_CHAT_CONTEXT) arenaChat.shift()
   // Don't even classify while replying or cooling down: the classifier gates
   // *what* it answers, these gate *how often* — together they prevent floods.
   if (oracleBusy || Date.now() < oracleQuietUntil) return
   oracleBusy = true
-  oracleReply([...hubChat], snapshot)
+  let thinking = false
+  oracleReply([...arenaChat], snapshot, () => {
+    thinking = true
+    broadcast({ t: 'oracle', thinking: true })
+  })
     .then((reply) => {
       if (!reply) return
       oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
-      hubChat.push({ name: ORACLE_NAME, text: reply })
-      if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
+      arenaChat.push({ name: ORACLE_NAME, text: reply })
+      if (arenaChat.length > ARENA_CHAT_CONTEXT) arenaChat.shift()
       broadcast({ t: 'chat', id: ORACLE_ID, text: reply })
     })
     .catch(() => {})
     .finally(() => {
       oracleBusy = false
+      if (thinking) broadcast({ t: 'oracle', thinking: false })
     })
 }
 

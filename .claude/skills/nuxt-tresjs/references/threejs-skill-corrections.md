@@ -50,7 +50,7 @@ The skills assume you own the renderer. Under `<TresCanvas>` you do not:
 They are generic. These take precedence and live in `CLAUDE.md` and
 `.claude/agents/scene-3d.md`:
 
-- Gameplay physics stays in `shared/utils/maze.ts` (`stepBody`); no client physics engine (`@tresjs/rapier` and friends cannot be the authority).
+- Gameplay physics stays in `shared/utils/arena.ts` (`stepBody`); no client physics engine (`@tresjs/rapier` and friends cannot be the authority).
 - Kit pieces render as one `InstancedMesh` batch per kind; shadows are tagged after a build by `tagShadows`, not per mesh.
 - `GLTFLoader` has `MeshoptDecoder` registered; character GLBs load sequentially to warm three's WebP probe.
 - Colours come from `app/utils/palette.ts`, never hardcoded accents.

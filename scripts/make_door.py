@@ -1,4 +1,4 @@
-"""Build the colosseum's monumental dungeon-entrance arch and export it as GLB.
+"""Build the old game's monumental door arch and export it as GLB (only make_og.py still uses it).
 
 Run headless:
   Blender --background --python make_door.py -- <out_glb> [preview_png]

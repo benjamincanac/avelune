@@ -205,6 +205,56 @@ function extract(geometry: BufferGeometry, tris: number[]): { geometry: BufferGe
   return { geometry: out, order }
 }
 
+interface Shell {
+  verts: number
+  minY: number
+  maxY: number
+}
+
+/**
+ * Drop whole disconnected shells of a mesh. Quaternius builds accessories as separate shells — the
+ * male tunic's eight belt strips, buckle, shoulder pads, rivets and buttons, the boots' rolled cuff
+ * flaps — so deleting a shell never opens a hole in the cloth under it.
+ */
+function dropShells(mesh: Mesh, doomed: (shell: Shell, largest: Shell) => boolean): void {
+  const geometry = mesh.geometry
+  const pos = geometry.getAttribute('position') as BufferAttribute
+  const index = indexArray(geometry)
+  const parent = Int32Array.from({ length: pos.count }, (_, i) => i)
+  const find = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]!]!
+      i = parent[i]!
+    }
+    return i
+  }
+  for (let t = 0; t < index.length; t += 3) {
+    const a = find(index[t]!), b = find(index[t + 1]!), c = find(index[t + 2]!)
+    if (a !== b) parent[a] = b
+    if (find(a) !== find(c)) parent[find(a)] = find(c)
+  }
+  const shells = new Map<number, Shell>()
+  for (let i = 0; i < pos.count; i++) {
+    const root = find(i)
+    const shell = shells.get(root) ?? { verts: 0, minY: Infinity, maxY: -Infinity }
+    shell.verts++
+    shell.minY = Math.min(shell.minY, pos.getY(i))
+    shell.maxY = Math.max(shell.maxY, pos.getY(i))
+    shells.set(root, shell)
+  }
+  let largest: Shell = { verts: 0, minY: 0, maxY: 0 }
+  for (const shell of shells.values()) if (shell.verts > largest.verts) largest = shell
+  const gone = new Set<number>()
+  for (const [root, shell] of shells) if (doomed(shell, largest)) gone.add(root)
+  if (!gone.size) return
+  const kept: number[] = []
+  for (let t = 0; t < index.length; t += 3) {
+    if (gone.has(find(index[t]!))) continue
+    kept.push(index[t]!, index[t + 1]!, index[t + 2]!)
+  }
+  geometry.setIndex(kept)
+}
+
 /** A flat white ▲ of the given height, centred on its centroid, facing +Z. */
 function makeMark(size: number): Mesh {
   const half = size / Math.sqrt(3)
@@ -247,56 +297,36 @@ function cloth(color: string, roughness: number, from: MeshStandardMaterial, fol
 }
 
 /**
- * Sink overlay geometry (belt, buckle, shoulder pads) into the cloth under it so the tee reads flat.
- * An overlay is a vertex with another same-facing surface of the mesh a centimetre behind it; plain
- * cloth has nothing behind it, so the female bodice and the tunic's own trim are left alone.
+ * Pull radial outliers of a sleeve back to its surface: per 2 cm slice along the arm, anything more than
+ * 1.2 cm outside the slice's median radius (the shoulder pads) is brought down to just above it.
  */
-function sinkOverlays(mesh: SkinnedMesh, zone: (x: number, y: number) => boolean): void {
-  const pos = mesh.geometry.getAttribute('position') as BufferAttribute
-  const nrm = mesh.geometry.getAttribute('normal') as BufferAttribute
-  const CELL = 0.015
-  const key = (x: number, y: number, z: number) => `${Math.floor(x / CELL)},${Math.floor(y / CELL)},${Math.floor(z / CELL)}`
-  const grid = new Map<string, number[]>()
+function ironSleeveOutliers(sleeve: SkinnedMesh, bones: Bones, maxAlong: number): void {
+  const pos = sleeve.geometry.getAttribute('position') as BufferAttribute
+  const slices = new Map<string, number[]>()
+  const radii = new Float32Array(pos.count)
   for (let i = 0; i < pos.count; i++) {
-    const k = key(pos.getX(i), pos.getY(i), pos.getZ(i))
-    const bucket = grid.get(k)
-    if (bucket) bucket.push(i)
-    else grid.set(k, [i])
+    const k = pos.getX(i) >= 0 ? 0 : 1
+    const along = Math.abs(pos.getX(i))
+    if (along > maxAlong) continue
+    radii[i] = radial(pos, i, bones, k).length()
+    const key = `${k}:${Math.floor(along / 0.02)}`
+    const slice = slices.get(key)
+    if (slice) slice.push(i)
+    else slices.set(key, [i])
   }
-  const p = new Vector3()
-  const n = new Vector3()
-  const probe = new Vector3()
-  const q = new Vector3()
-  const flagged: number[] = []
-  for (let i = 0; i < pos.count; i++) {
-    p.set(pos.getX(i), pos.getY(i), pos.getZ(i))
-    if (!zone(p.x, p.y)) continue
-    n.set(nrm.getX(i), nrm.getY(i), nrm.getZ(i))
-    probe.copy(p).addScaledVector(n, -0.012)
-    let backed = false
-    search: for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dz = -1; dz <= 1; dz++) {
-          const bucket = grid.get(key(probe.x + dx * CELL, probe.y + dy * CELL, probe.z + dz * CELL))
-          if (!bucket) continue
-          for (const j of bucket) {
-            if (j === i) continue
-            q.set(pos.getX(j), pos.getY(j), pos.getZ(j))
-            if (q.distanceTo(probe) > 0.01) continue
-            // Same facing rules out the far side of the body and the overlay's own edge verts.
-            if (n.x * nrm.getX(j) + n.y * nrm.getY(j) + n.z * nrm.getZ(j) < 0.5) continue
-            backed = true
-            break search
-          }
-        }
-      }
+  for (const slice of slices.values()) {
+    if (slice.length < 6) continue
+    const sorted = slice.map(i => radii[i]!).sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]!
+    for (const i of slice) {
+      if (radii[i]! < median + 0.012) continue
+      const k = pos.getX(i) >= 0 ? 0 : 1
+      const r = radial(pos, i, bones, k)
+      const p = new Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).addScaledVector(r, (median + 0.003) / radii[i]! - 1)
+      pos.setXYZ(i, p.x, p.y, p.z)
     }
-    if (backed) flagged.push(i)
   }
-  for (const i of flagged) {
-    pos.setXYZ(i, pos.getX(i) - nrm.getX(i) * 0.02, pos.getY(i) - nrm.getY(i) * 0.02, pos.getZ(i) - nrm.getZ(i) * 0.02)
-  }
-  if (flagged.length) pos.needsUpdate = true
+  pos.needsUpdate = true
 }
 
 /**
@@ -309,9 +339,8 @@ function dressArms(armsRoot: Object3D, root: Object3D, bones: Bones, tee: Materi
   const sleeve = meshes.find(m => firstMaterial(m).name.startsWith('MI_Peasant'))
   if (!sleeve) return
   const realSkin = meshes.find(m => m !== sleeve)
-  // Shoulder pads ride the top of the sleeves: sink them before anything reads positions.
-  const shoulderMid = (Math.abs(bones.upperarm[0].x) + Math.abs(bones.lowerarm[0].x)) / 2
-  sinkOverlays(sleeve, (x, y) => Math.abs(x) < shoulderMid && y > bones.chestY + 0.05)
+  // Shoulder pads ride the top of the sleeves: iron them down before anything reads positions.
+  ironSleeveOutliers(sleeve, bones, (Math.abs(bones.upperarm[0].x) + Math.abs(bones.lowerarm[0].x)) / 2)
   const geometry = sleeve.geometry
   const pos = geometry.getAttribute('position') as BufferAttribute
   const side = (i: number) => (pos.getX(i) >= 0 ? 0 : 1)
@@ -396,7 +425,7 @@ function dressArms(armsRoot: Object3D, root: Object3D, bones: Bones, tee: Materi
   skinMaterial.metalnessMap = null
   // Flat skin renders brighter than the mapped skin next to it; pull it down to match.
   skinMaterial.roughness = 0.85
-  skinMaterial.color.setScalar(0.86)
+  skinMaterial.color.setScalar(0.78)
   // The base-body meshes carry COLOR_0; a copy without it would multiply by black.
   skinMaterial.vertexColors = false
   skinMaterial.needsUpdate = true
@@ -583,16 +612,16 @@ export function prepareDeveloper(root: Object3D): void {
   const arms = root.getObjectByName(`${prefix}_Arms`)
   const peasant = body ? firstMaterial(skinnedMeshes(body)[0]!) : firstMaterial(meshes[0]!)
 
-  const tee = cloth(TEE, 0.92, peasant, 0.3)
+  // Flat matte: the tunic's leather-and-buttons normal map would keep reading as a tunic.
+  const tee = cloth(TEE, 0.92, peasant, 0)
   const jeans = cloth(JEANS, 0.95, peasant, 0.5)
   const sneaker = cloth(SNEAKER, 0.6, peasant, 0)
   const sole = cloth(SOLE, 0.9, peasant, 0)
 
   for (const m of body ? skinnedMeshes(body) : []) {
-    sinkOverlays(m, (x, y) =>
-      (y > bones.pelvisY + 0.04 && y < bones.waistY + 0.07) // belt + buckle
-      || (Math.abs(x) > 0.12 && y > bones.chestY + 0.09), // shoulder pads
-    )
+    // Belt strips, buckle, shoulder pads, rivets, buttons: every small shell goes, when the cloth itself is
+    // a few big shells (the male tunic). The female bodice is stitched from small panels, so it is left whole.
+    dropShells(m, (shell, largest) => largest.verts > 400 && shell.verts < 200)
     m.material = tee
   }
   // Trousers; remember where the hem is and how wide, so the boot shafts can meet it.
@@ -603,6 +632,11 @@ export function prepareDeveloper(root: Object3D): void {
     const pos = m.geometry.getAttribute('position') as BufferAttribute
     let low = Infinity
     for (let i = 0; i < pos.count; i++) low = Math.min(low, pos.getY(i))
+    // Drop the hem ring 4.5 cm so the jeans cover the boot top instead of tucking into it.
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getY(i) < low + 0.015) pos.setY(i, pos.getY(i) - 0.045)
+    }
+    pos.needsUpdate = true
     hemY = low
     let sum = 0
     let n = 0
@@ -633,22 +667,14 @@ export function prepareDeveloper(root: Object3D): void {
         }
       }
       shaftRadius = n ? shaftRadius / n : hemRadius
-      // The flap is whatever sits well outside the shaft in the cuff band; any face touching it goes,
-      // otherwise its bridging triangles stay behind as spikes.
-      const flap = (i: number) => pos.getY(i) > cuffStart && radii[i]! > shaftRadius * 1.25
-      const index = indexArray(m.geometry)
-      const kept: number[] = []
-      for (let t = 0; t < index.length; t += 3) {
-        const a = index[t]!, b = index[t + 1]!, c = index[t + 2]!
-        if (flap(a) || flap(b) || flap(c)) continue
-        kept.push(a, b, c)
-      }
-      m.geometry.setIndex(kept)
+      // The rolled cuff is its own shells, hanging entirely inside the cuff band.
+      dropShells(m, shell => shell.minY > cuffStart)
       for (let i = 0; i < pos.count; i++) {
         const y = pos.getY(i)
         if (y < cuffStart || radii[i]! < 1e-6) continue
         const t = Math.min(1, (y - cuffStart) / Math.max(0.01, hemY - cuffStart))
-        const target = shaftRadius + (hemRadius - shaftRadius) * t
+        // A touch under the hem radius, so the lowered jeans hem sits outside the shaft, never inside it.
+        const target = shaftRadius + (hemRadius * 0.92 - shaftRadius) * t
         const r = legRadial(pos, i, bones)
         const p = new Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).addScaledVector(r, target / radii[i]! - 1)
         pos.setXYZ(i, p.x, p.y, p.z)

@@ -2,14 +2,14 @@
 // useSiteSeo(), but every value here is static, so it lives in the build-time
 // head config instead of a runtime composable.
 const site = {
-  name: 'Tempest',
-  title: 'Tempest — a multiplayer colosseum dungeon on Vercel WebSockets',
+  name: 'Vercel Stadium',
+  title: 'Vercel Stadium — a multiplayer arena on Vercel WebSockets, with an AI Oracle',
   description:
-    'A multiplayer dungeon crawl on the Vercel Functions WebSocket beta. Spawn in a colosseum arena, step through the great door, and descend the hand-built dungeon — stone, sunken, verdant, magma — dodging hazards for depth on the leaderboard. Authoritative Nitro game loop, TresJS rendering, one WebSocket per runner.',
-  tagline: 'Nuxt × Vercel WebSockets',
+    'A shared 3D stadium on the Vercel Functions WebSocket beta. Walk the LED floor with everyone else online, chat, and ask the Oracle — an AI agent plugged into the documentation of every Vercel framework and primitive — anything about the platform. Authoritative Nitro game loop, TresJS rendering, one WebSocket per player.',
+  tagline: 'Nuxt × Vercel WebSockets × AI SDK',
   repo: 'https://github.com/benjamincanac/tempest',
   deployUrl:
-    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest',
+    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=vercel-stadium&repository-name=vercel-stadium',
   ogImage: '/og.png',
   twitter: '@vercel',
 }

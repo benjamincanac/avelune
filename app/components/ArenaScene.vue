@@ -41,17 +41,17 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { GamePlayer, UseGame } from '~/composables/useGame'
-import type { FloorPlan, HubPropPlacement } from '#shared/utils/maze'
+import type { FloorPlan, HubPropPlacement } from '#shared/utils/arena'
 import {
   DASH_COOLDOWN,
   DASH_DURATION,
   DASH_MULTIPLIER,
-  HUB_LAYOUT,
+  ARENA_LAYOUT,
   JUMP_VELOCITY,
   PLAYER_SPEED,
   isWalkable,
   stepBody,
-} from '#shared/utils/maze'
+} from '#shared/utils/arena'
 import {
   CASTLE_NAMES,
   CRYPT_NAMES,
@@ -62,7 +62,7 @@ import {
   PROP_NAMES,
   VILLAGE_NAMES,
 } from '#shared/utils/propCatalog'
-import HUB_ORACLE from '#shared/data/hub-oracle.json'
+import ARENA_ORACLE from '#shared/data/arena-oracle.json'
 
 import type { StonePalette } from '~/utils/textures'
 import { makeGrassTexture } from '~/utils/textures'
@@ -77,7 +77,7 @@ import type { OracleBody } from '~/utils/oracle3d'
 import { PALETTE } from '~/utils/palette'
 
 /**
- * Tempest's 3D world, built imperatively with three.js inside the Tres context.
+ * Vercel Stadium's 3D world, built imperatively with three.js inside the Tres context.
  *
  * Tres provides the renderer, scene, camera, and render loop. The arena is one
  * stadium: an LED tile floor (`app/utils/ledFloor.ts`) inside a procedural bowl
@@ -110,7 +110,7 @@ interface ViewState {
 
 const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState }>()
 
-// Hub Oracle proximity/dialogue state, shared with GameScene and the HUD.
+// Oracle proximity/speech state, shared with GameScene and the HUD.
 const oracle = useOracle()
 
 const { scene, camera: cameraManager } = useTresContext()
@@ -340,7 +340,7 @@ const sunDir = new Vector3()
 /* -------------------------------------------------------------------------- */
 
 /** The arena is constant — build its plan once and read it everywhere. */
-const hubPlan = generateHub()
+const hubPlan = generateArena()
 
 /** Procedural grass under and around the arena, built once. */
 let groundTexture: CanvasTexture | null = null
@@ -360,9 +360,9 @@ scene.value.add(floorGroup)
 // The Oracle NPC — vercel.com's hero triangle floating over a bed of smoke
 // (`app/utils/oracle3d.ts`). Declared here (before the synchronous initial
 // buildFloor) so buildFloor can reset it on a rebuild.
-/** Where the Oracle stands, in tiles (hub-oracle.json). */
+/** Where the Oracle stands, in tiles (arena-oracle.json). */
 function oraclePos(): { x: number, y: number } {
-  const [x, y] = HUB_ORACLE as [number, number]
+  const [x, y] = ARENA_ORACLE as [number, number]
   return { x, y }
 }
 /** Within this many tiles the runner may consult it (drives the HUD prompt). */
@@ -402,7 +402,7 @@ function buildFloor() {
 
   const plan = hubPlan
 
-  // The meadow the colosseum stands on — the sand disc covers its middle.
+  // The meadow the stadium stands on — the sand disc covers its middle.
   const ground = ensureGroundTexture()
   ground.repeat.set(plan.width / 2, plan.height / 2)
   const meadow = new Mesh(
@@ -424,10 +424,10 @@ function buildFloor() {
 /**
  * Build the arena: the LED floor with its centre mark, the stadium bowl around it,
  * and any hand-placed kit piece from `plan.props`. Collision comes from the
- * shared tile stamps in `generateHub`, not from anything drawn here.
+ * shared tile stamps in `generateArena`, not from anything drawn here.
  */
 function buildArena(plan: FloorPlan) {
-  const { center, arenaRadius } = HUB_LAYOUT
+  const { center, arenaRadius } = ARENA_LAYOUT
 
   // --- The LED floor (never editable): black tiles that light up white underfoot.
   ledFloor = buildLedFloor()
@@ -953,7 +953,7 @@ const RECONCILE_RATE = 8
 const RECONCILE_IDLE_FREEZE = 0.4
 
 /* -------------------------------------------------------------------------- */
-/* Hub Oracle: vercel.com's hero triangle floating by the arena wall over a    */
+/* The Oracle: vercel.com's hero triangle floating by the arena wall over a    */
 /* bed of smoke. Nothing to load — it's built from primitives in oracle3d.ts.  */
 /* -------------------------------------------------------------------------- */
 
@@ -968,7 +968,7 @@ function createOracleRig(): OracleRig | null {
   const op = oraclePos()
   group.position.set(op.x, 0, op.y)
   // Face the arena centre: the prism's front is +Z.
-  group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
+  group.rotation.y = Math.atan2(ARENA_LAYOUT.center.x - op.x, ARENA_LAYOUT.center.y - op.y)
 
   // A floating name so it reads as the Oracle.
   const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#f5f7ff'))
@@ -1286,8 +1286,8 @@ onBeforeRender(({ delta, elapsed }) => {
   // Fade the floor after this frame's stamps, then upload it.
   ledFloor?.update(dt)
 
-  // Hub Oracle: build it on first sight, float it over its smoke, show a
-  // bubble when it speaks in chat, and track proximity (drives the HUD hint).
+  // The Oracle: build it on first sight, float it over its smoke, show a bubble
+  // when it speaks in chat (or "…" while it thinks), and track proximity.
   oracleRig ??= createOracleRig()
   const op = oraclePos()
   if (oracleRig) {
@@ -1295,18 +1295,20 @@ onBeforeRender(({ delta, elapsed }) => {
     // Keep it on its mark, facing the arena centre.
     oracleRig.group.position.x = op.x
     oracleRig.group.position.z = op.y
-    oracleRig.group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
+    oracleRig.group.rotation.y = Math.atan2(ARENA_LAYOUT.center.x - op.x, ARENA_LAYOUT.center.y - op.y)
     const speech = oracle.speech.value
-    if (speech && speech.until > now) {
-      if (oracleRig.bubbleText !== speech.text) {
-        oracleRig.bubbleText = speech.text
-        const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, speech.text)
+    const speaking = speech != null && speech.until > now
+    const line = speaking ? speech.text : oracle.thinking.value ? '…' : ''
+    if (line) {
+      if (oracleRig.bubbleText !== line) {
+        oracleRig.bubbleText = line
+        const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, line)
         oracleRig.bubbleTexture.needsUpdate = true
         oracleRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
         oracleRig.bubble.position.y = oracleRig.bubbleBaseY + oracleRig.bubble.scale.y / 2
       }
       oracleRig.bubble.visible = true
-      oracleRig.bubble.material.opacity = Math.min(1, (speech.until - now) / 300)
+      oracleRig.bubble.material.opacity = speaking ? Math.min(1, (speech.until - now) / 300) : 1
     }
     else {
       oracleRig.bubble.visible = false
@@ -1324,7 +1326,7 @@ onUnmounted(() => {
 
 if (import.meta.dev) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view }
+  ;(window as any).__arena = { local, camera, game: props.game, held: props.held, view: props.view }
 }
 </script>
 

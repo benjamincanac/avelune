@@ -17,20 +17,20 @@
   --color-blue-900: #2A4B6C;
   --color-blue-950: #1B2F45;
 
-  --color-tempest-50: #EEF8FF;
-  --color-tempest-100: #D0E1F0;
-  --color-tempest-200: #A3B1C6;
-  --color-tempest-300: #5CC8E4;
-  --color-tempest-400: #00DDEB;
-  --color-tempest-500: #0681B4;
-  --color-tempest-600: #0A5C8A;
-  --color-tempest-700: #112A43;
-  --color-tempest-800: #0C1A2F;
-  --color-tempest-900: #071120;
-  --color-tempest-950: #040A14;
+  --color-stadium-50: #EEF8FF;
+  --color-stadium-100: #D0E1F0;
+  --color-stadium-200: #A3B1C6;
+  --color-stadium-300: #5CC8E4;
+  --color-stadium-400: #00DDEB;
+  --color-stadium-500: #0681B4;
+  --color-stadium-600: #0A5C8A;
+  --color-stadium-700: #112A43;
+  --color-stadium-800: #0C1A2F;
+  --color-stadium-900: #071120;
+  --color-stadium-950: #040A14;
 
   /* Custom Gradient Utility utilizing the scale */
-  --background-image-login-button: linear-gradient(180deg, var(--color-tempest-300) 0%, var(--color-tempest-500) 100%);
+  --background-image-login-button: linear-gradient(180deg, var(--color-stadium-300) 0%, var(--color-stadium-500) 100%);
 }
 
 .dark {

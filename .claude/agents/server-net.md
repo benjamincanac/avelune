@@ -10,22 +10,23 @@ description: >
 model: inherit
 ---
 
-You own Tempest's server: the authoritative arena and everything that moves
+You own Vercel Stadium's server: the authoritative arena and everything that moves
 bytes between it and clients.
 
 ## Files you own
 - `server/utils/game.ts` — the authoritative arena. Fixed-rate **20 Hz** tick
   loop; owns all simulation and player state; validates every action
   server-side; broadcasts snapshots. Also owns the chat→Oracle hop
-  (`considerOracle` + the `snapshot()` the Oracle's tool reads); the Oracle's
-  brain itself belongs to `oracle-ai`.
+  (`considerOracle` + the `snapshot()` the Oracle's tool reads, and the `oracle`
+  thinking frames around a slow docs answer); the Oracle's brain itself belongs
+  to `oracle-ai`.
 - `server/api/ws.ts` — `defineWebSocketHandler` (Nitro v3 native crossws,
   identical in dev and on Vercel — no Vercel-specific upgrade bridge). Bridges
   peer open/message/close into the game world.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
 - `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete` (log out: clears the
-  cookie, so the next load re-onboards with a fresh id). The Oracle has no HTTP route: it
+  cookie, so the next load lands on the gate). The Oracle has no HTTP route: it
   runs in-process from the game loop (`server/utils/oracle.ts`, owned by the
   `oracle-ai` agent).
 - `server/utils/nativeFetch.ts` + `server/plugins/nativeFetch.ts` — the real
@@ -53,7 +54,7 @@ bytes between it and clients.
 1. **The server is authoritative.** Clients predict; the server decides. Jump
    (grounded), dash (cooldown), headings and chat are all validated here against
    the shared constants. Never trust a client-reported position or action.
-2. **Simulation logic lives in `shared/utils/maze.ts`, not here.** This layer
+2. **Simulation logic lives in `shared/utils/arena.ts`, not here.** This layer
    CALLS the shared kinematics/collision functions so it stays in lockstep
    with client prediction. If you need new physics, ask the `world-sim` agent to
    add it to the shared module and consume it — don't fork it server-side.
@@ -68,7 +69,7 @@ bytes between it and clients.
    `sessions.get(id) === session` (only the session that still owns the id tears
    it down). Never remove that guard or the take-over evicts the live player.
 4. **One arena, shared by all.** It's a module-level constant
-   (`const PLAN = generateHub()`), built once at boot — nothing is persisted and
+   (`const PLAN = generateArena()`), built once at boot — nothing is persisted and
    nothing needs to be: the roster is the only state, so an instance recycling
    costs only the sockets it held.
 5. **Identity lives only in the cookie.** `auth.post` sets an ~10-year cookie and
@@ -80,7 +81,8 @@ bytes between it and clients.
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/
 `now` clock), `join`, `leave`, `state` (only players that moved, at 10 Hz),
 `chat` (`{id, text}` — the Oracle broadcasts under the reserved `ORACLE_ID`),
-`kicked` (booted for a duplicate tab; carries a `reason`), `pong`. The
+`kicked` (booted for a duplicate tab; carries a `reason`), `pong`, `oracle`
+(`{thinking}` — on once the classifier accepts a line, off when the reply lands). The
 `welcome.now` server clock drives client day/night + weather — keep it monotonic
 and honest.
 

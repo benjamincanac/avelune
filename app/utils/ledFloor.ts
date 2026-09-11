@@ -11,7 +11,7 @@ import {
   ShaderMaterial,
   UnsignedByteType,
 } from 'three'
-import { HUB_LAYOUT, PLAYER_RADIUS } from '#shared/utils/maze'
+import { ARENA_LAYOUT, PLAYER_RADIUS } from '#shared/utils/arena'
 import { PALETTE } from '~/utils/palette'
 
 /**
@@ -30,11 +30,11 @@ export interface LedFloor {
   update: (dt: number) => void
 }
 
-const SIZE = HUB_LAYOUT.size
-const CX = HUB_LAYOUT.center.x
-const CZ = HUB_LAYOUT.center.y
+const SIZE = ARENA_LAYOUT.size
+const CX = ARENA_LAYOUT.center.x
+const CZ = ARENA_LAYOUT.center.y
 /** Same disc the sand used: it runs under the LED hoarding, so no seam shows at the edge. */
-const FLOOR_R = HUB_LAYOUT.arenaRadius + 1.5
+const FLOOR_R = ARENA_LAYOUT.arenaRadius + 1.5
 /** A lit tile is back to dark ~1.5 s after the foot leaves it. */
 const FADE_TAU = 0.45
 /** Idle life: a few dim sparks per second so the floor reads as LEDs when nobody moves. */
@@ -136,7 +136,7 @@ export function buildLedFloor(): LedFloor {
       .replace('#include <color_fragment>', SEAM_FRAGMENT)
       .replace('#include <emissivemap_fragment>', CORE_FRAGMENT)
   }
-  panelMaterial.customProgramCacheKey = () => 'tempest-led-floor'
+  panelMaterial.customProgramCacheKey = () => 'stadium-led-floor'
   const panels = new Mesh(geometry, panelMaterial)
   panels.rotation.x = -Math.PI / 2
   panels.position.set(CX, 0.02, CZ)
@@ -178,7 +178,7 @@ export function buildLedFloor(): LedFloor {
     while (sparkDebt >= 1) {
       sparkDebt -= 1
       const a = Math.random() * Math.PI * 2
-      const r = Math.sqrt(Math.random()) * (HUB_LAYOUT.arenaRadius - 0.5)
+      const r = Math.sqrt(Math.random()) * (ARENA_LAYOUT.arenaRadius - 0.5)
       stampTile(CX + Math.cos(a) * r, CZ + Math.sin(a) * r, SPARK_LEVEL)
     }
     for (let i = 0; i < level.length; i++) bytes[i] = Math.round(level[i]! * 255)

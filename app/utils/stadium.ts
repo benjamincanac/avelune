@@ -23,7 +23,7 @@ import {
   Vector2,
 } from 'three'
 import type { BufferGeometry } from 'three'
-import { HUB_LAYOUT, createRng } from '#shared/utils/maze'
+import { ARENA_LAYOUT, createRng } from '#shared/utils/arena'
 import type { Brand } from '~/utils/vercelBrands'
 import { BRAND_RING } from '~/utils/vercelBrands'
 import type { LedStripCell } from '~/utils/textures'
@@ -39,15 +39,15 @@ import { PALETTE } from '~/utils/palette'
 
 /**
  * The Vercel stadium: the arena bowl, its crowd, and the brand lights around it.
- * Render-only: nothing here is in `plan.props`, collision stays the tile ring in `generateHub`.
+ * Render-only: nothing here is in `plan.props`, collision stays the tile ring in `generateArena`.
  * Built once and cached, since `buildFloor` clears and re-adds the group on every rebuild.
  * Inside out: LED hoarding, lower tier, LED fascia, upper tier, LED parapet, roof, LED halo, floodlights.
  * Every LED surface scrolls one brand strip (one texture per direction); glow is additive bands, not post-processing.
  */
 
 const TAU = Math.PI * 2
-const CX = HUB_LAYOUT.center.x
-const CZ = HUB_LAYOUT.center.y
+const CX = ARENA_LAYOUT.center.x
+const CZ = ARENA_LAYOUT.center.y
 /** Y-rotation so a +Z-facing object looks at the arena centre. */
 const faceIn = (dx: number, dz: number) => Math.atan2(-dx, -dz)
 

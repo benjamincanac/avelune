@@ -1,11 +1,11 @@
-// Two-client protocol test against the Tempest server.
+// Two-client protocol test against the Vercel Stadium server.
 //
 // The socket requires the signed identity cookie, so each client first creates
 // a character over `POST /api/auth` and carries the cookie into the upgrade.
 const WS_URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
 const BASE = WS_URL.replace(/^ws/, 'http').replace(/\/api\/ws.*$/, '')
 
-/** Create a character and return its `tempest_id` cookie. The route validates
+/** Create a character and return its `stadium_id` cookie. The route validates
  *  and falls back to the default character, so a bare name is enough here. */
 async function auth(label) {
   const res = await fetch(`${BASE}/api/auth`, {
@@ -15,8 +15,8 @@ async function auth(label) {
   })
   if (!res.ok) throw new Error(`${label}: auth ${res.status}`)
   const jar = res.headers.getSetCookie?.() ?? []
-  const cookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('tempest_id='))
-  if (!cookie) throw new Error(`${label}: no tempest_id cookie`)
+  const cookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('stadium_id='))
+  if (!cookie) throw new Error(`${label}: no stadium_id cookie`)
   return cookie
 }
 

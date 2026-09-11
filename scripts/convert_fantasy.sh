@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Convert curated Quaternius "Fantasy Props MegaKit" models to small, self-contained
-# GLBs for dressing the tower-interior labyrinth floors.
+# GLBs (kit catalog; nothing places them in the stadium today).
 #
 # The kit ships .gltf + .bin + shared PBR trim atlases (T_Trim_*). gltf-transform's
 # `optimize` resolves those references, resizes/compresses the textures, dedups, prunes,

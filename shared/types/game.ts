@@ -67,13 +67,16 @@ export type ServerMessage
      *  tab straight back, ping-ponging forever). */
     | { t: 'kicked', reason: string }
     | { t: 'pong' }
+    /** The Oracle is working on a question (docs lookups take seconds) — or done. */
+    | { t: 'oracle', thinking: boolean }
 
-export const MAX_CHAT_LENGTH = 120
+/** Long enough for a real question to the Oracle. */
+export const MAX_CHAT_LENGTH = 240
 
 /**
- * The Oracle speaks in the shared chat like any player, but as a reserved
- * sender id (never a real player). The client renders this id with the Oracle's
- * name/accent instead of looking it up in the roster.
+ * The Oracle — the stadium's AI guide to Vercel's docs — speaks in the shared chat
+ * like any player, but as a reserved sender id (never a real player). The client
+ * renders this id with the Oracle's name/accent instead of looking it up in the roster.
  */
 export const ORACLE_ID = 'oracle'
 export const ORACLE_NAME = 'The Oracle'

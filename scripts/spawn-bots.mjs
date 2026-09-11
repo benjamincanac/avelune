@@ -1,4 +1,4 @@
-// Spawn wandering bot players against a running Tempest server (local or prod).
+// Spawn wandering bot players against a running Vercel Stadium server (local or prod).
 //
 // Each bot mints a signed identity cookie via `POST /api/auth` (the same path
 // the onboarding flow uses), then opens an authenticated WebSocket to
@@ -18,7 +18,7 @@
 // Ctrl-C for a clean shutdown (closes every socket).
 
 import { PLAYER_COLORS } from '../shared/utils/characters.ts'
-import { generateHub, isWalkable } from '../shared/utils/maze.ts'
+import { generateArena, isWalkable } from '../shared/utils/arena.ts'
 
 /* ------------------------------- args --------------------------------- */
 
@@ -41,7 +41,7 @@ const pick = arr => arr[Math.floor(Math.random() * arr.length)]
 
 // The arena is a fixed hand-authored map, identical on both sides — build its
 // plan once and reuse it for every bot's waypoint validation.
-const PLAN = generateHub()
+const PLAN = generateArena()
 
 /** A random walkable point within `r` tiles of (cx, cy), or null after N tries. */
 function randomWaypoint(cx, cy, r) {
@@ -103,8 +103,8 @@ class Bot {
     })
     if (!res.ok) throw new Error(`auth ${res.status}`)
     const jar = res.headers.getSetCookie?.() ?? []
-    const idCookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('tempest_id='))
-    if (!idCookie) throw new Error('no tempest_id cookie')
+    const idCookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('stadium_id='))
+    if (!idCookie) throw new Error('no stadium_id cookie')
     this.cookie = idCookie
     this.name = appearance.username
   }

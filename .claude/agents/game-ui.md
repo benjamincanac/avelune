@@ -8,7 +8,7 @@ description: >
 model: inherit
 ---
 
-You own Tempest's 2D interface — everything the player reads and clicks that
+You own Vercel Stadium's 2D interface — everything the player reads and clicks that
 isn't the 3D world.
 
 ## Files you own
@@ -34,8 +34,11 @@ agent — hand oracle work there.
    `selfId`, `kicked`, `chatLog`), so bind to those.
 3. **Chat is one arena-wide channel.** Frames carry only `{id, text}` — no
    scoping to filter on. The Oracle arrives under the reserved `ORACLE_ID` and is
-   styled apart (`npc`), and `announce()` pushes local system lines (`system`)
-   that never touch the wire.
+   styled apart (`npc`, with its cited docs URL linkified); while it works,
+   `useOracle().thinking` (from the `oracle` frame) shows "consulting the docs…"
+   under the scrollback. `announce()` pushes local system lines (`system`) that
+   never touch the wire. The input is capped at `MAX_CHAT_LENGTH` from the shared
+   types, not a literal.
 4. `.client.vue` / `<ClientOnly>` for anything browser-only.
 5. **Entry flow is a view state machine in `index.vue`**: `checking →
    creating | playing`. There is no landing screen: `checking` covers the
@@ -60,7 +63,7 @@ agent — hand oracle work there.
 
 ## Working style
 - Keep gameplay logic out of components — position/collision/elevation logic
-  lives in `shared/utils/maze.ts` (ask `world-sim`); the UI only presents state.
+  lives in `shared/utils/arena.ts` (ask `world-sim`); the UI only presents state.
 - Match the existing compact-HUD aesthetic (no GitHub/Deploy buttons).
 - When a change needs a new field from the server, name it and hand the protocol
   change to `world-sim` + `server-net` rather than stuffing data somewhere.

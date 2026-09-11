@@ -1,5 +1,5 @@
 import { CanvasTexture, SRGBColorSpace } from 'three'
-import { createRng } from '#shared/utils/maze'
+import { createRng } from '#shared/utils/arena'
 import type { BrandLogo } from '~/utils/vercelBrands'
 
 /**

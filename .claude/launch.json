@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "tempest",
+      "name": "vercel-stadium",
       "runtimeExecutable": "env",
       "runtimeArgs": ["NUXT_IGNORE_LOCK=1", "pnpm", "dev"],
       "port": 4321,

@@ -18,7 +18,7 @@ import { makeSmokeTexture, makeTriangleGlowTexture } from '~/utils/textures'
  * The Oracle's body: vercel.com's hero triangle, in 3D.
  * A black prism inside a slightly larger white one, so a white rim shows on both faces.
  * Additive glow planes fake the site's bloom; a bed of smoke sprites rises underneath.
- * Render-only; `oraclePos()` in MazeScene still places and turns the group.
+ * Render-only; `oraclePos()` in ArenaScene still places and turns the group.
  */
 
 export interface OracleBody {

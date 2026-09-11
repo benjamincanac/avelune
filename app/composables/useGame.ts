@@ -22,7 +22,7 @@ export interface ChatMessage {
   at: number
   /** System announcement — rendered without a sender. */
   system?: boolean
-  /** The Oracle NPC, not a player — the chat panel styles it apart. */
+  /** The Oracle, not a player — the chat panel styles it apart. */
   npc?: boolean
 }
 
@@ -144,7 +144,7 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Tempest, ${msg.self.name}. Talk to the Oracle on the sand, or just say hello. Press Esc for the menu.`)
+          announce(`Welcome to Vercel Stadium, ${msg.self.name}. Ask the Oracle anything about Vercel either about our frameworks like Next.js, Nuxt or our products like AI Gateway or v0. Press Esc for the menu.`)
         }
         break
       case 'join':
@@ -198,6 +198,9 @@ export function useGame(): UseGame {
         break
       case 'pong':
         clearPong()
+        break
+      case 'oracle':
+        oracle.thinking.value = msg.thinking
         break
     }
   }
