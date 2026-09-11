@@ -1,9 +1,12 @@
-import { BoxGeometry, ExtrudeGeometry, Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, PlaneGeometry, Shape } from 'three'
+import { BoxGeometry, ExtrudeGeometry, Group, InstancedBufferAttribute, InstancedMesh, Mesh, MeshBasicMaterial, Object3D, RingGeometry, MeshPhysicalMaterial, MeshStandardMaterial, PlaneGeometry, Shape } from 'three'
 import type { Texture } from 'three'
-import { FORTIFICATIONS } from '#shared/utils/courtyard'
+import type { TownMaterials } from './townMaterials'
+import { MOAT, MOAT_STAIRS } from '#shared/utils/moat'
+import type { FountainInteractor } from './fountainWater'
+import { FORTIFICATIONS, isInMoat } from '#shared/utils/courtyard'
 
 /** Cosmetic moat and bridge. Traversal and banks are defined by the shared world. */
-export function createCityMoat(stoneMap?: Texture) {
+export function createCityMoat(stoneMap: Texture, materials: TownMaterials) {
   const f = FORTIFICATIONS
   const group = new Group()
   group.name = 'city-moat'
@@ -13,6 +16,8 @@ export function createCityMoat(stoneMap?: Texture) {
   const coping = new MeshStandardMaterial({ color: '#c4c9b9', map: stoneMap, roughness: 0.86 })
   const wetStone = new MeshStandardMaterial({ color: '#657e71', roughness: 0.94 })
   const bed = new MeshStandardMaterial({ color: '#64816c', roughness: 1 })
+  for (const material of [stone, coping, wetStone]) materials.apply(material, 'stone', 1.1, 0.5, material === coping)
+  materials.apply(bed, 'earth', 1.2, 0.35)
   const water = new MeshPhysicalMaterial({
     color: '#369b98', roughness: 0.18, metalness: 0,
     transparent: true, opacity: 0.76, depthWrite: false,
@@ -55,11 +60,11 @@ export function createCityMoat(stoneMap?: Texture) {
     geometries.add(geometry)
     const mesh = new Mesh(geometry, water)
     mesh.rotation.x = -Math.PI / 2
-    mesh.position.set(x, -1.3, z)
+    mesh.position.set(x, MOAT.waterHeight, z)
     mesh.receiveShadow = true
     mesh.renderOrder = 1
     group.add(mesh)
-    block(x, -2.5, z, width, 0.2, depth, bed)
+    block(x, MOAT.floorHeight - 0.1, z, width, 0.2, depth, bed)
   }
   const outerLength = f.moatOuterMax - f.moatOuterMin
   const innerLength = f.moatInnerMax - f.moatInnerMin
@@ -70,6 +75,17 @@ export function createCityMoat(stoneMap?: Texture) {
   surface(f.moatOuterMin + channel / 2, center, channel, innerLength)
   surface(f.moatOuterMax - channel / 2, center, channel, innerLength)
 
+  function bank(x: number, y: number, z: number, width: number, height: number, depth: number, material: MeshStandardMaterial) {
+    if (z > f.moatOuterMax - 0.5 && z < f.moatOuterMax + 0.5 && width > MOAT_STAIRS.width) {
+      const left = MOAT_STAIRS.x - MOAT_STAIRS.width / 2
+      const right = MOAT_STAIRS.x + MOAT_STAIRS.width / 2
+      const min = x - width / 2
+      const max = x + width / 2
+      block((min + left) / 2, y, z, left - min, height, depth, material)
+      block((right + max) / 2, y, z, max - right, height, depth, material)
+    }
+    else block(x, y, z, width, height, depth, material)
+  }
   // Limestone courses meet the terrain at zero, with darker stone below the waterline.
   for (const [min, max, inward] of [
     [f.moatInnerMin, f.moatInnerMax, 1],
@@ -81,15 +97,27 @@ export function createCityMoat(stoneMap?: Texture) {
       const material = row < 2 ? wetStone : stone
       for (const side of [min, max]) {
         const offset = side === min ? inward * 0.18 : -inward * 0.18
-        block(center, y, side + offset, length, 0.58, 0.36, material)
+        bank(center, y, side + offset, length, 0.58, 0.36, material)
         block(side + offset, y, center, 0.36, 0.58, length, material)
       }
     }
     for (const side of [min, max]) {
       const offset = side === min ? inward * 0.25 : -inward * 0.25
-      block(center, -0.08, side + offset, length, 0.16, 0.5, coping)
+      bank(center, -0.08, side + offset, length, 0.16, 0.5, coping)
       block(side + offset, -0.08, center, 0.5, 0.16, length, coping)
     }
+  }
+
+  // A recessed stone stair returns to the outer meadow through the bank.
+  const stair = MOAT_STAIRS
+  const tread = (stair.zEnd - stair.zStart) / stair.steps
+  for (let i = 0; i < stair.steps; i++) {
+    const top = MOAT.floorHeight * (1 - (i + 1) / stair.steps)
+    const height = top - MOAT.floorHeight + 0.12
+    block(stair.x, MOAT.floorHeight - 0.12 + height / 2, stair.zStart + (i + 0.5) * tread, stair.width, height, tread, coping)
+  }
+  for (const sign of [-1, 1]) {
+    block(stair.x + sign * (stair.width / 2 + 0.15), MOAT.floorHeight / 2, (stair.zStart + stair.zEnd) / 2, 0.3, -MOAT.floorHeight, stair.zEnd - stair.zStart, stone)
   }
 
   const bridgeLength = f.bridgeEnd - f.bridgeStart
@@ -124,13 +152,63 @@ export function createCityMoat(stoneMap?: Texture) {
       group.add(mesh)
     }
   }
+  const rippleGeometry = new RingGeometry(0.86, 1, 32)
+  const opacity = new InstancedBufferAttribute(new Float32Array(32), 1)
+  rippleGeometry.setAttribute('rippleOpacity', opacity)
+  const rippleMaterial = new MeshBasicMaterial({ color: '#d2f1e4', transparent: true, depthWrite: false })
+  rippleMaterial.onBeforeCompile = (shader) => {
+    shader.vertexShader = `attribute float rippleOpacity; varying float vRippleOpacity;\n${shader.vertexShader}`
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRippleOpacity = rippleOpacity;')
+    shader.fragmentShader = `varying float vRippleOpacity;\n${shader.fragmentShader}`
+      .replace('#include <opaque_fragment>', 'diffuseColor.a *= vRippleOpacity;\n#include <opaque_fragment>')
+  }
+  const ripples = new InstancedMesh(rippleGeometry, rippleMaterial, 32)
+  ripples.frustumCulled = false
+  ripples.userData.waterRipple = true
+  ripples.renderOrder = 2
+  group.add(ripples)
+  const waves: { x: number, z: number, start: number, strength: number }[] = []
+  const swimmers = new Map<string, { x: number, z: number, last: number }>()
+  const dummy = new Object3D()
+  let cursor = 0
   let disposed = false
   return {
     group,
-    update(seconds: number) { time.value = seconds },
+    update(seconds: number, players: readonly FountainInteractor[] = []) {
+      time.value = seconds
+      const active = new Set<string>()
+      for (const player of players) {
+        if (!isInMoat(player.x, player.z) || player.feetY >= MOAT.waterHeight - 0.15) continue
+        active.add(player.id)
+        const previous = swimmers.get(player.id)
+        const moving = previous && Math.hypot(player.x - previous.x, player.z - previous.z) > 0.008
+        if (!previous || seconds - previous.last > (moving ? 0.25 : 0.9)) {
+          waves[cursor++ % 32] = { x: player.x, z: player.z, start: seconds, strength: previous ? 0.35 : 0.7 }
+          swimmers.set(player.id, { x: player.x, z: player.z, last: seconds })
+        }
+      }
+      for (const id of swimmers.keys()) if (!active.has(id)) swimmers.delete(id)
+      for (let i = 0; i < 32; i++) {
+        const wave = waves[i]
+        const age = wave ? (seconds - wave.start) / 1.2 : 2
+        const visible = wave && age >= 0 && age < 1
+        const radius = visible ? 0.18 + age * 0.8 : 0
+        dummy.position.set(wave?.x ?? 0, MOAT.waterHeight + 0.035, wave?.z ?? 0)
+        dummy.rotation.set(-Math.PI / 2, 0, 0)
+        dummy.scale.setScalar(radius)
+        dummy.updateMatrix()
+        ripples.setMatrixAt(i, dummy.matrix)
+        opacity.setX(i, visible ? wave.strength * (1 - age) ** 2 : 0)
+      }
+      ripples.instanceMatrix.needsUpdate = true
+      opacity.needsUpdate = true
+    },
     dispose() {
       if (disposed) return
       disposed = true
+      ripples.dispose()
+      rippleGeometry.dispose()
+      rippleMaterial.dispose()
       geometries.forEach(geometry => geometry.dispose())
       for (const material of [stone, coping, wetStone, bed, water]) material.dispose()
       group.clear()

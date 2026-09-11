@@ -115,9 +115,10 @@ leave the server clock, weather and animations running; `auto` restores the cycl
 ## Fortified city boundary
 
 `FORTIFICATIONS` in `shared/utils/courtyard.ts` defines the wall, moat, bridge and
-walkable exterior. `COURTYARD` remains the inner city bounds. Moat tiles block
-movement except on the bridge; narrow bridge rails use shared prop collision
-and movement substeps. Rendering must cut the terrain at the exact moat bounds
+walkable exterior. `COURTYARD` remains the inner city bounds. Moat tiles are traversable with a submerged floor from `shared/utils/moat.ts`;
+bridge support depends on foot height so the channel remains open underneath.
+The outer-bank stair is the route back to ground level. Narrow bridge rails
+use shared prop collision and movement substeps. Rendering must cut the terrain at the exact moat bounds
 and keep decorative trunks and relief outside the exterior bounds.
 
 ## Raised rampart passages
@@ -131,3 +132,8 @@ segment's bottom and top, and both stairs and galleries substep dash movement.
 Keep visible stair treads and rail segments aligned with these shared constants.
 `pnpm exec jiti scripts/rampart-test.ts` covers both stairs, the connected loop,
 ground passage, rail containment, landing and deterministic movement.
+
+`getSwimmingContact(plan, body)` selects deep moat swimming from the shared
+water level and supporting floor. `stepBody` owns damped buoyancy and the swim
+speed cap, including during dash. Floating bodies are not grounded; shallow
+escape steps restore walking. Fountain water remains wading-only.

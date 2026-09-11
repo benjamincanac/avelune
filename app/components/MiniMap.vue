@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { generateHub, occupancyGrid } from '#shared/utils/maze'
 import { COURTYARD, isInMoat, isOnGateBridge, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
+import { MOAT_STAIRS } from '#shared/utils/moat'
 import { RAMPART_STAIRS } from '#shared/utils/ramparts'
 import oracle from '#shared/data/courtyard-oracle.json'
 import type { UseGame } from '~/composables/useGame'
@@ -88,7 +89,7 @@ function draw() {
     }
   }
 
-  for (const stair of RAMPART_STAIRS) {
+  for (const stair of [...RAMPART_STAIRS, MOAT_STAIRS]) {
     const start = toScreen(stair.x - stair.width / 2, stair.zStart)
     const length = (stair.zEnd - stair.zStart) * scale
     ctx.fillStyle = '#ded5be'

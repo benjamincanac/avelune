@@ -13,6 +13,7 @@
  * travels over the WebSocket — only players.
  */
 
+import { MOAT, isOnMoatStairs, moatGroundHeight, moatWaterDepth, hitsMoatObstacle } from './moat'
 import hubProps from '../data/courtyard-props.json'
 import hubStructure from '../data/courtyard-structure.json'
 import { isOnRampart, rampartStairHeight, RAMPART_RAILS, RAMPART_STAIRS, RAMPART_WALKWAYS } from './ramparts'
@@ -25,7 +26,7 @@ export const PLAYER_RADIUS = 0.3
 
 /* Vertical kinematics (shared by server simulation and client prediction). */
 export const GRAVITY = 18
-export const JUMP_VELOCITY = 5.7
+export const JUMP_VELOCITY = 7.5
 /** Highest ledge you can walk up without jumping. */
 export const STEP_MAX = 0.5
 export const DASH_MULTIPLIER = 2.9
@@ -209,13 +210,12 @@ export function generateHub(): FloorPlan {
   const size = HUB_LAYOUT.size
   const tiles = new Uint8Array(size * size)
 
-  // The moat is impassable except at the bridge. Wall footprints are solid
-  // authored props, leaving the gate genuinely open at ground level.
+  // Only the outer world edge uses solid tiles. Moat banks and the bed are
+  // height-aware shared surfaces, while authored wall props keep the gate open.
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       if (x < FORTIFICATIONS.exteriorMin || x >= FORTIFICATIONS.exteriorMax
-        || y < FORTIFICATIONS.exteriorMin || y >= FORTIFICATIONS.exteriorMax
-        || (isInMoat(x + 0.5, y + 0.5) && !isOnGateBridge(x + 0.5, y + 0.5))) tiles[y * size + x] = 1
+        || y < FORTIFICATIONS.exteriorMin || y >= FORTIFICATIONS.exteriorMax) tiles[y * size + x] = 1
     }
   }
   // Explicit border ring (defensive — the town boundary already covers the edges).
@@ -325,10 +325,10 @@ export function getFountainWaterContact(prop: PropSpec, body: Pick<KinematicBody
 }
 
 /** Height of the walkable surface at a point (0 = ground, else a prop top). */
-export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
-  let top = rampartStairHeight(x, y) ?? 0
+export function surfaceHeight(plan: FloorPlan, x: number, y: number, feet = Infinity): number {
+  let top = rampartStairHeight(x, y) ?? moatGroundHeight(x, y, feet)
   for (const prop of plan.props) {
-    if (prop.top <= top) continue
+    if (prop.top <= 0 || prop.top <= top || (prop.kind === 'Courtyard_BridgeRail' && feet < -0.5)) continue
     const dx = x - prop.x
     const dy = y - prop.y
     // Broad-phase: the bounding radius (a disc for round kinds, the box's corner
@@ -428,43 +428,76 @@ export function stepBody(plan: FloorPlan, body: KinematicBody, dx: number, dy: n
   const nearFineCollision = plan.props.some(prop => (prop.kind === 'Courtyard_Fountain' || prop.kind === 'Courtyard_BridgeRail')
     && Math.hypot(body.x - prop.x, body.y - prop.y) <= prop.r + Math.hypot(dx, dy) + PLAYER_RADIUS)
   const nearRampart = isOnRampart(body.x, body.y) || RAMPART_STAIRS.some(stair => Math.abs(body.x - stair.x) < stair.width / 2 + Math.hypot(dx, dy) + PLAYER_RADIUS && body.y >= stair.zStart - 1 && body.y <= stair.zEnd + 1)
-  const steps = nearFineCollision || nearRampart ? Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.12)) : 1
+  const nearMoat = isInMoat(body.x, body.y) || isInMoat(body.x + dx, body.y + dy) || isOnMoatStairs(body.x, body.y)
+  const steps = nearFineCollision || nearRampart || nearMoat ? Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.12), nearMoat ? Math.ceil(dt * 60) : 1) : 1
   for (let i = 0; i < steps; i++) stepBodyOnce(plan, body, dx / steps, dy / steps, dt / steps)
 }
 
 function stepBodyOnce(plan: FloorPlan, body: KinematicBody, dx: number, dy: number, dt: number) {
-  let depth = 0
+  let depth = moatWaterDepth(body.x, body.y, body.z)
   for (const prop of plan.props) depth = Math.max(depth, getFountainWaterContact(prop, body)?.depth ?? 0)
-  const speed = 1 - 0.4 * Math.min(1, depth / 0.5)
+  const swimming = getSwimmingContact(plan, body)
+  const distance = Math.hypot(dx, dy)
+  const speed = swimming
+    ? Math.min(1, MOAT.swimSpeed * dt / (distance || 1))
+    : 1 - 0.4 * Math.min(1, depth / 0.5)
   dx *= speed
   dy *= speed
   // Horizontal, axis-separated so tall props block like walls but slide.
   if (dx !== 0 || dy !== 0) {
     const walled = moveWithCollision(plan, body.x, body.y, dx, dy)
-    if (bodySurfaceHeight(plan, walled.x, body.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(walled.x, body.y, body.z)) body.x = walled.x
-    if (bodySurfaceHeight(plan, body.x, walled.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(body.x, walled.y, body.z)) body.y = walled.y
+    if (bodySurfaceHeight(plan, walled.x, body.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(walled.x, body.y, body.z) && !hitsMoatObstacle(walled.x, body.y, body.z, PLAYER_RADIUS)) body.x = walled.x
+    if (bodySurfaceHeight(plan, body.x, walled.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(body.x, walled.y, body.z) && !hitsMoatObstacle(body.x, walled.y, body.z, PLAYER_RADIUS)) body.y = walled.y
   }
 
   // Vertical: gravity, then land on (or step up to) whatever is below.
   const surface = bodySurfaceHeight(plan, body.x, body.y, body.z)
   // Follow descending treads without turning each step into a small fall.
   if (body.grounded && body.vz <= 0 && body.z - surface <= STEP_MAX) body.z = surface
-  body.vz -= GRAVITY * dt
-  body.z += body.vz * dt
+  const underBridge = body.z < -0.5 && isInMoat(body.x, body.y) && isOnGateBridge(body.x, body.y)
+  const swim = getSwimmingContact(plan, body)
+  if (swim) {
+    // Exact critically damped spring integration keeps server/client buoyancy
+    // stable across render rates and absorbs the velocity of a high fall.
+    const offset = body.z - swim.targetFeetHeight
+    const frequency = MOAT.buoyancyFrequency
+    const impulse = body.vz + frequency * offset
+    const decay = Math.exp(-frequency * dt)
+    body.z = swim.targetFeetHeight + (offset + impulse * dt) * decay
+    body.vz = (body.vz - frequency * impulse * dt) * decay
+  }
+  else {
+    body.vz -= GRAVITY * dt
+    body.z += body.vz * dt
+  }
+  if (underBridge && body.vz > 0 && body.z + MOAT.bodyHeight > MOAT.bridgeUnderside) {
+    body.z = MOAT.bridgeUnderside - MOAT.bodyHeight
+    body.vz = 0
+  }
   if (body.z <= surface && body.vz <= 0) {
     body.z = surface
     body.vz = 0
-    body.grounded = true
+    body.grounded = !swim
   }
   else {
     body.grounded = false
   }
 }
 
+/** Deep moat water supports a floating body; fountain basins remain wading-only. */
+export function getSwimmingContact(plan: FloorPlan, body: Pick<KinematicBody, 'x' | 'y' | 'z'>) {
+  if (!isInMoat(body.x, body.y) || body.z >= MOAT.waterHeight - 0.05) return null
+  let targetFeetHeight = MOAT.waterHeight - MOAT.swimDraft
+  if (isOnGateBridge(body.x, body.y)) targetFeetHeight = Math.min(targetFeetHeight, MOAT.bridgeUnderside - MOAT.bodyHeight)
+  const floor = bodySurfaceHeight(plan, body.x, body.y, body.z)
+  if (floor >= targetFeetHeight - 0.08) return null
+  return { waterHeight: MOAT.waterHeight, targetFeetHeight, depth: MOAT.waterHeight - body.z }
+}
+
 /** Galleries have ground passages below them. A foot must reach the deck before
  * it can support a body; ordinary authored prop z remains render-only. */
-function bodySurfaceHeight(plan: FloorPlan, x: number, y: number, feet: number) {
-  const ground = surfaceHeight(plan, x, y)
+export function bodySurfaceHeight(plan: FloorPlan, x: number, y: number, feet: number) {
+  const ground = surfaceHeight(plan, x, y, feet)
   return isOnRampart(x, y) && feet >= RAMPART_WALKWAYS.height - STEP_MAX
     ? Math.max(ground, RAMPART_WALKWAYS.height)
     : ground

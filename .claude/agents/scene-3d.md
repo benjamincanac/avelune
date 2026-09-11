@@ -186,12 +186,35 @@ outer terrain and minimap must follow these values, never the old 40-unit square
 ## Fortified city boundary
 
 `FORTIFICATIONS` in `shared/utils/courtyard.ts` defines the wall, moat, bridge and
-walkable exterior. `COURTYARD` remains the inner city bounds. Moat tiles block
-movement except on the bridge; narrow bridge rails use shared prop collision
-and movement substeps. Rendering must cut the terrain at the exact moat bounds
+walkable exterior. `COURTYARD` remains the inner city bounds. Moat tiles are traversable with a submerged floor from `shared/utils/moat.ts`;
+bridge support depends on foot height so the channel remains open underneath.
+The outer-bank stair is the route back to ground level. Narrow bridge rails
+use shared prop collision and movement substeps. Rendering must cut the terrain at the exact moat bounds
 and keep decorative trunks and relief outside the exterior bounds.
 
 `rampartWalkways.ts` renders gallery decks, rails and stair treads from
 `shared/utils/ramparts.ts`. Elevated galleries preserve ground underpasses;
 shared movement selects surfaces by foot height. Render rail openings from
 `RAMPART_RAILS`, and keep every stair tread aligned with the shared step count.
+
+`townMaterials.ts` owns a texture bank per mounted world and projects the maps
+from `materialTextures.ts` in world space, including instanced GLBs without UVs.
+Apply it to environment materials only. Do not replace foliage, glass, water or
+character shaders. The bank survives floor rebuilds and is disposed after scene
+and template cleanup. Shader color samples use sRGB textures; normals and
+roughness remain linear.
+Instance tint material clones must preserve `onBeforeCompile` and
+`customProgramCacheKey`; Three material cloning omits these shader hooks.
+
+Swimming clips are authored by `scripts/build_swim_animations.py` into
+`public/models/characters/swimming.glb`, using the existing universal skeleton.
+Load them through the serialized character loader alongside the base library.
+Select Swim_Loop/Swim_Idle from shared `getSwimmingContact`, before dash and
+airborne clips. Moat wake rings are cosmetic and excluded from GTAO.
+
+## Sprint gait transitions
+
+`sprinting.glb` overrides `Sprint_Loop` from the shared library by name. The
+rebuilt clip shares normalized footfall phase with `Jog_Fwd_Loop`; preserve
+that phase in both directions when blending, and play the authored sprint at
+1x. Resetting it on every dash changes the supporting leg abruptly.

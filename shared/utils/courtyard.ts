@@ -99,7 +99,7 @@ export const FORTIFICATIONS = {
   exteriorMin: 4,
   exteriorMax: 140,
   spawn: { x: 72, y: 129 },
-  oracle: { x: 79, y: 125 },
+  oracle: { x: 78, y: 106 },
 } as const
 
 export function isInMoat(x: number, z: number): boolean {

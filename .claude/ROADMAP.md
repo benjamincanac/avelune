@@ -12,6 +12,8 @@
 - [x] Shared `/weather clear|overcast|rain|auto` chat command, synchronized for connected players and new arrivals.
 - [x] Authoritative 20 Hz server sim; client prediction via shared kinematics (`shared/utils/maze.ts` → `stepBody`), input-aware reconcile that never drags you backward against your own input
 - [x] Third-person camera (wall-aware boom), raw-delta mouse-look, pointer lock + fullscreen (`F`)
+- [x] Jumpable rampart parapets: players can vault from the gallery into town or onto the outer berm, while walking still respects the rails.
+- [x] Dash animation blends promptly and follows the shared burst duration, without stale remote sprint replay. Remote run/idle uses support height on stairs and ramparts.
 - [x] Jump (`Space`) & dash (`Shift`) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward
 - [x] Elevation: solid props are walkable ledges in the shared authoritative plan; `SOLID_PROPS` distinguishes low vaultable clutter from tall unjumpable blockers
 - [x] Day/night cycle (15 min) + weather (clear→overcast→rain), synced via the server clock (`welcome.now`)
@@ -32,8 +34,13 @@
 - [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. `anthropic/claude-haiku-4.5` via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); `MushroomKing.glb` body on the sand with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
 
 ### World, art & assets
+- [x] Rebuilt sprint with forward lean, opposing arm drive and a faster stride. Jog and sprint preserve footfall phase through dash transitions.
+- [x] Shared moat swimming with damped buoyancy, a capped swim speed and automatic shallow-water walking. Original Blender breaststroke and tread loops use the existing universal skeleton; continuous arm paths, articulated shoulders and chest, timed breathing, and a delayed frog kick lead into each glide. Surface rings follow swimmers.
+- [x] Traversable moat with a submerged floor, water drag, bridge underpasses and an exit staircase through the outer bank.
+- [x] Material-specific seamless color, normal and roughness textures for limestone, plaster, timber, terracotta and earth. World projection covers the existing UV-less models, with stone courses on bridge and gallery paving.
+- [x] Clear fountain plaza corners, with building footprints kept beyond the stone border and its walking margin.
 - [x] Street-facing residential blocks with clear main avenues and side alleys. Two stone staircases reach a continuous inner rampart gallery, with shared stair elevations, rail collision and underpasses.
-- [x] Fortified city with connected ramparts and bastions, an open South Gate, an arched bridge across a moat, and a walkable outer meadow. Spawn and Oracle sit outside the gate. Shared collision covers walls, moat and bridge rails.
+- [x] Fortified city with connected ramparts and bastions, an open South Gate, an arched bridge across a moat, and a walkable outer meadow. Players spawn outside; the Oracle stands just inside the gate. Shared collision covers walls, moat and bridge rails.
 - [x] Expanded town to 80×80 playable units, with South Gate, Fountain Square, Market Lane, Willow Gardens and High Court. Streets, garden beds and landscape boundaries derive from shared town data.
 - [x] Denser village with 14 buildings, connected side streets, varied roof heights, terracotta tiles, timber façades, ivy, blue banners and flowering planters. Overhead garlands attach to authored tree trunks with visible rope ties. Shared-physics connectivity tests cover streets and building frontages.
 - [x] Colorful fantasy courtyard: custom buildings, tiled roofs, shuttered windows, fountain, market stalls, gardens, trees and a central sparring circle. Authored `courtyard-*.json` layouts replace the active colosseum layout; the original `hub-*.json` files are retained.

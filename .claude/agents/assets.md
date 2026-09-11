@@ -20,6 +20,16 @@ files the game loads, and the scripts that do it.
   Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
   `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start/Loop/Land`, `Roll`, …), one NLA
   track per clip so the exporter emits one animation each.
+- `scripts/build_sprint_animation.py` rebuilds `Sprint_Loop` in `sprinting.glb`
+  from the bundled jog cycle. Preserve normalized jog footfall phase for
+  runtime gait blending, universal bone names, and zero horizontal root motion.
+- `scripts/build_swim_animations.py` exports `swimming.glb` with `Swim_Loop`
+  and `Swim_Idle` on the bundled universal skeleton. Breaststroke uses paired
+  hand and ankle targets with two-bone IK. Armature-space bone orientations
+  must compensate for posed parents to avoid double-rotating elbows and knees.
+  Keep clip names, seamless endpoints and zero root translation stable. Rebuild
+  the preview after exporting; replacing `.output/public` assets directly leaves
+  Nitro serving stale content lengths and breaks character loading.
 - `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`,
   `scripts/convert_new_kits.py` — batch conversion entry points.
 - `scripts/make_door.py` / `scripts/make_portal.py` — built the arena's great

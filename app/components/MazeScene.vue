@@ -38,10 +38,13 @@ import {
   PLAYER_SPEED,
   isWalkable,
   surfaceHeight,
+  bodySurfaceHeight,
+  getSwimmingContact,
   stepBody,
 } from '#shared/utils/maze'
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
 import { isRampartCameraBlocked } from '#shared/utils/ramparts'
+import { createTownMaterials } from '~/utils/townMaterials'
 import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
@@ -54,6 +57,7 @@ import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared
 import { applyOutfitColor } from '~/utils/appearance'
 import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
 import type { CharacterAsset } from '~/utils/characterModels'
+import { animationBlendDuration, locomotionTransitionTime, updateDashAnimation } from '~/utils/characterAnimation'
 
 /**
  * Avelune's 3D world, built imperatively with three.js inside the Tres context.
@@ -196,7 +200,7 @@ function buildFloor() {
 
   const plan = hubPlan
 
-  courtyard = createCourtyardScene(ed?.placements.value ?? plan.props, propTemplates)
+  courtyard = createCourtyardScene(ed?.placements.value ?? plan.props, propTemplates, townMaterials)
   floorGroup.add(courtyard.group)
   renderPlanProps(plan)
   tagShadows(floorGroup)
@@ -252,7 +256,7 @@ gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 const CHARACTER_SCALE = 0.72
 
 /** Movement states map to clips in the shared universal animation library. */
-const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop' } as const
+const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
 
 const characterAssets = new Map<string, CharacterAsset>()
 const characterLoading = new Set<string>()
@@ -303,7 +307,11 @@ function instantiateModule(name: string, placements: Matrix4[], tint = '#ffffff'
   const composed = new Matrix4()
   template.traverse((obj) => {
     if (!(obj instanceof Mesh)) return
-    const material = (obj.material as MeshStandardMaterial).clone()
+    const sourceMaterial = obj.material as MeshStandardMaterial
+    const material = sourceMaterial.clone()
+    // Three does not copy shader hooks when cloning a material for instance tinting.
+    material.onBeforeCompile = sourceMaterial.onBeforeCompile
+    material.customProgramCacheKey = sourceMaterial.customProgramCacheKey
     material.color.multiply(new Color(tint))
     const instanced = new InstancedMesh(obj.geometry, material, placements.length)
     placements.forEach((placement, index) => {
@@ -315,7 +323,8 @@ function instantiateModule(name: string, placements: Matrix4[], tint = '#ffffff'
   return group
 }
 
-const propTemplates = createCourtyardAssets()
+const townMaterials = createTownMaterials()
+const propTemplates = createCourtyardAssets(townMaterials)
 const retiredTemplates: Group[] = []
 let sceneDisposed = false
 function releaseTemplates(templates: Iterable<Group>) {
@@ -349,6 +358,7 @@ async function loadTemplates(dir: string, names: readonly string[]) {
         releaseTemplates([gltf.scene])
         return
       }
+      townMaterials.decorate(gltf.scene)
       propTemplates.set(name, gltf.scene)
     }
     catch (err) {
@@ -412,7 +422,8 @@ interface Rig {
   mixer: AnimationMixer
   actions: Record<string, AnimationAction>
   current: string
-  /** While non-zero, the one-shot dash lunge is playing. */
+  /** Last observed dash state, so stale remote snapshots never retrigger it. */
+  wasDashing: boolean
   dashAnimUntil: number
   bubble: Sprite
   bubbleCanvas: HTMLCanvasElement
@@ -604,6 +615,7 @@ function createRig(player: GamePlayer): Rig | null {
     mixer,
     actions,
     current: CLIP.idle,
+    wasDashing: false,
     dashAnimUntil: 0,
     bubble: bubble.sprite,
     bubbleCanvas: bubble.canvas,
@@ -620,8 +632,13 @@ function setAnimation(rig: Rig, name: string, timeScale = 1) {
   if (!action) return
   if (rig.current !== target) {
     const previous = rig.actions[rig.current]
-    previous?.fadeOut(0.15)
-    action.reset().fadeIn(0.15).play()
+    const blend = animationBlendDuration(rig.current, target)
+    previous?.fadeOut(blend)
+    const startTime = previous
+      ? locomotionTransitionTime(rig.current, target, previous.time, previous.getClip().duration, action.getClip().duration)
+      : 0
+    action.reset().fadeIn(blend).play()
+    action.time = startTime
     rig.current = target
   }
   action.timeScale = timeScale
@@ -686,7 +703,7 @@ function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: n
   const px = -dirZ // unit perpendicular to the boom, for width sampling
   const pz = dirX
   const blocked = (x: number, z: number) => !isWalkable(hubPlan, Math.floor(x), Math.floor(z))
-    || surfaceHeight(hubPlan, x, z) > height - CAM_RADIUS
+    || surfaceHeight(hubPlan, x, z, height - CAM_RADIUS) > height - CAM_RADIUS
     || isRampartCameraBlocked(x, z, height, CAM_RADIUS)
   for (let d = 0.3; d < maxDist; d += 0.08) {
     const sx = hx + dirX * d
@@ -995,31 +1012,23 @@ onBeforeRender(({ delta }) => {
         if (distance > 0.04) player.ra += angleDelta(Math.atan2(toY, toX), player.ra) * ease
       }
       moving = distance > 0.05
-      airborne = player.z > 0.12 || player.rz > 0.12
-      dashing = player.dashing === true
+      // World elevation includes stairs and ramparts. Only height above the
+      // authoritative support surface means airborne; rendered height lags on steps.
+      airborne = player.z > bodySurfaceHeight(hubPlan, player.x, player.y, player.z) + 0.12
+      // The server can omit a stationary final snapshot. Once interpolation
+      // settles, release its dash edge so the next burst can start normally.
+      dashing = player.dashing === true && moving
     }
 
     rig.group.position.set(player.rx, player.rz, player.ry)
     rig.group.rotation.y = -player.ra
 
-    // The dash plays the sprint loop. Its speed burst only lasts DASH_DURATION,
-    // so on the dash's rising edge we latch a slightly longer window and hold
-    // the sprint for it, letting it read as a burst before run/idle resume.
-    // START is the sprint's rate at the burst; it eases linearly to END across
-    // the window so the sprint decelerates into run/idle instead of cutting off.
-    const DASH_ANIM_START_RATE = 1.5
-    const DASH_ANIM_END_RATE = 1.0
-    const DASH_ANIM_WINDOW = 0.5
-    if (dashing && now >= rig.dashAnimUntil) rig.dashAnimUntil = now + DASH_ANIM_WINDOW * 1000
-
-    // Animation state: dash > airborne > run > idle. Sustain the sprint past
-    // the burst only while actually moving; a standstill dash stops
-    // translating when the burst ends, so we drop to idle then, not churn.
-    if (now < rig.dashAnimUntil && (dashing || moving)) {
-      // remain: 1 at the start of the window, 0 at its end — a linear ramp.
-      const remain = (rig.dashAnimUntil - now) / (DASH_ANIM_WINDOW * 1000)
-      setAnimation(rig, CLIP.dash, DASH_ANIM_END_RATE + (DASH_ANIM_START_RATE - DASH_ANIM_END_RATE) * remain)
-    }
+    // The sprint follows the actual burst, with a fast blend that becomes
+    // visible before movement ends. A stale remote dash flag cannot relatch it.
+    const dashAnimating = updateDashAnimation(rig, dashing, now)
+    const swimming = getSwimmingContact(hubPlan, isSelf ? local : { x: player.x, y: player.y, z: player.z })
+    if (swimming) setAnimation(rig, moving ? CLIP.swim : CLIP.tread)
+    else if (dashAnimating) setAnimation(rig, CLIP.dash)
     else if (airborne) setAnimation(rig, CLIP.jump, 1.1)
     else if (moving) setAnimation(rig, CLIP.run, 1.15)
     else setAnimation(rig, CLIP.idle)
@@ -1129,6 +1138,7 @@ function disposeScene() {
   editorCtl = null
   releaseTemplates([...propTemplates.values(), ...retiredTemplates])
   propTemplates.clear()
+  townMaterials.dispose()
   retiredTemplates.length = 0
   atmosphere.dispose()
   scene.value.remove(torchLight, floorGroup, playerGroup)

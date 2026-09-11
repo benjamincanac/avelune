@@ -8,6 +8,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/maze'
+import type { TownMaterials } from './townMaterials'
 import { createCourtyardLandscape } from './courtyardLandscape'
 import { createFountainWater } from './fountainWater'
 import { createCityMoat } from './cityMoat'
@@ -18,21 +19,26 @@ import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
 
 /** Ground and distant scenery. All walkable elevations stay at ground level;
  * buildings, furniture and tree trunks are authored props in the shared plan. */
-export function createCourtyardScene(placements: readonly HubPropPlacement[], templates: ReadonlyMap<string, Group>) {
+export function createCourtyardScene(placements: readonly HubPropPlacement[], templates: ReadonlyMap<string, Group>, materials: TownMaterials) {
   const group = new Group()
   const rng = createRng(1709)
   const dummy = new Object3D()
   const stoneMap = makeCourtyardSurface('stone')
-  const moat = createCityMoat(stoneMap)
+  const moat = createCityMoat(stoneMap, materials)
   group.add(moat.group)
   const plazaMap = makePlazaSurface()
   const stone = new MeshStandardMaterial({ color: '#b8c4c7', map: stoneMap, roughness: 0.95 })
   const paleStone = new MeshStandardMaterial({ color: '#e5dcc4', map: stoneMap, roughness: 0.95 })
+  materials.apply(stone, 'stone', 1.2, 0.55)
+  materials.apply(paleStone, 'stone', 1.2, 0.45, true)
   group.add(createFortifiedGate(stone, paleStone))
   group.add(createRampartWalkways(stone, paleStone))
   const grass = new MeshStandardMaterial({ color: '#7a9d58', roughness: 1 })
   const soil = new MeshStandardMaterial({ color: '#7f745b', roughness: 1 })
   const arenaMaterial = new MeshStandardMaterial({ color: '#e4cf9f', map: plazaMap, roughness: 1 })
+  materials.apply(soil, 'earth', 1.4, 0.4)
+  materials.apply(grass, 'earth', 1.7, 0.3)
+  materials.apply(arenaMaterial, 'stone', 1.2, 0.4)
   const shadow = new MeshBasicMaterial({ color: '#453c2b', transparent: true, opacity: 0.07, depthWrite: false })
 
   function flat(geometry: BufferGeometry, material: MeshStandardMaterial | MeshBasicMaterial, x: number, z: number, y = 0.025) {
@@ -151,7 +157,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     }
   }
 
-  const landscape = createCourtyardLandscape(templates, placements)
+  const landscape = createCourtyardLandscape(templates, placements, materials)
   group.add(landscape.group)
 
   // Ropes follow authored tree transforms, including editor moves and scaling.
@@ -284,7 +290,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     group,
     update(time: number, players: readonly FountainInteractor[] = []) {
       landscape.update(time)
-      moat.update(time)
+      moat.update(time, players)
       pennants.forEach((flag, i) => {
         flag.rotation.x = Math.sin(time * 1.5 + i * 0.65) * 0.16
       })

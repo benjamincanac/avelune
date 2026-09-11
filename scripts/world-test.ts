@@ -107,7 +107,7 @@ test('fountain has a large stepped basin and a solid central pedestal', () => {
       assert.ok(radius > FOUNTAIN.pedestalRadius * prop.scale)
       assert.ok(radius < 2, `entered basin at angle ${a}: ${radius}`)
       assert.equal(body.z, FOUNTAIN.floorHeight * prop.scale)
-      walk(body, dx, dy, 100, speed, world)
+      walk(body, dx, dy, Math.ceil(12 / (speed * dt)), speed, world)
       walk(body, 0, 0, 20, speed, world)
       assert.ok(Math.hypot(body.x - prop.x, body.y - prop.y) > prop.r)
       assert.equal(body.z, 0)
@@ -213,7 +213,7 @@ test('independently generated worlds produce identical movement', () => {
 test('town buildings have separate footprints inside the playable boundary', () => {
   const buildings = plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))
   assert.equal(COURTYARD.max - COURTYARD.min, 80)
-  assert.ok(buildings.length >= 35)
+  assert.ok(buildings.length >= 30)
   const axes = (rot: number) => [[Math.cos(rot), -Math.sin(rot)], [Math.sin(rot), Math.cos(rot)]] as const
   const projection = (prop: typeof buildings[number], x: number, y: number) => {
     const [right, front] = axes(prop.rot)
@@ -230,6 +230,19 @@ test('town buildings have separate footprints inside the playable boundary', () 
       )
       assert.ok(separate, `overlapping buildings at ${prop.x},${prop.y} and ${other.x},${other.y}`)
     }
+  }
+})
+
+test('building footprints leave the fountain stone border and walking space clear', () => {
+  for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)$/.test(p.kind))) {
+    const dx = COURTYARD.arena.x - prop.x
+    const dy = COURTYARD.arena.y - prop.y
+    const c = Math.cos(prop.rot)
+    const s = Math.sin(prop.rot)
+    const localX = dx * c - dy * s
+    const localY = dx * s + dy * c
+    const distance = Math.hypot(Math.max(0, Math.abs(localX) - prop.bx!), Math.max(0, Math.abs(localY) - prop.by!))
+    assert.ok(distance >= COURTYARD.arena.radius + 1.25, `building crowds plaza at ${prop.x},${prop.y}`)
   }
 })
 
@@ -283,10 +296,11 @@ test('town streets and every building frontage remain connected to spawn', () =>
   assert.equal(disconnected.length, 0, `isolated dry ground: ${disconnected.slice(0, 6).map(([position]) => position).join('; ')}`)
 })
 
-test('spawn and Oracle are outside, with a ground-level route through the gate in both directions', () => {
+test('spawn is outside and Oracle is inside, with a ground-level route through the gate in both directions', () => {
   assert.ok(plan.start.y > FORTIFICATIONS.moatOuterMax)
   assert.deepEqual(oraclePosition, [FORTIFICATIONS.oracle.x, FORTIFICATIONS.oracle.y])
-  assert.ok(oraclePosition[1]! > FORTIFICATIONS.moatOuterMax)
+  assert.ok(oraclePosition[1]! > COURTYARD.min && oraclePosition[1]! < COURTYARD.max)
+  assert.equal(surfaceHeight(plan, oraclePosition[0]!, oraclePosition[1]!), 0)
   const body = bodyAt(plan.start.x, plan.start.y)
   walk(body, 0, -1, 300)
   assert.ok(body.y < 90, `gate blocked at ${body.y}`)
@@ -296,9 +310,9 @@ test('spawn and Oracle are outside, with a ground-level route through the gate i
   assert.equal(body.z, 0)
 })
 
-test('ramparts and moat block shortcuts even while jumping and dashing', () => {
+test('ground-level ramparts block shortcuts even while jumping and dashing', () => {
   for (const jumping of [false, true]) {
-    for (const [x, y, dx, dy] of [[72, 36, 0, -1], [36, 72, -1, 0], [108, 72, 1, 0], [58, 108, 0, 1], [72, 20, 0, 1], [20, 72, 1, 0], [124, 72, -1, 0], [58, 124, 0, -1]]) {
+    for (const [x, y, dx, dy] of [[72, 36, 0, -1], [36, 72, -1, 0], [108, 72, 1, 0], [58, 108, 0, 1]]) {
       const body = bodyAt(x!, y!)
       if (jumping) {
         body.vz = JUMP_VELOCITY

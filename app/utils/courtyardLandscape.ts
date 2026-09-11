@@ -4,6 +4,8 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, isInMoat, isOnGateBridge, TOWN_GARDENS } from '#shared/utils/courtyard'
+import { MOAT_STAIRS, isOnMoatStairs } from '#shared/utils/moat'
+import type { TownMaterials } from './townMaterials'
 import type { HubPropPlacement } from '#shared/utils/maze'
 
 export const COURTYARD_LANDSCAPE_NAMES = ['tree', 'bush', 'flowers', 'rock'] as const
@@ -12,7 +14,7 @@ const gardens = TOWN_GARDENS
 
 /** Decorative landscape only. All relief and tree trunks remain outside the
  * playable square; garden plants are low enough to walk through. */
-export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, villagePlacements: readonly HubPropPlacement[] = []) {
+export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, villagePlacements: readonly HubPropPlacement[], materials: TownMaterials) {
   const center = (COURTYARD.min + COURTYARD.max) / 2
   const expansion = (FORTIFICATIONS.exteriorMax - FORTIFICATIONS.exteriorMin) / 2 - 20
   const relocate = <T extends { x: number, z: number }>(p: T): T => {
@@ -59,6 +61,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
     ...Array.from({ length: 155 }, (_, i) => center + (i / 154 - 0.5) * extent),
     COURTYARD.min, COURTYARD.max, FORTIFICATIONS.moatInnerMin, FORTIFICATIONS.moatInnerMax,
     FORTIFICATIONS.moatOuterMin, FORTIFICATIONS.moatOuterMax,
+    MOAT_STAIRS.x - MOAT_STAIRS.width / 2, MOAT_STAIRS.x + MOAT_STAIRS.width / 2, MOAT_STAIRS.zStart, MOAT_STAIRS.zEnd,
   ])].sort((a, b) => a - b)
   const resolution = terrainAxis.length - 1
   const positions: number[] = []
@@ -87,7 +90,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
         // Keep the entire playable square free of terrain polygons.
         const nextX = terrainAxis[x + 1]!
         const nextZ = terrainAxis[z + 1]!
-        if (isInMoat((px + nextX) / 2, (pz + nextZ) / 2)) continue
+        if (isInMoat((px + nextX) / 2, (pz + nextZ) / 2) || isOnMoatStairs((px + nextX) / 2, (pz + nextZ) / 2)) continue
         if (nextX > COURTYARD.min && px < COURTYARD.max && nextZ > COURTYARD.min && pz < COURTYARD.max) continue
         const i = z * (resolution + 1) + x
         indices.push(i, i + resolution + 1, i + 1, i + 1, i + resolution + 1, i + resolution + 2)
@@ -100,6 +103,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
   terrainGeometry.setIndex(indices)
   terrainGeometry.computeVertexNormals()
   const terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1 })
+  materials.apply(terrainMaterial, 'earth', 0.9, 0.4)
   const terrain = new Mesh(terrainGeometry, terrainMaterial)
   terrain.receiveShadow = true
   group.add(terrain)
@@ -293,7 +297,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
   for (let i = 0; i < 22000; i++) {
     const x = COURTYARD.min - 43 + random() * (COURTYARD.max - COURTYARD.min + 86)
     const z = COURTYARD.min - 43 + random() * (COURTYARD.max - COURTYARD.min + 86)
-    if ((x > COURTYARD.min && x < COURTYARD.max && z > COURTYARD.min && z < COURTYARD.max) || isInMoat(x, z) || isOnGateBridge(x, z) || (Math.abs(x - FORTIFICATIONS.gateX) < FORTIFICATIONS.bridgeWidth / 2 + 0.3 && z >= FORTIFICATIONS.bridgeEnd && z <= FORTIFICATIONS.exteriorMax)) continue
+    if ((x > COURTYARD.min && x < COURTYARD.max && z > COURTYARD.min && z < COURTYARD.max) || isInMoat(x, z) || isOnMoatStairs(x, z) || isOnGateBridge(x, z) || (Math.abs(x - FORTIFICATIONS.gateX) < FORTIFICATIONS.bridgeWidth / 2 + 0.3 && z >= FORTIFICATIONS.bridgeEnd && z <= FORTIFICATIONS.exteriorMax)) continue
     const distance = Math.max(Math.abs(x - center), Math.abs(z - center)) - expansion
     const patch = Math.sin(x * 0.14 + Math.sin(z * 0.19)) + Math.cos(z * 0.16 - x * 0.035)
     if (patch < -0.9 || random() > 1 - smooth(30, 65, distance) * 0.87) continue

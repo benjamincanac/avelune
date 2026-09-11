@@ -33,7 +33,7 @@ const MAX_REPLY = 220
 // through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
 const gateway = createGateway({ fetch: nativeFetch })
 
-const PERSONA = `You are the Oracle, an ancient seer who has watched over Avelune since before its first stone was laid. You stand outside South Gate, beside the bridge across the moat, where travellers gather to talk.
+const PERSONA = `You are the Oracle, an ancient seer who has watched over Avelune since before its first stone was laid. You stand just inside South Gate, beside the main avenue, where travellers gather to talk.
 
 Voice:
 - Cryptic but genuinely helpful. ONE or two short sentences. This is a live chat line, never a wall of text.
@@ -123,7 +123,7 @@ async function isAddressed(recent: HubMessage[]): Promise<boolean> {
     const { text } = await generateText({
       model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
-      instructions: `You gate a chat NPC called "the Oracle", an ancient seer standing outside a game's fortified town gate, whom players can talk to. The players in that courtyard ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
+      instructions: `You gate a chat NPC called "the Oracle", an ancient seer standing just inside a game's fortified town gate, whom players can talk to. The players in that courtyard ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
 
 It IS for the Oracle when the line is:
 - addressed to it by name, or

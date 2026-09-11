@@ -8,15 +8,14 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { COURTYARD_ASSETS, FOUNTAIN } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
-import { makeCourtyardSurface } from './courtyardTextures'
+import type { TownMaterials } from './townMaterials'
 import { createFortificationAssets } from './fortifications'
 
 /** One material family for the entire town. Geometry is merged per material
  * before instancing, including the roof tiles and individual masonry blocks. */
-export function createCourtyardAssets(): Map<string, Group> {
+export function createCourtyardAssets(materials: TownMaterials): Map<string, Group> {
   const rng = createRng(812)
-  const surface = makeCourtyardSurface('plaster')
-  const mat = (color: string, extra = {}) => new MeshStandardMaterial({ color, map: surface, roughness: 0.88, ...extra })
+  const mat = (color: string, extra = {}) => new MeshStandardMaterial({ color, roughness: 0.88, ...extra })
   const stone = mat('#adb9bd')
   const trim = mat('#e3dfcd')
   const mortar = mat('#998e7a')
@@ -33,6 +32,10 @@ export function createCourtyardAssets(): Map<string, Group> {
   const window = mat('#536f70', { roughness: 0.28, metalness: 0.12 })
   const light = mat('#ffdf9a', { emissive: '#ffb85c', emissiveIntensity: 0.65 })
   const water = mat('#63bcc1', { roughness: 0.19, metalness: 0.25, transparent: true, opacity: 0.88 })
+  for (const material of [stone, trim, mortar]) materials.apply(material, 'stone', 1, 0.45)
+  for (const material of [plaster, pink]) materials.apply(material, 'plaster', 0.65, 0.28)
+  for (const material of [wood, darkWood, teal]) materials.apply(material, 'timber', 0.85, 0.48)
+  for (const material of [...roof, ...blueRoof]) materials.apply(material, 'terracotta', 1.5, 0.45)
   const assets = new Map<string, Group>()
 
   function mesh(g: Group, geometry: BufferGeometry, material: Material, x = 0, y = 0, z = 0) {
