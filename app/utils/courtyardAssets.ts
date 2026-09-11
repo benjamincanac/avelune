@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { COURTYARD_ASSETS, FOUNTAIN } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
 import { makeCourtyardSurface } from './courtyardTextures'
+import { createFortificationAssets } from './fortifications'
 
 /** One material family for the entire town. Geometry is merged per material
  * before instancing, including the roof tiles and individual masonry blocks. */
@@ -350,6 +351,8 @@ export function createCourtyardAssets(): Map<string, Group> {
     }
     assets.set('Courtyard_Lantern', g)
   }
+
+  for (const [kind, group] of createFortificationAssets({ stone, trim, dark: darkWood, blue: teal, gold })) assets.set(kind, group)
 
   // Bake every part into template space and merge by material. Hundreds of
   // shingles become four meshes, so placed houses stay inexpensive to render.

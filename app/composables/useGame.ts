@@ -152,7 +152,7 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle by the northern garden, explore the courtyard, or just say hello. Press Esc for the menu. Type /weather or /time for environment commands.`)
+          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle beside the gate, explore the town, or just say hello. Press Esc for the menu. Type /weather or /time for environment commands.`)
         }
         break
       case 'time':

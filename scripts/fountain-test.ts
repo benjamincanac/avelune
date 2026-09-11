@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { FOUNTAIN_FLOW, sampleFountainFlow } from '../app/utils/fountainFlow.ts'
 import { createFountainInteractions, createFountainSimulation } from '../app/utils/fountainSimulation.ts'
 
 function energy(sim: ReturnType<typeof createFountainSimulation>) {
@@ -157,4 +158,40 @@ test('entering water splashes once, but a suspended body and reconnect do not di
   interactions.update(2, [{ ...body, feetY: 0.12 }], splash)
   assert.equal(energy(sim), 0)
   assert.equal(splashes, 1)
+})
+
+test('overflow leaves the eight low scallops and conserves discharge as gravity narrows it', () => {
+  for (let outlet = 0; outlet < FOUNTAIN_FLOW.outlets; outlet++) {
+    for (let time = 0; time < 10; time += 0.25) {
+      const start = sampleFountainFlow(outlet, time, 0)
+      const angle = Math.atan2(start.z, start.x)
+      assert.ok(Math.abs(Math.cos(8 * angle) + 1) < 1e-10)
+      assert.ok(Math.abs(Math.hypot(start.x, start.z) - FOUNTAIN_FLOW.lipRadius) < 1e-10)
+      const falling = sampleFountainFlow(outlet, time, start.breakupAge)
+      assert.ok(falling.y < start.y && falling.radius < start.radius)
+      assert.ok(falling.aspect < start.aspect)
+      assert.ok(Math.abs(Math.PI * falling.radius ** 2 * falling.speed - start.flow) < 1e-12)
+      // The bead carries exactly one emission interval of discharged water.
+      const beadRadius = Math.cbrt(3 * falling.flow / (4 * Math.PI * FOUNTAIN_FLOW.dropsPerSecond))
+      assert.ok(Math.abs(4 / 3 * Math.PI * beadRadius ** 3 * FOUNTAIN_FLOW.dropsPerSecond - start.flow) < 1e-12)
+    }
+  }
+})
+
+test('detached droplets preserve stream momentum and land beyond the pedestal', () => {
+  for (let outlet = 0; outlet < FOUNTAIN_FLOW.outlets; outlet++) {
+    for (const time of [0, 3.1, 17, 86400]) {
+      const start = sampleFountainFlow(outlet, time, 0)
+      const detached = sampleFountainFlow(outlet, time, start.breakupAge)
+      const dt = 0.08
+      const next = sampleFountainFlow(outlet, time, start.breakupAge + dt)
+      assert.ok(Math.abs(next.y - (detached.y + detached.vy * dt - 0.5 * FOUNTAIN_FLOW.gravity * dt * dt)) < 1e-12)
+      assert.ok(Math.abs(next.x - (detached.x + detached.vx * dt)) < 1e-12)
+      const flight = (start.vy + Math.sqrt(start.vy ** 2 + 2 * FOUNTAIN_FLOW.gravity * (start.y - 0.48))) / FOUNTAIN_FLOW.gravity
+      const impact = sampleFountainFlow(outlet, time, flight)
+      assert.ok(Math.abs(impact.y - 0.48) < 1e-12)
+      assert.ok(Math.hypot(impact.x, impact.z) > 0.56 && Math.hypot(impact.x, impact.z) < 3.05)
+      assert.ok(detached.y > 0.48)
+    }
+  }
 })

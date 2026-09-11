@@ -1,226 +1,317 @@
 [
   {
     "kind": "Courtyard_Fountain",
-    "x": 28,
-    "y": 30,
+    "x": 72,
+    "y": 72,
     "rot": 0,
     "scale": 1.4
   },
   {
     "kind": "Courtyard_Tree",
-    "x": 14.5,
-    "y": 17,
+    "x": 66,
+    "y": 68.5,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Tree",
-    "x": 40,
-    "y": 17,
-    "rot": 0,
-    "scale": 1.15
-  },
-  {
-    "kind": "Courtyard_Tree",
-    "x": 13.5,
-    "y": 38,
-    "rot": 0,
-    "scale": 1.1
-  },
-  {
-    "kind": "Courtyard_Tree",
-    "x": 41,
-    "y": 42,
+    "x": 82,
+    "y": 75.5,
     "rot": 0,
     "scale": 1.05
   },
   {
     "kind": "Courtyard_Tree",
-    "x": 10.5,
-    "y": 45,
+    "x": 94,
+    "y": 68.5,
     "rot": 0,
-    "scale": 0.8
+    "scale": 1.1
   },
   {
     "kind": "Courtyard_Tree",
+    "x": 100,
+    "y": 75.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Tree",
+    "x": 45,
+    "y": 85,
+    "rot": 0,
+    "scale": 1.1
+  },
+  {
+    "kind": "Courtyard_Tree",
+    "x": 53,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Tree",
+    "x": 91,
+    "y": 85,
+    "rot": 0,
+    "scale": 1.15
+  },
+  {
+    "kind": "Courtyard_Tree",
+    "x": 99,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Tree",
+    "x": 45,
+    "y": 39.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Tree",
+    "x": 99,
+    "y": 39.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Bench",
+    "x": 84,
+    "y": 68.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Bench",
+    "x": 94,
+    "y": 75.5,
+    "rot": 3.141592653589793,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Bench",
+    "x": 48,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Bench",
+    "x": 96,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Bench",
+    "x": 67,
+    "y": 47,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Bench",
+    "x": 77,
+    "y": 47,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Planter",
+    "x": 59,
+    "y": 68.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Planter",
+    "x": 85,
+    "y": 75.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Planter",
+    "x": 50,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Planter",
+    "x": 94,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Planter",
+    "x": 67,
+    "y": 45.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Planter",
+    "x": 77,
+    "y": 45.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Stall",
     "x": 43.5,
-    "y": 10,
+    "y": 68.5,
     "rot": 0,
-    "scale": 0.9
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 16,
-    "y": 19,
-    "rot": 1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 35,
-    "y": 20,
-    "rot": 1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 17,
-    "y": 36,
-    "rot": 1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 38,
-    "y": 36,
-    "rot": 1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 23,
-    "y": 43,
-    "rot": 0,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 33,
-    "y": 43,
-    "rot": 0,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 17,
-    "y": 14.4,
-    "rot": 0,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Planter",
-    "x": 39,
-    "y": 14.4,
-    "rot": 0,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Bench",
-    "x": 24,
-    "y": 19,
-    "rot": 1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Bench",
-    "x": 32,
-    "y": 19,
-    "rot": -1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Bench",
-    "x": 17,
-    "y": 33,
-    "rot": 1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Bench",
-    "x": 39,
-    "y": 33,
-    "rot": -1.5708,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Bench",
-    "x": 23,
-    "y": 41,
-    "rot": 3.14159,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Bench",
-    "x": 33,
-    "y": 41,
-    "rot": 3.14159,
     "scale": 1
   },
   {
     "kind": "Courtyard_Stall",
-    "x": 12.5,
-    "y": 30,
-    "rot": 1.5708,
+    "x": 43.5,
+    "y": 75.5,
+    "rot": 3.141592653589793,
     "scale": 1
   },
   {
     "kind": "Courtyard_Stall",
-    "x": 12.5,
-    "y": 34,
-    "rot": 1.5708,
+    "x": 49.5,
+    "y": 68.5,
+    "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Stall",
-    "x": 41.5,
-    "y": 28,
-    "rot": -1.5708,
+    "x": 51.5,
+    "y": 75.5,
+    "rot": 3.141592653589793,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Stall",
+    "x": 59,
+    "y": 68.5,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Stall",
+    "x": 60.5,
+    "y": 75.5,
+    "rot": 3.141592653589793,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 23,
-    "y": 15.5,
+    "x": 68.5,
+    "y": 48,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 33,
-    "y": 15.5,
+    "x": 68.5,
+    "y": 59,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 20,
-    "y": 27,
+    "x": 68.5,
+    "y": 85,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 36,
-    "y": 27,
-    "rot": 3.14159,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Lantern",
-    "x": 20,
-    "y": 38,
+    "x": 68.5,
+    "y": 96,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 36,
-    "y": 38,
-    "rot": 3.14159,
-    "scale": 1
-  },
-  {
-    "kind": "Courtyard_Lantern",
-    "x": 11,
-    "y": 20,
+    "x": 68.5,
+    "y": 105,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 44,
-    "y": 32,
-    "rot": 3.14159,
+    "x": 75.5,
+    "y": 48,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 75.5,
+    "y": 59,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 75.5,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 75.5,
+    "y": 96,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 75.5,
+    "y": 105,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 40,
+    "y": 49,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 40,
+    "y": 71,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 40,
+    "y": 85,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 104,
+    "y": 49,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 104,
+    "y": 71,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Lantern",
+    "x": 104,
+    "y": 85,
+    "rot": 0,
     "scale": 1
   }
 ]

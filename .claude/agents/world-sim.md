@@ -30,7 +30,7 @@ independently.
 - `shared/data/courtyard-structure.json` — editable village buildings and
   perimeter walls (see invariant 4). The old `hub-*.json` placements remain
   legacy colosseum data and are not loaded by `generateHub`.
-- `shared/data/hub-oracle.json` — the Oracle's stand position as a bare `[x, y]`
+- `shared/data/courtyard-oracle.json` — the Oracle's stand position as a bare `[x, y]`
   array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
   scene and the editor; written by the editor's save route.
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, and the
@@ -48,12 +48,15 @@ independently.
    survives only for cosmetic hashing that must stay stable across reloads
    (procedural textures) — never for gameplay state. No geometry travels over
    the socket, only players.
-3. **`HUB_LAYOUT` sets the 56×56 grid and spawn; `COURTYARD` sets its playable
-   bounds and landmarks.** `generateHub` stamps tiles outside `[min, max)` on
-   either axis as solid, plus a defensive border ring. The former colosseum
-   radius does not determine movement. Buildings and furniture collide through
-   their authored footprints. Units are tiles; `PLAYER_RADIUS` and prop radii
-   too. Keep tunables as exported constants so both sides read the same numbers.
+3. **`HUB_LAYOUT` sets the 144×144 grid and exterior spawn at `(72, 129)`;
+   `COURTYARD` sets city bounds `[32, 112]`.** `FORTIFICATIONS` defines exterior
+   ground `[4, 140)`, curtain walls, moat and the south bridge. `TOWN_STREETS`,
+   `TOWN_GARDENS` and `TOWN_DISTRICTS` share the authored layout with the scene
+   and minimap. Buildings and furniture collide through authored footprints;
+   moat and outer bounds use solid tiles. The raised gallery and stairs use
+   dedicated shared surfaces rather than changing the authored prop z contract.
+   Units are tiles; `PLAYER_RADIUS` and prop radii too. Keep tunables as exported
+   constants so both sides read the same numbers.
 4. **The arena loads its props/pieces from two committed JSON files**, both
    written by the dev editor and both appended to `plan.props` (each
    `hand: true`) through `makeProp`. `courtyard-props.json` = furniture and
@@ -108,3 +111,23 @@ the caller. The client stores `game.weather` and passes it to the sky renderer;
 `/time dawn|day|sunset|night|auto` independently controls the shared sun phase.
 `welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases
 leave the server clock, weather and animations running; `auto` restores the cycle.
+
+## Fortified city boundary
+
+`FORTIFICATIONS` in `shared/utils/courtyard.ts` defines the wall, moat, bridge and
+walkable exterior. `COURTYARD` remains the inner city bounds. Moat tiles block
+movement except on the bridge; narrow bridge rails use shared prop collision
+and movement substeps. Rendering must cut the terrain at the exact moat bounds
+and keep decorative trunks and relief outside the exterior bounds.
+
+## Raised rampart passages
+
+`shared/utils/ramparts.ts` owns the inner gallery footprint, stairs and rail
+segments consumed by both rendering and movement. Stairs are solid stepped
+surfaces. Galleries support feet only once they reach deck height, preserving
+ground passages below them. This is a dedicated height-aware surface in
+`stepBody`; authored prop `z` remains render-only. Rail collision uses each
+segment's bottom and top, and both stairs and galleries substep dash movement.
+Keep visible stair treads and rail segments aligned with these shared constants.
+`pnpm exec jiti scripts/rampart-test.ts` covers both stairs, the connected loop,
+ground passage, rail containment, landing and deterministic movement.

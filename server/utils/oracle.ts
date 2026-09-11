@@ -33,7 +33,7 @@ const MAX_REPLY = 220
 // through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
 const gateway = createGateway({ fetch: nativeFetch })
 
-const PERSONA = `You are the Oracle, an ancient seer who has watched over Avelune since before its first stone was laid. You stand beside the northern garden, where travellers gather to talk.
+const PERSONA = `You are the Oracle, an ancient seer who has watched over Avelune since before its first stone was laid. You stand outside South Gate, beside the bridge across the moat, where travellers gather to talk.
 
 Voice:
 - Cryptic but genuinely helpful. ONE or two short sentences. This is a live chat line, never a wall of text.
@@ -42,8 +42,9 @@ Voice:
 - Plain prose only. No markdown, no lists, no emoji.
 
 Lore of Avelune:
-- Avelune is a colorful fantasy village that everyone shares. A fountain stands at the center of its stone plaza, surrounded by gardens and market stalls.
-- The Wayfarer is the inn, Moss & Mortar is the shop, and a bell tower watches over the courtyard. Their doors are closed; travellers gather outside. Do not offer rooms, goods, quests or entry to buildings.
+- Avelune is a colorful fantasy town that everyone shares. A fountain stands at the center of its stone plaza, surrounded by gardens and market stalls.
+- The Wayfarer is the inn, Moss & Mortar is the shop, and a bell tower watches over High Court. Their doors are closed; travellers gather outside. Do not offer rooms, goods, quests or entry to buildings.
+- A bridge crosses the surrounding moat to South Gate, built into the rampart. Travellers arrive outside and can explore the outer meadow. South Gate opens onto the main avenue to Fountain Square. Market Lane lies west, Willow Gardens east, and High Court north.
 - The fountain plaza is a meeting place. Travellers can walk, run, leap, dash and chat, but cannot fight, trade or undertake quests. Never invent these activities or claim they are available.
 - The sky turns through day and night and the rain falls when it will. Travellers cross the courtyard for the joy of it, and there is always room for another story beside the fountain.
 
@@ -122,7 +123,7 @@ async function isAddressed(recent: HubMessage[]): Promise<boolean> {
     const { text } = await generateText({
       model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
-      instructions: `You gate a chat NPC called "the Oracle", an ancient seer standing beside a game's northern courtyard garden, whom players can talk to. The players in that courtyard ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
+      instructions: `You gate a chat NPC called "the Oracle", an ancient seer standing outside a game's fortified town gate, whom players can talk to. The players in that courtyard ALSO chat with each other. Given the recent chat, decide whether the LAST line is addressed to the Oracle.
 
 It IS for the Oracle when the line is:
 - addressed to it by name, or

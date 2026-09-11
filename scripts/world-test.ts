@@ -13,7 +13,8 @@ import {
   surfaceHeight,
 } from '../shared/utils/maze'
 import type { FloorPlan, KinematicBody } from '../shared/utils/maze'
-import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN } from '../shared/utils/courtyard'
+import oraclePosition from '../shared/data/courtyard-oracle.json'
+import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN, FORTIFICATIONS, TOWN_DISTRICTS, TOWN_STREETS } from '../shared/utils/courtyard'
 
 const plan = generateHub()
 const dt = 1 / 20
@@ -35,11 +36,11 @@ test('spawn has ground and clearance in all eight directions', () => {
 })
 
 test('all four perimeter sides contain walking and dashing players', () => {
-  const approaches = [[28, 45, 0, 1], [25, 10, 0, -1], [10, 40, -1, 0], [45, 45, 1, 0]] as const
+  const approaches = [[72, 137, 0, 1], [72, 7, 0, -1], [7, 72, -1, 0], [137, 72, 1, 0]] as const
   for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
     for (const [x, y, dx, dy] of approaches) {
       const body = walk(bodyAt(x, y), dx, dy, 100, speed)
-      assert.ok(body.x >= 8.3 && body.x <= 47.7 && body.y >= 8.3 && body.y <= 47.7)
+      assert.ok(body.x >= FORTIFICATIONS.exteriorMin + PLAYER_RADIUS && body.x <= FORTIFICATIONS.exteriorMax - PLAYER_RADIUS && body.y >= FORTIFICATIONS.exteriorMin + PLAYER_RADIUS && body.y <= FORTIFICATIONS.exteriorMax - PLAYER_RADIUS)
     }
   }
 })
@@ -58,7 +59,7 @@ test('placed buildings block their front approach, including rotated facades', (
 test('diagonal building collision follows the visible Three.js Y rotation', () => {
   const inn = plan.props.find(p => p.kind === 'Courtyard_Inn')!
   for (const rot of [Math.PI / 4, -Math.PI / 4]) {
-    const prop = { ...inn, x: 28, y: 28, rot }
+    const prop = { ...inn, x: 52, y: 52, rot }
     const world = { ...plan, props: [prop] }
     const c = Math.cos(rot)
     const s = Math.sin(rot)
@@ -175,7 +176,7 @@ test('fountain footprints and water contact follow rotated per-axis scale', () =
 })
 
 test('bench blocks walking, supports jump landings, and allows walking off', () => {
-  const prop = plan.props.find(p => p.kind === 'Courtyard_Bench' && p.x === 23)!
+  const prop = plan.props.find(p => p.kind === 'Courtyard_Bench')!
   const body = bodyAt(prop.x, prop.y - prop.by! - 0.2)
   walk(body, 0, 1, 10)
   assert.ok(body.y < prop.y - prop.by!)
@@ -209,15 +210,38 @@ test('independently generated worlds produce identical movement', () => {
   }
 })
 
-test('village lanes and every building frontage remain connected to spawn', () => {
+test('town buildings have separate footprints inside the playable boundary', () => {
+  const buildings = plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))
+  assert.equal(COURTYARD.max - COURTYARD.min, 80)
+  assert.ok(buildings.length >= 35)
+  const axes = (rot: number) => [[Math.cos(rot), -Math.sin(rot)], [Math.sin(rot), Math.cos(rot)]] as const
+  const projection = (prop: typeof buildings[number], x: number, y: number) => {
+    const [right, front] = axes(prop.rot)
+    return Math.abs(x * right[0] + y * right[1]) * prop.bx! + Math.abs(x * front[0] + y * front[1]) * prop.by!
+  }
+  for (const [index, prop] of buildings.entries()) {
+    const width = projection(prop, 1, 0)
+    const depth = projection(prop, 0, 1)
+    assert.ok(prop.x - width > COURTYARD.min && prop.x + width < COURTYARD.max)
+    assert.ok(prop.y - depth > COURTYARD.min && prop.y + depth < COURTYARD.max)
+    for (const other of buildings.slice(index + 1)) {
+      const separate = [...axes(prop.rot), ...axes(other.rot)].some(([x, y]) =>
+        Math.abs((other.x - prop.x) * x + (other.y - prop.y) * y) >= projection(prop, x, y) + projection(other, x, y) + 0.2,
+      )
+      assert.ok(separate, `overlapping buildings at ${prop.x},${prop.y} and ${other.x},${other.y}`)
+    }
+  }
+})
+
+test('town streets and every building frontage remain connected to spawn', () => {
   // Sample player-sized dry ground, then traverse each edge through the same
   // kinematics used by prediction and the server. A clear minimap tile alone
   // does not guarantee that a street fits a player between authored props.
   const spacing = 0.5
   const nodes = new Map<string, { x: number, y: number }>()
   const key = (x: number, y: number) => `${x},${y}`
-  for (let x = COURTYARD.min + spacing; x < COURTYARD.max; x += spacing) {
-    for (let y = COURTYARD.min + spacing; y < COURTYARD.max; y += spacing) {
+  for (let x = FORTIFICATIONS.exteriorMin + spacing; x < FORTIFICATIONS.exteriorMax; x += spacing) {
+    for (let y = FORTIFICATIONS.exteriorMin + spacing; y < FORTIFICATIONS.exteriorMax; y += spacing) {
       let clear = surfaceHeight(plan, x, y) === 0
       for (let i = 0; clear && i < 8; i++) {
         const angle = i * Math.PI / 4
@@ -242,14 +266,90 @@ test('village lanes and every building frontage remain connected to spawn', () =
       queue.push(nodes.get(destination)!)
     }
   }
-  for (const [x, y] of [[28, 22], [20, 30], [36, 30], [28, 39], [14, 25], [42, 24], [28, 16]]) {
+  for (const [x, y] of [[72, 84], [64, 72], [80, 72], [72, 62], [46, 72], [89, 72], [72, 56], [72, 100], [72, 109], [12, 12], [132, 12], [12, 132], [132, 132], ...TOWN_DISTRICTS.filter(d => d.name !== 'Fountain Square').map(d => [d.x, d.z]), oraclePosition]) {
     assert.ok(reached.has(key(x!, y!)), `street at ${x},${y} is disconnected from spawn`)
   }
   for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
-    const x = prop.x + Math.sin(prop.rot) * (prop.by! + 1)
-    const y = prop.y + Math.cos(prop.rot) * (prop.by! + 1)
+    const doorOffset = prop.kind === 'Courtyard_Shop' ? -1.61 * (prop.s3?.[0] ?? prop.scale) : 0
+    const x = prop.x + Math.sin(prop.rot) * (prop.by! + 1) + Math.cos(prop.rot) * doorOffset
+    const y = prop.y + Math.cos(prop.rot) * (prop.by! + 1) - Math.sin(prop.rot) * doorOffset
     assert.ok(queue.some(node => Math.hypot(node.x - x, node.y - y) < 0.6), `frontage of ${prop.kind} at ${prop.x},${prop.y} is inaccessible`)
   }
-  const disconnected = [...nodes].filter(([position]) => !reached.has(position))
+  // The narrow defensive berm between the moat and ramparts is not a street.
+  const disconnected = [...nodes].filter(([position, node]) =>
+    !reached.has(position) && node.x > COURTYARD.min + 1 && node.x < COURTYARD.max - 1
+    && node.y > COURTYARD.min + 1 && node.y < COURTYARD.max - 1,
+  )
   assert.equal(disconnected.length, 0, `isolated dry ground: ${disconnected.slice(0, 6).map(([position]) => position).join('; ')}`)
+})
+
+test('spawn and Oracle are outside, with a ground-level route through the gate in both directions', () => {
+  assert.ok(plan.start.y > FORTIFICATIONS.moatOuterMax)
+  assert.deepEqual(oraclePosition, [FORTIFICATIONS.oracle.x, FORTIFICATIONS.oracle.y])
+  assert.ok(oraclePosition[1]! > FORTIFICATIONS.moatOuterMax)
+  const body = bodyAt(plan.start.x, plan.start.y)
+  walk(body, 0, -1, 300)
+  assert.ok(body.y < 90, `gate blocked at ${body.y}`)
+  assert.equal(body.z, 0)
+  walk(body, 0, 1, 300)
+  assert.ok(body.y > 123)
+  assert.equal(body.z, 0)
+})
+
+test('ramparts and moat block shortcuts even while jumping and dashing', () => {
+  for (const jumping of [false, true]) {
+    for (const [x, y, dx, dy] of [[72, 36, 0, -1], [36, 72, -1, 0], [108, 72, 1, 0], [58, 108, 0, 1], [72, 20, 0, 1], [20, 72, 1, 0], [124, 72, -1, 0], [58, 124, 0, -1]]) {
+      const body = bodyAt(x!, y!)
+      if (jumping) {
+        body.vz = JUMP_VELOCITY
+        body.grounded = false
+      }
+      walk(body, dx!, dy!, 40, PLAYER_SPEED * DASH_MULTIPLIER)
+      assert.ok(Math.hypot(body.x - x!, body.y - y!) < 4, `shortcut from ${x},${y} to ${body.x},${body.y}`)
+    }
+  }
+})
+
+test('bridge parapets contain walking and dashing players', () => {
+  for (const direction of [-1, 1]) {
+    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
+      const body = walk(bodyAt(FORTIFICATIONS.gateX, 114), direction, 0, 80, speed)
+      assert.ok(body.x > 68.35 && body.x < 75.65)
+      assert.equal(body.z, 0)
+    }
+  }
+})
+
+test('house doors face connected streets and leave the defensive perimeter clear', () => {
+  const houses = plan.props.filter(p => /Courtyard_(Inn|Shop)$/.test(p.kind))
+  for (const prop of houses) {
+    const frontX = Math.sin(prop.rot)
+    const frontY = Math.cos(prop.rot)
+    const doorOffset = prop.kind === 'Courtyard_Shop' ? -1.61 * (prop.s3?.[0] ?? prop.scale) : 0
+    const doorX = prop.x + Math.cos(prop.rot) * doorOffset
+    const doorY = prop.y + frontY * (prop.by! + 0.75)
+    const street = TOWN_STREETS.find(s => s.z1 === s.z2
+      && doorX > s.x1 && doorX < s.x2
+      && (s.z1 - doorY) * frontY > 0 && Math.abs(s.z1 - doorY) < 6)
+    assert.ok(street, `house at ${prop.x},${prop.y} faces no street`)
+    const approach = bodyAt(doorX, street.z1)
+    const distance = Math.abs(street.z1 - doorY)
+    for (let i = 0; i < Math.ceil(distance / 0.1); i++) {
+      stepBody(plan, approach, -frontX * 0.1, -frontY * 0.1, dt)
+    }
+    assert.ok(Math.abs(approach.y - doorY) < 0.12, `blocked doorway approach at ${doorX},${doorY}`)
+    assert.ok(prop.x - prop.bx! >= 42 && prop.x + prop.bx! <= 102)
+    assert.ok(prop.y - prop.by! >= 40 && prop.y + prop.by! <= 105)
+  }
+  // Stair access stays clear even when surrounding buildings or furniture move.
+  for (const x of [40, 104]) {
+    for (let z = 90; z <= 105; z += 0.5) {
+      for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tree|Bench|Planter|Stall|Lantern)$/.test(p.kind))) {
+        const dx = Math.abs(prop.x - x)
+        const dz = Math.abs(prop.y - z)
+        assert.ok(dx > (prop.bx ?? prop.r) + 1.5 || dz > (prop.by ?? prop.r) + 0.25,
+          `${prop.kind} blocks stairs at ${x},${z}`)
+      }
+    }
+  }
 })

@@ -1,23 +1,23 @@
 <script setup lang="ts">
 import { generateHub, occupancyGrid } from '#shared/utils/maze'
-import { COURTYARD } from '#shared/utils/courtyard'
+import { COURTYARD, isInMoat, isOnGateBridge, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
+import { RAMPART_STAIRS } from '#shared/utils/ramparts'
 import oracle from '#shared/data/courtyard-oracle.json'
 import type { UseGame } from '~/composables/useGame'
 
 /**
- * WoW-style round minimap: north-up, centered on you. The arena is one small
- * known map, so nothing is fogged.
+ * Round minimap centered on the player, with nearby streets and landmarks.
  */
 
 const props = defineProps<{ game: UseGame }>()
 
 const SIZE = 172
 /** Half-extent of the window, in tiles. */
-const RANGE = 22
+const RANGE = Math.max(22, (COURTYARD.max - COURTYARD.min) * 0.32)
 
 const canvas = useTemplateRef('canvas')
 
-/** The arena never changes — build the plan and its wall raster once. */
+/** Build the bundled town plan and its wall raster once. */
 const plan = generateHub()
 /** Display wall grid: tiles plus rasterized solid props. */
 const occ = occupancyGrid(plan)
@@ -51,10 +51,50 @@ function draw() {
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {
       const wall = occ[ty * plan.width + tx] === 1
-      ctx.fillStyle = wall ? '#666751' : '#b0a787'
+      const bridge = isOnGateBridge(tx + 0.5, ty + 0.5)
+      const moat = isInMoat(tx + 0.5, ty + 0.5)
+      const exterior = tx < COURTYARD.min || tx >= COURTYARD.max || ty < COURTYARD.min || ty >= COURTYARD.max
+      ctx.fillStyle = bridge ? '#d6c5a3' : moat ? '#369b98' : wall ? '#666751' : exterior ? '#779661' : '#b0a787'
       const { x, y } = toScreen(tx, ty)
       ctx.fillRect(x, y, scale + 0.5, scale + 0.5)
     }
+  }
+
+  for (const street of TOWN_STREETS) {
+    const start = toScreen(street.x1, street.z1)
+    const end = toScreen(street.x2, street.z2)
+    ctx.strokeStyle = '#d6c5a3'
+    ctx.lineWidth = street.width * scale
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(start.x, start.y)
+    ctx.lineTo(end.x, end.y)
+    ctx.stroke()
+  }
+  for (const garden of TOWN_GARDENS) {
+    const point = toScreen(garden.x, garden.z)
+    ctx.fillStyle = '#779661'
+    ctx.beginPath()
+    ctx.ellipse(point.x, point.y, garden.rx * scale, garden.rz * scale, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // Preserve solid footprints where a road passes beside a building.
+  ctx.fillStyle = '#666751'
+  for (let ty = minY; ty <= maxY; ty++) {
+    for (let tx = minX; tx <= maxX; tx++) {
+      if (occ[ty * plan.width + tx] !== 1 || isInMoat(tx + 0.5, ty + 0.5)) continue
+      const point = toScreen(tx, ty)
+      ctx.fillRect(point.x, point.y, scale + 0.5, scale + 0.5)
+    }
+  }
+
+  for (const stair of RAMPART_STAIRS) {
+    const start = toScreen(stair.x - stair.width / 2, stair.zStart)
+    const length = (stair.zEnd - stair.zStart) * scale
+    ctx.fillStyle = '#ded5be'
+    ctx.fillRect(start.x, start.y, stair.width * scale, length)
+    ctx.fillStyle = '#82847e'
+    for (let i = 1; i < 9; i++) ctx.fillRect(start.x, start.y + length * i / 9, stair.width * scale, 1)
   }
 
   const arena = toScreen(COURTYARD.arena.x, COURTYARD.arena.y)
@@ -131,7 +171,7 @@ onBeforeUnmount(() => clearInterval(timer))
     :width="SIZE"
     :height="SIZE"
     role="img"
-    aria-label="Courtyard map showing the fountain plaza, Oracle and players"
+    aria-label="Town map showing streets, gardens, the fountain square, Oracle and players"
     class="pointer-events-auto drop-shadow-lg"
   />
 </template>

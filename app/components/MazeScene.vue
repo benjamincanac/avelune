@@ -41,6 +41,7 @@ import {
   stepBody,
 } from '#shared/utils/maze'
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
+import { isRampartCameraBlocked } from '#shared/utils/ramparts'
 import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
@@ -686,6 +687,7 @@ function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: n
   const pz = dirX
   const blocked = (x: number, z: number) => !isWalkable(hubPlan, Math.floor(x), Math.floor(z))
     || surfaceHeight(hubPlan, x, z) > height - CAM_RADIUS
+    || isRampartCameraBlocked(x, z, height, CAM_RADIUS)
   for (let d = 0.3; d < maxDist; d += 0.08) {
     const sx = hx + dirX * d
     const sz = hy + dirZ * d

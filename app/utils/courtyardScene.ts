@@ -5,11 +5,14 @@ import {
   RingGeometry, TorusGeometry, Vector3,
 } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { COURTYARD, FOUNTAIN } from '#shared/utils/courtyard'
+import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/maze'
 import { createCourtyardLandscape } from './courtyardLandscape'
 import { createFountainWater } from './fountainWater'
+import { createCityMoat } from './cityMoat'
+import { createRampartWalkways } from './rampartWalkways'
+import { createFortifiedGate } from './fortifications'
 import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
 
@@ -20,9 +23,13 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   const rng = createRng(1709)
   const dummy = new Object3D()
   const stoneMap = makeCourtyardSurface('stone')
+  const moat = createCityMoat(stoneMap)
+  group.add(moat.group)
   const plazaMap = makePlazaSurface()
   const stone = new MeshStandardMaterial({ color: '#b8c4c7', map: stoneMap, roughness: 0.95 })
   const paleStone = new MeshStandardMaterial({ color: '#e5dcc4', map: stoneMap, roughness: 0.95 })
+  group.add(createFortifiedGate(stone, paleStone))
+  group.add(createRampartWalkways(stone, paleStone))
   const grass = new MeshStandardMaterial({ color: '#7a9d58', roughness: 1 })
   const soil = new MeshStandardMaterial({ color: '#7f745b', roughness: 1 })
   const arenaMaterial = new MeshStandardMaterial({ color: '#e4cf9f', map: plazaMap, roughness: 1 })
@@ -36,24 +43,42 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     group.add(m)
     return m
   }
-  flat(new PlaneGeometry(40, 40), soil, 28, 28, -0.01)
+  const extent = COURTYARD.max - COURTYARD.min
+  const center = (COURTYARD.min + COURTYARD.max) / 2
+  flat(new PlaneGeometry(extent, extent), soil, center, center, -0.01)
 
-  const gardens = [
-    { x: 14, z: 17, rx: 5, rz: 4.5 },
-    { x: 40.5, z: 17, rx: 4.5, rz: 4 },
-    { x: 13, z: 40.5, rx: 4.5, rz: 6 },
-    { x: 42, z: 42, rx: 4.5, rz: 4.5 },
-  ]
+  const approachLength = FORTIFICATIONS.exteriorMax - FORTIFICATIONS.bridgeEnd
+  flat(new PlaneGeometry(FORTIFICATIONS.bridgeWidth, approachLength), paleStone, FORTIFICATIONS.gateX, FORTIFICATIONS.bridgeEnd + approachLength / 2, -0.025)
+
+  const gardens = TOWN_GARDENS
   const inGarden = (x: number, z: number) => gardens.some(g => ((x - g.x) / g.rx) ** 2 + ((z - g.z) / g.rz) ** 2 < 1)
+  const buildings = placements.filter(p => ['Courtyard_Inn', 'Courtyard_Shop', 'Courtyard_Tower'].includes(p.kind))
+  const inBuilding = (x: number, z: number, margin = 0) => buildings.some((p) => {
+    const dimensions = COURTYARD_ASSETS[p.kind as 'Courtyard_Inn' | 'Courtyard_Shop' | 'Courtyard_Tower']
+    const dx = x - p.x
+    const dz = z - p.y
+    const localX = dx * Math.cos(p.rot) - dz * Math.sin(p.rot)
+    const localZ = dx * Math.sin(p.rot) + dz * Math.cos(p.rot)
+    return Math.abs(localX) < dimensions.width * (p.s3?.[0] ?? p.scale) / 2 + margin
+      && Math.abs(localZ) < dimensions.depth * (p.s3?.[2] ?? p.scale) / 2 + margin
+  })
+  const streetDistance = (x: number, z: number, street: typeof TOWN_STREETS[number]) => {
+    const dx = street.x2 - street.x1
+    const dz = street.z2 - street.z1
+    const t = Math.max(0, Math.min(1, ((x - street.x1) * dx + (z - street.z1) * dz) / (dx * dx + dz * dz)))
+    return Math.hypot(x - street.x1 - t * dx, z - street.z1 - t * dz)
+  }
   const { arena } = COURTYARD
-  const stones: { x: number, z: number, shade: number }[] = []
-  for (let row = 0; row < 40; row++) {
-    for (let col = 0; col < 40; col++) {
-      const x = 8.5 + col + (row % 2 ? 0.45 : 0)
-      const z = 8.5 + row
-      if (x > 47.8 || inGarden(x, z)) continue
+  const stones: { x: number, z: number, shade: number, road: boolean, edge: boolean }[] = []
+  for (let row = 0; row < extent; row++) {
+    for (let col = 0; col < extent; col++) {
+      const x = COURTYARD.min + 0.5 + col + (row % 2 ? 0.45 : 0)
+      const z = COURTYARD.min + 0.5 + row
+      if (x > COURTYARD.max - 0.2 || inGarden(x, z) || inBuilding(x, z, -0.7)) continue
       if (Math.hypot(x - arena.x, z - arena.y) < arena.radius + 0.3) continue
-      stones.push({ x, z, shade: rng() })
+      const road = TOWN_STREETS.some(street => streetDistance(x, z, street) < street.width / 2)
+      const edge = !road && TOWN_STREETS.some(street => streetDistance(x, z, street) < street.width / 2 + 0.85)
+      stones.push({ x, z, shade: rng(), road, edge })
     }
   }
   const paving = new InstancedMesh(new RoundedBoxGeometry(0.983, 0.045, 0.983, 2, 0.014), stone, stones.length)
@@ -62,7 +87,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     dummy.rotation.set(0, (rng() - 0.5) * 0.008, 0)
     dummy.updateMatrix()
     paving.setMatrixAt(i, dummy.matrix)
-    paving.setColorAt(i, new Color().setHSL(0.53 + s.shade * 0.04, 0.025 + s.shade * 0.025, 0.85 + s.shade * 0.12))
+    paving.setColorAt(i, new Color().setHSL(s.road ? 0.10 : 0.53, s.road ? 0.12 : 0.035, (s.edge ? 0.66 : s.road ? 0.87 : 0.78) + s.shade * 0.1))
   })
   paving.receiveShadow = true
   group.add(paving)
@@ -71,7 +96,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     const lawn = flat(new CircleGeometry(1, 48), grass, garden.x, garden.z, 0.005)
     lawn.scale.set(garden.rx + 0.2, garden.rz + 0.2, 1)
     // Separate edge stones follow each organic bed, leaving the walking paths clear.
-    const count = 48
+    const count = Math.ceil(Math.PI * (garden.rx + garden.rz) / 0.56)
     const edge = new InstancedMesh(new RoundedBoxGeometry(0.54, 0.15, 0.22, 1, 0.035), paleStone, count)
     for (let i = 0; i < count; i++) {
       const a = i / count * Math.PI * 2
@@ -84,7 +109,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     group.add(edge)
   }
 
-  // Limestone training circle with blue ceramic inlays and a compass rose.
+  // Limestone fountain square with blue ceramic inlays and a compass rose.
   flat(new CircleGeometry(arena.radius, 96), arenaMaterial, arena.x, arena.y, 0.025)
   flat(new RingGeometry(arena.radius, arena.radius + 0.5, 96), paleStone, arena.x, arena.y, 0.03)
   flat(new RingGeometry(arena.radius - 0.45, arena.radius - 0.40, 96), stone, arena.x, arena.y, 0.033)
@@ -95,9 +120,9 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   }
   flat(new CircleGeometry(1.85, 64), paleStone, arena.x, arena.y, 0.034)
   flat(new RingGeometry(1.87, 1.93, 64), blueInlay, arena.x, arena.y, 0.035)
-  const border = new InstancedMesh(new RoundedBoxGeometry(0.59, 0.08, 0.48, 1, 0.025), stone, 76)
-  for (let i = 0; i < 76; i++) {
-    const a = i / 76 * Math.PI * 2
+  const border = new InstancedMesh(new RoundedBoxGeometry(0.59, 0.08, 0.48, 1, 0.025), stone, Math.ceil(Math.PI * 2 * (arena.radius + 0.25) / 0.6))
+  for (let i = 0; i < border.count; i++) {
+    const a = i / border.count * Math.PI * 2
     dummy.position.set(arena.x + Math.cos(a) * (arena.radius + 0.25), 0.035, arena.y + Math.sin(a) * (arena.radius + 0.25))
     dummy.rotation.set(0, -a - Math.PI / 2, 0)
     dummy.updateMatrix()
@@ -148,13 +173,24 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     group.add(tie)
     return point
   }
-  for (const targetZ of [17, 40]) {
-    const nearby = trees.filter(p => targetZ === 17 ? p.y < 30 : p.y >= 30)
-    const nearest = (left: boolean) => nearby.filter(p => left ? p.x < 28 : p.x >= 28)
-      .sort((a, b) => Math.abs(a.y - targetZ) - Math.abs(b.y - targetZ))[0]
-    const left = nearest(true)
-    const right = nearest(false)
-    if (left && right) spans.push({ start: tieToTree(left), end: tieToTree(right) })
+  const usedTrees = new Set<HubPropPlacement>()
+  const pairs = trees.flatMap((start, i) => trees.slice(i + 1).map(end => ({ start, end, distance: Math.hypot(start.x - end.x, start.y - end.y) })))
+    .filter(pair => pair.distance >= 5 && pair.distance <= 14)
+    .sort((a, b) => a.distance - b.distance)
+  for (const { start, end } of pairs) {
+    if (spans.length >= 6) break
+    if (usedTrees.has(start) || usedTrees.has(end)) continue
+    let blocked = false
+    for (let i = 1; i < 24; i++) {
+      const t = i / 24
+      const x = start.x + (end.x - start.x) * t
+      const z = start.y + (end.y - start.y) * t
+      if (inBuilding(x, z, 1.4) || Math.hypot(x - arena.x, z - arena.y) < FOUNTAIN.outerRadius + 1) blocked = true
+    }
+    if (blocked) continue
+    spans.push({ start: tieToTree(start), end: tieToTree(end) })
+    usedTrees.add(start)
+    usedTrees.add(end)
   }
   // No tree pair means no floating rope in that part of the editor layout.
   if (!spans.length) tieGeometry.dispose()
@@ -189,8 +225,9 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       dummy.updateMatrix()
       ropes.setMatrixAt(ropeIndex++, dummy.matrix)
     }
-    for (let i = 1; i < 24; i++) {
-      const t = i / 24
+    const flagCount = Math.max(4, Math.floor(span.start.distanceTo(span.end) / 0.7))
+    for (let i = 1; i < flagCount; i++) {
+      const t = i / flagCount
       const flag = new Mesh(flagGeometry, flagMaterials[i % 4]!)
       flag.position.copy(ropePoint(span, t))
       group.add(flag)
@@ -247,6 +284,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     group,
     update(time: number, players: readonly FountainInteractor[] = []) {
       landscape.update(time)
+      moat.update(time)
       pennants.forEach((flag, i) => {
         flag.rotation.x = Math.sin(time * 1.5 + i * 0.65) * 0.16
       })
@@ -271,6 +309,8 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
         group.remove(effect.group)
         effect.dispose()
       }
+      group.remove(moat.group)
+      moat.dispose()
       group.remove(landscape.group)
       landscape.dispose()
       stoneMap.dispose()

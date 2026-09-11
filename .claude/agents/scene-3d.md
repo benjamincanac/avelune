@@ -40,6 +40,9 @@ you never receive geometry over the wire.
 - `app/utils/courtyardScene.ts` owns paving, gardens, the sparring circle, distant
   animated pennants and fountain placement. `fountainWater.ts` owns gravity driven
   continuous ballistic jets, droplets, impact splashes and the basin surface.
+  The eight spill outlets follow the lily bowl low points; `fountainFlow.ts`
+  supplies discharge-conserving ballistic parcels and breakup timing. Match
+  `FOUNTAIN_FLOW` lip dimensions to `build_courtyard_fountain.py`.
   Jet cross sections shrink with speed to preserve discharge. Its fixed timestep wave solver
   is visual only. Impacts sample the moving surface, transfer vertical momentum
   and generate foam transported by the surface flow. `fountainSurface.ts` uses
@@ -173,3 +176,22 @@ the caller. The client stores `game.weather` and passes it to the sky renderer;
 `/time dawn|day|sunset|night|auto` independently controls the shared sun phase.
 `welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases
 leave the server clock, weather and animations running; `auto` restores the cycle.
+
+## Expanded town layout
+
+`COURTYARD` bounds and `TOWN_STREETS`, `TOWN_GARDENS`, `TOWN_DISTRICTS` are
+shared authored data in `shared/utils/courtyard.ts`. Ground, plant exclusion,
+outer terrain and minimap must follow these values, never the old 40-unit square.
+
+## Fortified city boundary
+
+`FORTIFICATIONS` in `shared/utils/courtyard.ts` defines the wall, moat, bridge and
+walkable exterior. `COURTYARD` remains the inner city bounds. Moat tiles block
+movement except on the bridge; narrow bridge rails use shared prop collision
+and movement substeps. Rendering must cut the terrain at the exact moat bounds
+and keep decorative trunks and relief outside the exterior bounds.
+
+`rampartWalkways.ts` renders gallery decks, rails and stair treads from
+`shared/utils/ramparts.ts`. Elevated galleries preserve ground underpasses;
+shared movement selects surfaces by foot height. Render rail openings from
+`RAMPART_RAILS`, and keep every stair tread aligned with the shared step count.

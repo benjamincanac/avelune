@@ -1,5 +1,5 @@
 /**
- * Tempest's world: one hand-authored colosseum arena.
+ * Avelune's world: one hand-authored walled town.
  *
  * Everything that decides where a body can stand lives here — the arena's tile
  * grid, prop collision footprints, and the kinematics. The authoritative server
@@ -8,14 +8,15 @@
  * a component or the WS handler.
  *
  * The arena is fixed, not procedural. Its visible pieces are authored once in
- * the dev editor and committed as JSON (`courtyard-structure.json` for the colosseum
- * shell, `courtyard-props.json` for free-standing clutter), so no geometry ever
+ * the dev editor and committed as JSON (`courtyard-structure.json` for the town
+ * buildings, `courtyard-props.json` for free-standing clutter), so no geometry ever
  * travels over the WebSocket — only players.
  */
 
 import hubProps from '../data/courtyard-props.json'
 import hubStructure from '../data/courtyard-structure.json'
-import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN } from './courtyard'
+import { isOnRampart, rampartStairHeight, RAMPART_RAILS, RAMPART_STAIRS, RAMPART_WALKWAYS } from './ramparts'
+import { COURTYARD_ASSETS, FOUNTAIN, FORTIFICATIONS, isInMoat, isOnGateBridge } from './courtyard'
 
 /** How far players move, in tiles per second. */
 export const PLAYER_SPEED = 3.2
@@ -197,40 +198,27 @@ export function createRng(seed: number): () => number {
 /* The arena                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The colosseum layout, shared so `generateHub` (collision tiles) and the
- * client renderer (arena sand, stands) never drift apart. World
- * coords in tiles (1 tile = 1 unit).
- *
- * A gigantic colosseum: players spawn on the open arena sand in the middle, and
- * an unbroken ring of tiles under the tiered stands walls it in (the parapet
- * visuals sit on top of it). There is no way out — the arena is the whole world.
- * Everything visible is a hand-placed kit piece (baked into courtyard-structure.json);
- * only the sand and the ring are procedural.
- */
+/** The town and its walkable exterior, entered across the southern bridge. */
 export const HUB_LAYOUT = {
-  size: 56,
-  center: { x: 28, y: 28 },
-  /** Open arena radius — players roam freely inside this. */
-  arenaRadius: 12,
-  /** The solid stands ring begins here (tiles at radius ≥ this are wall). */
-  wallInner: 13,
-  /** Spawn, on the sand just south of centre. */
-  start: { x: 28, y: 39 },
+  size: 144,
+  center: { x: 72, y: 72 },
+  start: FORTIFICATIONS.spawn,
 }
 
 export function generateHub(): FloorPlan {
   const size = HUB_LAYOUT.size
   const tiles = new Uint8Array(size * size)
 
-  // Garden walls enclose the town. Interior buildings and furniture collide
-  // through their authored footprints, shared with the art templates.
+  // The moat is impassable except at the bridge. Wall footprints are solid
+  // authored props, leaving the gate genuinely open at ground level.
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (x < COURTYARD.min || x >= COURTYARD.max || y < COURTYARD.min || y >= COURTYARD.max) tiles[y * size + x] = 1
+      if (x < FORTIFICATIONS.exteriorMin || x >= FORTIFICATIONS.exteriorMax
+        || y < FORTIFICATIONS.exteriorMin || y >= FORTIFICATIONS.exteriorMax
+        || (isInMoat(x + 0.5, y + 0.5) && !isOnGateBridge(x + 0.5, y + 0.5))) tiles[y * size + x] = 1
     }
   }
-  // Explicit border ring (defensive — the arena annulus already covers the edges).
+  // Explicit border ring (defensive — the town boundary already covers the edges).
   for (let i = 0; i < size; i++) {
     tiles[i] = 1
     tiles[(size - 1) * size + i] = 1
@@ -238,7 +226,7 @@ export function generateHub(): FloorPlan {
     tiles[i * size + size - 1] = 1
   }
 
-  // Every visible piece (arcade, columns, stands, statues) is a hand placement
+  // Every visible building, wall, tree and furnishing is a hand placement
   // baked into the committed JSON — appended here, run through makeProp so the
   // server uses the same dimensions as the client. `z` is render-only;
   // `s3` also scales the collision footprint and top height.
@@ -338,7 +326,7 @@ export function getFountainWaterContact(prop: PropSpec, body: Pick<KinematicBody
 
 /** Height of the walkable surface at a point (0 = ground, else a prop top). */
 export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
-  let top = 0
+  let top = rampartStairHeight(x, y) ?? 0
   for (const prop of plan.props) {
     if (prop.top <= top) continue
     const dx = x - prop.x
@@ -435,11 +423,12 @@ export interface KinematicBody {
  * prediction.
  */
 export function stepBody(plan: FloorPlan, body: KinematicBody, dx: number, dy: number, dt: number) {
-  // Narrow steps must not be skipped by a dash. Keep this refinement local
-  // to fountain approaches so movement on dry ground retains its exact behavior.
-  const nearFountain = plan.props.some(prop => prop.kind === 'Courtyard_Fountain'
+  // Narrow fountain steps and bridge parapets must not be skipped by a dash.
+  // Other dry ground keeps the same movement integration.
+  const nearFineCollision = plan.props.some(prop => (prop.kind === 'Courtyard_Fountain' || prop.kind === 'Courtyard_BridgeRail')
     && Math.hypot(body.x - prop.x, body.y - prop.y) <= prop.r + Math.hypot(dx, dy) + PLAYER_RADIUS)
-  const steps = nearFountain ? Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.12)) : 1
+  const nearRampart = isOnRampart(body.x, body.y) || RAMPART_STAIRS.some(stair => Math.abs(body.x - stair.x) < stair.width / 2 + Math.hypot(dx, dy) + PLAYER_RADIUS && body.y >= stair.zStart - 1 && body.y <= stair.zEnd + 1)
+  const steps = nearFineCollision || nearRampart ? Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.12)) : 1
   for (let i = 0; i < steps; i++) stepBodyOnce(plan, body, dx / steps, dy / steps, dt / steps)
 }
 
@@ -452,12 +441,14 @@ function stepBodyOnce(plan: FloorPlan, body: KinematicBody, dx: number, dy: numb
   // Horizontal, axis-separated so tall props block like walls but slide.
   if (dx !== 0 || dy !== 0) {
     const walled = moveWithCollision(plan, body.x, body.y, dx, dy)
-    if (surfaceHeight(plan, walled.x, body.y) - body.z <= STEP_MAX) body.x = walled.x
-    if (surfaceHeight(plan, body.x, walled.y) - body.z <= STEP_MAX) body.y = walled.y
+    if (bodySurfaceHeight(plan, walled.x, body.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(walled.x, body.y, body.z)) body.x = walled.x
+    if (bodySurfaceHeight(plan, body.x, walled.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(body.x, walled.y, body.z)) body.y = walled.y
   }
 
   // Vertical: gravity, then land on (or step up to) whatever is below.
-  const surface = surfaceHeight(plan, body.x, body.y)
+  const surface = bodySurfaceHeight(plan, body.x, body.y, body.z)
+  // Follow descending treads without turning each step into a small fall.
+  if (body.grounded && body.vz <= 0 && body.z - surface <= STEP_MAX) body.z = surface
   body.vz -= GRAVITY * dt
   body.z += body.vz * dt
   if (body.z <= surface && body.vz <= 0) {
@@ -468,4 +459,28 @@ function stepBodyOnce(plan: FloorPlan, body: KinematicBody, dx: number, dy: numb
   else {
     body.grounded = false
   }
+}
+
+/** Galleries have ground passages below them. A foot must reach the deck before
+ * it can support a body; ordinary authored prop z remains render-only. */
+function bodySurfaceHeight(plan: FloorPlan, x: number, y: number, feet: number) {
+  const ground = surfaceHeight(plan, x, y)
+  return isOnRampart(x, y) && feet >= RAMPART_WALKWAYS.height - STEP_MAX
+    ? Math.max(ground, RAMPART_WALKWAYS.height)
+    : ground
+}
+
+function hitsRampartRail(x: number, y: number, feet: number) {
+  for (const rail of RAMPART_RAILS) {
+    if (feet < rail.bottom - STEP_MAX || feet >= rail.bottom + rail.height) continue
+    if (Math.abs(x - rail.x) < rail.width / 2 + PLAYER_RADIUS
+      && Math.abs(y - rail.z) < rail.depth / 2 + PLAYER_RADIUS) return true
+  }
+  for (const stair of RAMPART_STAIRS) {
+    if (y < stair.zStart || y > stair.zEnd) continue
+    const top = (y - stair.zStart) / (stair.zEnd - stair.zStart) * stair.height
+    if (feet < top - STEP_MAX || feet >= top + RAMPART_WALKWAYS.railHeight) continue
+    if (Math.abs(Math.abs(x - stair.x) - stair.width / 2) < PLAYER_RADIUS + RAMPART_WALKWAYS.railThickness / 2) return true
+  }
+  return false
 }

@@ -3,21 +3,24 @@ import {
   InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Object3D, Vector3,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { COURTYARD_ASSETS } from '#shared/utils/courtyard'
+import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, isInMoat, isOnGateBridge, TOWN_GARDENS } from '#shared/utils/courtyard'
 import type { HubPropPlacement } from '#shared/utils/maze'
 
 export const COURTYARD_LANDSCAPE_NAMES = ['tree', 'bush', 'flowers', 'rock'] as const
 
-const gardens = [
-  { x: 14, z: 17, rx: 4.7, rz: 4.2 },
-  { x: 40.5, z: 17, rx: 4.2, rz: 3.7 },
-  { x: 13, z: 40.5, rx: 4.2, rz: 5.7 },
-  { x: 42, z: 42, rx: 4.2, rz: 4.2 },
-]
+const gardens = TOWN_GARDENS
 
 /** Decorative landscape only. All relief and tree trunks remain outside the
  * playable square; garden plants are low enough to walk through. */
 export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, villagePlacements: readonly HubPropPlacement[] = []) {
+  const center = (COURTYARD.min + COURTYARD.max) / 2
+  const expansion = (FORTIFICATIONS.exteriorMax - FORTIFICATIONS.exteriorMin) / 2 - 20
+  const relocate = <T extends { x: number, z: number }>(p: T): T => {
+    const dx = p.x - 28
+    const dz = p.z - 28
+    const scale = 1 + expansion / Math.max(1, Math.abs(dx), Math.abs(dz))
+    return { ...p, x: center + dx * scale, z: center + dz * scale }
+  }
   const group = new Group()
   group.name = 'Courtyard landscape'
   const ownedGeometries: BufferGeometry[] = []
@@ -36,9 +39,9 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
   // Low meadow foothills open onto asymmetric eroded ridges. Several scales of
   // relief keep silhouettes articulated while the courtyard remains dominant.
   function height(x: number, z: number) {
-    const dx = x - 28
-    const dz = z - 28
-    const distance = Math.max(Math.abs(dx), Math.abs(dz))
+    const dx = x - center
+    const dz = z - center
+    const distance = Math.max(0, Math.max(Math.abs(dx), Math.abs(dz)) - expansion)
     const ramp = smooth(27, 66, distance)
     const angle = Math.atan2(dz, dx)
     const ridge = 10 + 5 * Math.sin(angle * 3 + 0.6) + 4 * Math.sin(angle * 7 - 1.3)
@@ -51,8 +54,13 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
     return -0.06 + ramp * (3 + (ridge + folds + erosion * erosion * 5) * summit + farRidge)
   }
 
-  const resolution = 140
-  const extent = 420
+  const extent = 420 + expansion * 2
+  const terrainAxis = [...new Set([
+    ...Array.from({ length: 155 }, (_, i) => center + (i / 154 - 0.5) * extent),
+    COURTYARD.min, COURTYARD.max, FORTIFICATIONS.moatInnerMin, FORTIFICATIONS.moatInnerMax,
+    FORTIFICATIONS.moatOuterMin, FORTIFICATIONS.moatOuterMax,
+  ])].sort((a, b) => a - b)
+  const resolution = terrainAxis.length - 1
   const positions: number[] = []
   const colors: number[] = []
   const indices: number[] = []
@@ -62,12 +70,12 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
   const color = new Color()
   for (let z = 0; z <= resolution; z++) {
     for (let x = 0; x <= resolution; x++) {
-      const px = 28 + (x / resolution - 0.5) * extent
-      const pz = 28 + (z / resolution - 0.5) * extent
+      const px = terrainAxis[x]!
+      const pz = terrainAxis[z]!
       const y = height(px, pz)
       positions.push(px, y, pz)
       const slope = Math.hypot(height(px + 1, pz) - y, height(px, pz + 1) - y)
-      const distant = smooth(45, 145, Math.hypot(px - 28, pz - 28))
+      const distant = smooth(45, 145, Math.hypot(px - center, pz - center) - expansion)
       const patch = Math.sin(px * 0.10 + Math.sin(pz * 0.09) * 2) * Math.cos(pz * 0.13)
       color.copy(meadow).lerp(highland, distant * 0.72)
       const exposed = smooth(0.26, 0.76, slope)
@@ -77,9 +85,10 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
       colors.push(color.r, color.g, color.b)
       if (x < resolution && z < resolution) {
         // Keep the entire playable square free of terrain polygons.
-        const nextX = px + extent / resolution
-        const nextZ = pz + extent / resolution
-        if (nextX > 8 && px < 48 && nextZ > 8 && pz < 48) continue
+        const nextX = terrainAxis[x + 1]!
+        const nextZ = terrainAxis[z + 1]!
+        if (isInMoat((px + nextX) / 2, (pz + nextZ) / 2)) continue
+        if (nextX > COURTYARD.min && px < COURTYARD.max && nextZ > COURTYARD.min && pz < COURTYARD.max) continue
         const i = z * (resolution + 1) + x
         indices.push(i, i + resolution + 1, i + 1, i + 1, i + resolution + 1, i + resolution + 2)
       }
@@ -108,7 +117,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
 
   // Separate copses leave broad views between them, with smaller saplings and
   // shrubs feathering the edges. Never put decorative trunks inside collision.
-  const outsideVillage = (x: number, z: number) => x <= 6 || x >= 50 || z <= 6 || z >= 50
+  const outsideVillage = (x: number, z: number) => x <= FORTIFICATIONS.exteriorMin - 2 || x >= FORTIFICATIONS.exteriorMax + 2 || z <= FORTIFICATIONS.exteriorMin - 2 || z >= FORTIFICATIONS.exteriorMax + 2
   const copses = [
     { x: -10, z: 17, rx: 10, rz: 19, count: 10 },
     { x: 65, z: 12, rx: 12, rz: 18, count: 9 },
@@ -117,7 +126,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
     { x: 16, z: 67, rx: 17, rz: 9, count: 7 },
   ]
   const treePositions: { x: number, z: number }[] = []
-  for (const copse of copses) {
+  for (const copse of copses.map(relocate)) {
     for (let attempt = 0, planted = 0; attempt < copse.count * 12 && planted < copse.count; attempt++) {
       const angle = random() * Math.PI * 2
       const radius = Math.sqrt(random())
@@ -211,7 +220,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
     { x: 16, z: 109, rx: 24, rz: 16 },
     { x: -43, z: 92, rx: 29, rz: 28 },
   ]
-  for (const copse of woodland) {
+  for (const copse of woodland.map(relocate)) {
     for (let i = 0; i < 75; i++) {
       const angle = random() * Math.PI * 2
       const radius = Math.sqrt(random())
@@ -245,8 +254,9 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
   const outcrops = [[-19, -3], [72, -8], [-13, 60], [81, 47], [18, -53], [-55, -39]]
   for (const [x = 0, z = 0] of outcrops) {
     for (let i = 0; i < 3; i++) {
-      const px = x + i * 2.4
-      const pz = z + Math.sin(i * 2) * 2
+      const origin = relocate({ x, z })
+      const px = origin.x + i * 2.4
+      const pz = origin.z + Math.sin(i * 2) * 2
       const size = 2.5 + random() * 2.7
       place('rock', px, pz, height(px, pz) - size * 0.22, size)
     }
@@ -266,7 +276,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
   }
   const grassPlacements: Placement[] = []
   for (const garden of gardens) {
-    for (let i = 0; i < 900; i++) {
+    for (let i = 0; i < Math.min(1000, garden.rx * garden.rz * 32); i++) {
       const angle = random() * Math.PI * 2
       const radius = Math.sqrt(random())
       const x = garden.x + Math.cos(angle) * garden.rx * radius
@@ -280,11 +290,11 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, 
 
   // Dense patchy meadow near the wall thins uphill. Scattered flower drifts
   // follow the same moisture pattern, leaving dry gaps rather than a lawn.
-  for (let i = 0; i < 16500; i++) {
-    const x = -35 + random() * 126
-    const z = -35 + random() * 126
-    if (!outsideVillage(x, z)) continue
-    const distance = Math.max(Math.abs(x - 28), Math.abs(z - 28))
+  for (let i = 0; i < 22000; i++) {
+    const x = COURTYARD.min - 43 + random() * (COURTYARD.max - COURTYARD.min + 86)
+    const z = COURTYARD.min - 43 + random() * (COURTYARD.max - COURTYARD.min + 86)
+    if ((x > COURTYARD.min && x < COURTYARD.max && z > COURTYARD.min && z < COURTYARD.max) || isInMoat(x, z) || isOnGateBridge(x, z) || (Math.abs(x - FORTIFICATIONS.gateX) < FORTIFICATIONS.bridgeWidth / 2 + 0.3 && z >= FORTIFICATIONS.bridgeEnd && z <= FORTIFICATIONS.exteriorMax)) continue
+    const distance = Math.max(Math.abs(x - center), Math.abs(z - center)) - expansion
     const patch = Math.sin(x * 0.14 + Math.sin(z * 0.19)) + Math.cos(z * 0.16 - x * 0.035)
     if (patch < -0.9 || random() > 1 - smooth(30, 65, distance) * 0.87) continue
     const y = height(x, z)
