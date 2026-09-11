@@ -1,11 +1,10 @@
 ---
 name: game-ui
 description: >
-  2D interface — HUD, chat, menus, and onboarding (Nuxt UI + Vue, not the 3D
-  scene). Use for ChatPanel.vue, CharacterGate.vue, the character preview
-  wrappers, BrandMark.vue, EditorPanel.vue, useGame.ts / useEditor.ts
-  composables, and app/pages/index.vue. Reach for this for layout, HUD, chat UX,
-  the character onboarding flow, or the Escape menu.
+  2D interface — HUD, chat, menus, and the entry flow (Nuxt UI + Vue, not the
+  3D scene). Use for ChatPanel.vue, BrandMark.vue, the useGame.ts composable,
+  and app/pages/index.vue. Reach for this for layout, HUD, chat UX, the entry
+  flow, or the Escape menu.
 model: inherit
 ---
 
@@ -17,23 +16,8 @@ isn't the 3D world.
 - `app/components/ChatPanel.vue` — bottom-left chat: one arena-wide history for
   everyone, Enter to focus, Escape back to the game.
 - `app/components/BrandMark.vue` — the top-left identity/status chip.
-- `app/components/CharacterGate.vue` + the character preview wrappers
-  (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
 - `app/composables/useGame.ts` — the client-side game/socket state composable the
   UI binds to.
-- `app/components/EditorPanel.vue` + `app/composables/useEditor.ts` — the dev-only
-  world editor's 2D overlay (palette / inspector w/ X·Y·Height·rot·scale /
-  undo-redo / save-exit) and its shared state. There is one map, so there is one
-  working document: every placement in the arena plus the Oracle's position.
-  Placements keep a two-layer model so they persist to their own files — `props`
-  (`hub-props.json`, free-standing clutter) and `structure` (`hub-structure.json`,
-  the exploded colosseum) — and `save()` splits them back out in a single
-  `POST /api/editor/save`. Before the colosseum is baked, `MazeScene` seeds the
-  structure layer from its procedural composer via `seedStructure`, so the first
-  save IS the bake. The 3D side (fly camera, picking, elevation-aware drag) is
-  `scene-3d`'s `app/utils/hubEditor.ts`; the save route is `server-net`'s
-  `server/api/editor/save.post.ts`.
-
 The Oracle (`useOracle.ts` and the chat wiring) is owned by the `oracle-ai`
 agent — hand oracle work there.
 
@@ -54,18 +38,18 @@ agent — hand oracle work there.
    that never touch the wire.
 4. `.client.vue` / `<ClientOnly>` for anything browser-only.
 5. **Entry flow is a view state machine in `index.vue`**: `checking →
-   creating | playing | editing` (`editing` is the dev-only world editor: same
-   never-connected `game`, `<GameScene editor>` + `LazyEditorPanel`,
-   gated behind `import.meta.dev`; a save reloads the dev server, and a
-   `sessionStorage` flag drops straight back into the editor on the way up).
-   There is **no landing screen**: `checking` covers the `/api/auth` probe, then
-   an identity drops straight into the arena and a visitor lands on
-   `CharacterGate` — on `done` the page enters the arena directly. The socket
-   opens only for `playing`. There is **no logout** — the character is permanent,
-   so a returning cookie always resumes the same person.
+   creating | playing`. There is no landing screen: `checking` covers the
+   `/api/auth` probe; an existing identity drops straight into the arena and a
+   visitor lands on `CharacterGate.vue` — a deliberately minimal gate (Male/Female
+   body + required name, no 3D preview) that `POST`s `{ username, character,
+   colorIndex }`. Everyone is the Developer look; per-player identity is the body,
+   name and accent. The socket opens only for `playing`. **Log out** (Escape menu)
+   calls `DELETE /api/auth` to clear the cookie and then reloads: the reload is
+   what closes the socket (`useGame` has no in-place disconnect) and re-runs the
+   flow, which lands on the gate.
 6. **In-game session actions live in the Escape menu** (WoW-style overlay in
-   `index.vue`: controls reference, fullscreen, a dev-only "World editor" entry,
-   return-to-game) — not in HUD buttons. Two open paths, both needed: a bare
+   `index.vue`: controls reference, fullscreen, log out, return-to-game) — not in HUD
+   buttons. Two open paths, both needed: a bare
    Escape keydown covers every unlocked state (and keyboard-locked fullscreen),
    and `GameScene`'s `unlock` emit covers pointer-locked play, where the browser
    swallows the Escape keydown (contract owned by `scene-3d`). Gotcha:

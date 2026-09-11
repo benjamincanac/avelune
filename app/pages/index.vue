@@ -13,74 +13,56 @@ const gameScene = useTemplateRef('gameScene')
 const showMenu = ref(false)
 const fullscreen = ref(false)
 
-type View = 'checking' | 'creating' | 'playing' | 'editing'
+type View = 'checking' | 'creating' | 'playing'
 
 /**
- * Entry flow. There is no landing screen: `checking` covers the initial
- * /api/auth probe, then a returning player drops straight into the arena and a
- * brand-new visitor lands on character creation. The socket opens the moment we
- * enter the arena; the character cookie is permanent.
+ * Entry flow. `checking` covers the initial /api/auth probe: a returning player drops
+ * straight into the arena, a visitor without a cookie lands on the gate (body + name).
+ * The socket opens the moment we enter the arena; the identity cookie stays until "Log out".
  */
 const view = ref<View>('checking')
-const identity = ref<Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> | null>(null)
-const isDev = import.meta.dev
+const identity = ref<Pick<Player, 'name' | 'color' | 'character'> | null>(null)
 
 onMounted(async () => {
-  // A save in the world editor rewrites the layout JSON, which triggers a full
-  // dev reload; drop straight back into the editor so the round-trip is
-  // seamless. `?editor=1` is the manual way in, from the Escape menu.
-  if (import.meta.dev) {
-    const reenter = sessionStorage.getItem(EDITOR_REENTER_KEY)
-    if (reenter != null) {
-      sessionStorage.removeItem(EDITOR_REENTER_KEY)
-      edit()
-      return
-    }
-    if (useRoute().query.editor != null) {
-      edit()
-      return
-    }
-  }
-
   try {
     const me = await $fetch('/api/auth')
     if (me.authenticated) {
-      identity.value = { name: me.name, color: me.color, character: me.character, outfitColor: me.outfitColor }
+      identity.value = { name: me.name, color: me.color, character: me.character }
     }
   }
   catch {
-    // Treat a failed probe as a visitor with no character — they get creation.
+    // A failed probe is treated as no cookie: the gate's own POST surfaces errors.
   }
 
   if (identity.value) play()
   else view.value = 'creating'
 })
 
-/** Enter the arena as the saved character. */
+/** Enter the arena as the saved identity. */
 function play() {
   view.value = 'playing'
   game.connect()
 }
 
-/** Character just created: adopt it and drop straight into the arena. */
+/** Identity just created at the gate: adopt it and drop into the arena. */
 function onCreated(created: Player) {
   identity.value = created
   play()
 }
 
 /**
- * Dev-only: enter the world editor. Renders the arena with a fly camera and no
- * socket (the same never-connected `game` the entry flow holds) — placements are
- * saved to a repo file, not sent over the wire.
+ * Log out, from the Escape menu: clear the identity cookie, then reload.
+ * The reload closes the socket, so the server sees a plain leave.
+ * The entry flow re-runs without a cookie and lands on the gate.
  */
-function edit() {
-  if (!import.meta.dev) return
-  view.value = 'editing'
-}
-
-/** Leave the editor: a clean load of `/` drops back into the arena. */
-function exitEditor() {
-  window.location.href = '/'
+async function logout() {
+  try {
+    await $fetch('/api/auth', { method: 'DELETE' })
+  }
+  catch {
+    // Cookie still set — the reload just drops back into the arena as the same player.
+  }
+  window.location.reload()
 }
 
 /**
@@ -195,7 +177,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
     ref="gameRoot"
     class="relative h-screen overflow-hidden bg-[#05070d]"
   >
-    <!-- Character creation, for a visitor with no character cookie yet. -->
+    <!-- The gate, for a visitor with no identity cookie yet. -->
     <CharacterGate
       v-if="view === 'creating'"
       @done="onCreated"
@@ -305,13 +287,12 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
                 @click="toggleFullscreen"
               />
               <UButton
-                v-if="isDev"
-                label="World editor"
-                icon="i-lucide-pencil-ruler"
+                label="Log out"
+                icon="i-lucide-log-out"
                 color="neutral"
                 variant="soft"
                 block
-                @click="edit"
+                @click="logout"
               />
               <UButton
                 label="Return to game"
@@ -352,16 +333,6 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
           />
         </div>
       </div>
-    </template>
-
-    <!-- Dev-only world editor: the arena with a fly camera + placement tools. -->
-    <template v-else-if="view === 'editing'">
-      <GameScene
-        :game="game"
-        editor
-        class="absolute inset-0"
-      />
-      <LazyEditorPanel @exit="exitEditor" />
     </template>
   </div>
 </template>

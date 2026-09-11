@@ -59,15 +59,15 @@ Running it in-process is the point: on serverless, a separate service would have
 
 ### Onboarding & identity (no database)
 
-New arrivals land on a gate ([`app/components/CharacterGate.vue`](app/components/CharacterGate.vue)) to pick a character in a live turntable preview, choose an outfit colorway, and type a name. `POST /api/auth` sanitizes the choice and sets an HMAC-signed, `HttpOnly` cookie holding `{ id, name, color, character, outfitColor }` ([`server/utils/session.ts`](server/utils/session.ts)). No passwords, no database.
+Character creation is two choices: a body (male or female Developer, both in a Vercel black tee and cap) and a name. `POST /api/auth` rolls an accent colour and sets an HMAC-signed, `HttpOnly` cookie holding `{ id, name, color, character }` ([`server/utils/session.ts`](server/utils/session.ts)). No passwords, no database.
 
-The cookie rides the same-origin WebSocket upgrade and [`server/api/ws.ts`](server/api/ws.ts) verifies it to build the player, so the frequent reconnects on Vercel restore the *same* character and returning visitors skip the gate entirely. It's tamper-evident: a mangled signature is treated as unauthenticated. Only one live session per identity is allowed, so a second tab takes over and the first one is told why.
+The cookie rides the same-origin WebSocket upgrade and [`server/api/ws.ts`](server/api/ws.ts) verifies it to build the player, so the frequent reconnects on Vercel restore the *same* identity and returning visitors keep their handle. It's tamper-evident: a mangled signature is treated as unauthenticated. Only one live session per identity is allowed, so a second tab takes over and the first one is told why.
 
 ### Art from code (plus a CC0 ruin or two)
 
-- **Textures.** The arena sand and the runic circle are drawn onto canvases at runtime ([`app/utils/textures.ts`](app/utils/textures.ts)).
-- **Characters.** Composed from Quaternius' CC0 *Universal* packs by [`scripts/convert_universal_characters.py`](scripts/convert_universal_characters.py): an outfit from *Modular Character Outfits – Fantasy*, a head from *Universal Base Characters* trimmed to the neck with a mix-and-match hairstyle, and a shared clip set from *Universal Animation Library* 1 & 2. Because every body, outfit and animation shares one 65-bone universal skeleton, the clips ship once in `animations.glb` (skeleton only, no mesh) and bind to every character by bone name with no retargeting. The chosen colorway dyes just the outfit cloth at runtime. Idle, run, jump and roll are driven by movement state, including for remote players.
-- **Architecture.** Arches, columns, rails, stairs, torches and watchtowers come from [Quaternius](https://quaternius.com)' CC0 *Ultimate Modular Ruins Pack*, converted to GLB by [`scripts/convert_props.py`](scripts/convert_props.py). The arena is dressed by hand in an in-game editor and its pieces render as `InstancedMesh` batches, one per kind.
+- **Textures.** The stadium's LED brand strips, centre mark, crowd silhouettes and glows are drawn onto canvases at runtime ([`app/utils/textures.ts`](app/utils/textures.ts)).
+- **Characters.** Composed from Quaternius' CC0 *Universal* packs by [`scripts/convert_universal_characters.py`](scripts/convert_universal_characters.py): an outfit from *Modular Character Outfits – Fantasy*, a head from *Universal Base Characters* trimmed to the neck with a mix-and-match hairstyle, and a shared clip set from *Universal Animation Library* 1 & 2. Because every body, outfit and animation shares one 65-bone universal skeleton, the clips ship once in `animations.glb` (skeleton only, no mesh) and bind to every character by bone name with no retargeting. The Developer look is applied at runtime ([`app/utils/developerLook.ts`](app/utils/developerLook.ts)): the cloth is tinted Vercel black and a cap and ▲ hang off the head and chest bones. Idle, run, jump and roll are driven by movement state, including for remote players.
+- **Architecture.** The stadium bowl, crowd, LED bands, roof and floodlights are procedural three.js ([`app/utils/stadium.ts`](app/utils/stadium.ts)) — no model loads for the arena. [Quaternius](https://quaternius.com)' CC0 kits (converted by [`scripts/convert_props.py`](scripts/convert_props.py)) supply the hand-placed props committed in `shared/data/`, rendered as `InstancedMesh` batches, one per kind.
 
 ## Architecture
 
@@ -77,12 +77,11 @@ app/
 ├── composables/useGame.ts    # connection, reconnect, roster, chat, clock sync
 └── components/
     ├── GameScene.client.vue  # Tres canvas + pointer lock, WASD, mouse-look
-    ├── MazeScene.vue         # 3D world: arena, sky/weather, players, Oracle
-    └── CharacterGate.vue     # onboarding
+    └── MazeScene.vue         # 3D world: stadium, sky/weather, players, Oracle
 
 shared/
 ├── types/game.ts             # wire protocol
-├── data/hub-structure.json   # the hand-authored arena
+├── data/hub-structure.json   # hand-placed kit pieces (empty — the bowl is procedural)
 └── utils/maze.ts             # arena generation, collision, shared kinematics
 
 server/

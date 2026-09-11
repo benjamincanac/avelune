@@ -1,18 +1,13 @@
 /**
- * The GLB template name lists, shared between the scene renderer
- * (`MazeScene.vue`, which loads each name from `/models/<dir>/<name>.glb`) and
- * the dev prop editor (which offers them as a placeable palette and validates
- * saves against `ALL_PROP_KINDS`). A prop `kind` is exactly a GLB basename; the
- * directory is implied by which list it appears in.
- *
- * These lists were factored out of `MazeScene.vue` verbatim — the renderer
- * imports them straight back, so its loading behavior is unchanged.
+ * The GLB template name lists `MazeScene.vue` loads from `/models/<dir>/<name>.glb`.
+ * A prop `kind` is exactly a GLB basename; the directory is implied by which list it appears in.
+ * Only kinds referenced by the arena JSON download; the rest is the catalog of converted kits.
  */
 
 /**
  * Quaternius "Ultimate Modular Ruins" props (CC0), converted from .blend to
- * GLB by scripts/convert_props.py. Every piece is hand-placed in the dev editor
- * and baked into the arena JSON — nothing here is scattered procedurally.
+ * GLB by scripts/convert_props.py. Every piece is hand-placed in the arena JSON —
+ * nothing here is scattered procedurally.
  */
 export const PROP_NAMES = [
   'Statue_Fox', 'Statue_Stag', 'Cart', 'Crate', 'Barrel', 'Chest', 'Flag_Wall',
@@ -52,8 +47,8 @@ export const PROP_DECOR_NAMES = [
 
 /**
  * Quaternius CC0 MegaKit models, optimized to GLB by scripts/convert_kits.sh.
- * Nature dresses the meadow the colosseum stands on; the village kit survives as
- * editor palette material. Loaded into the same template map.
+ * Nature dresses the meadow the stadium stands on; the village kit is converted
+ * but currently unplaced. Loaded into the same template map.
  */
 export const NATURE_NAMES = [
   'CommonTree_1', 'CommonTree_2', 'CommonTree_3', 'Pine_1', 'Pine_2',
@@ -80,8 +75,8 @@ export const VILLAGE_NAMES = [
 /**
  * Quaternius "Fantasy Props MegaKit" (CC0) furniture, optimized to GLB by
  * scripts/convert_fantasy.sh. Interior furniture — bookcases, banners,
- * chandeliers, chests, forge gear — available in the editor palette for dressing
- * the arena. Loaded into the shared template map from /models/fantasy.
+ * chandeliers, chests, forge gear — available for dressing the arena. Loaded
+ * into the shared template map from /models/fantasy.
  */
 export const FANTASY_NAMES = [
   'Bookcase_2', 'Chair_1', 'Bench', 'Stool', 'Bed_Twin1',
@@ -150,31 +145,3 @@ export const CRYPT_NAMES = [
   'Crypt_Stairs', 'Crypt_Torch', 'Crypt_Torch_wall', 'Crypt_WallRocks',
   'Crypt_Window',
 ] as const
-
-/** A palette section: a human label + the model dir + the kinds it offers. */
-export interface PropCategory {
-  label: string
-  dir: string
-  names: readonly string[]
-}
-
-/**
- * The editor palette, grouped by source kit. Every kind here has a GLB under
- * `/models/<dir>/` and is loaded into the scene's template map by `MazeScene`,
- * so the editor can clone any of them without loading anything itself.
- */
-export const PROP_CATALOG: PropCategory[] = [
-  { label: 'Nature', dir: 'nature', names: NATURE_NAMES },
-  // { label: 'Village', dir: 'village', names: VILLAGE_NAMES },
-  { label: 'Ruins', dir: 'props', names: PROP_NAMES },
-  { label: 'Ruins decor', dir: 'props', names: PROP_DECOR_NAMES },
-  { label: 'Fantasy', dir: 'fantasy', names: FANTASY_NAMES },
-  { label: 'Dungeon', dir: 'dungeon', names: DUNGEON_NAMES },
-  { label: 'Castle', dir: 'castle', names: CASTLE_NAMES },
-  { label: 'Crypt', dir: 'crypt', names: CRYPT_NAMES },
-]
-
-/** Every valid prop kind — the allow-list the save route validates against. */
-export const ALL_PROP_KINDS: ReadonlySet<string> = new Set(
-  PROP_CATALOG.flatMap(c => c.names as readonly string[]),
-)

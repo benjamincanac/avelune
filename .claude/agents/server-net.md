@@ -4,9 +4,9 @@ description: >
   Authoritative server simulation, WebSocket transport, sessions, and HTTP API
   routes. Use for anything in server/** — the 20 Hz tick loop and arena state
   (server/utils/game.ts), the crossws handler (server/api/ws.ts), signed-cookie
-  identity/sessions (server/utils/session.ts), and REST endpoints (auth, the
-  dev-only editor save). Reach for this for tick-rate, server-side validation,
-  connection lifecycle, or protocol wiring on the server side.
+  identity/sessions (server/utils/session.ts), and REST endpoints (auth). Reach
+  for this for tick-rate, server-side validation, connection lifecycle, or
+  protocol wiring on the server side.
 model: inherit
 ---
 
@@ -24,18 +24,10 @@ bytes between it and clients.
   peer open/message/close into the game world.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
-- `server/api/*.ts` — `auth.get`, `auth.post`. The Oracle has no HTTP route: it
+- `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete` (log out: clears the
+  cookie, so the next load re-onboards with a fresh id). The Oracle has no HTTP route: it
   runs in-process from the game loop (`server/utils/oracle.ts`, owned by the
   `oracle-ai` agent).
-- `server/api/editor/save.post.ts` + `server/utils/editorFiles.ts` — the
-  **dev-only** save route (first line: `if (!import.meta.dev) throw createError({
-  statusCode: 404 })`) the world editor POSTs its whole working doc to; validates
-  placements with zod against `ALL_PROP_KINDS`, normalizes (rounded coords,
-  wrapped rotations) so diffs stay small, and overwrites `hub-props.json`,
-  `hub-structure.json` and `hub-oracle.json` on disk in one call (the only
-  `node:fs` writes in the server; `editorFiles.ts` walks up from cwd to find
-  `shared/data`). Dev-only because Vercel's prod FS is read-only. It's the sole
-  writer of those files; `world-sim`'s `generateHub` is the reader.
 - `server/utils/nativeFetch.ts` + `server/plugins/nativeFetch.ts` — the real
   `fetch` captured at boot. Nuxt-nightly's SSR entry replaces `globalThis.fetch`
   with a loopback into this app's own router once a process renders any page
@@ -47,6 +39,15 @@ bytes between it and clients.
   own should still import `nativeFetch` explicitly rather than lean on the
   guard. Symptom to recognise: a request that works cold and 500s after any
   page render.
+- `server/plugins/devSourceMap.ts` — dev-only shim for the Nitro beta's error
+  handler. The dev bundle inlines Nitro's vendored `source-map`, whose
+  `read-wasm.js` joins `__dirname` to find `mappings.wasm`; ESM has none, so
+  every rendered error (a 404 was enough) logged `__dirname is not defined`
+  while the handler source-mapped the stack. The plugin sets a global
+  `__dirname` to the vendored `source-map/lib` (resolved from `nitro`'s main).
+  No-op in prod and when the layout changes; delete once Nitro shims CJS
+  globals in its dev bundle. `/favicon.ico` also redirects to the SVG via
+  `routeRules` so that probe never renders a 404 page.
 
 ## Load-bearing invariants
 1. **The server is authoritative.** Clients predict; the server decides. Jump
@@ -70,10 +71,10 @@ bytes between it and clients.
    (`const PLAN = generateHub()`), built once at boot — nothing is persisted and
    nothing needs to be: the roster is the only state, so an instance recycling
    costs only the sockets it held.
-5. **Identity is permanent — there is no logout.** `auth.post` sets an ~10-year
-   cookie and there is intentionally no `DELETE /api/auth`. The character is
-   never destroyed server-side, and a returning cookie always resumes the same
-   person.
+5. **Identity lives only in the cookie.** `auth.post` sets an ~10-year cookie and
+   `auth.delete` (Log out) clears it with the same `path`, nothing else — there is
+   no server-side record to destroy, so a returning cookie resumes the same person
+   and a cleared one gets a fresh id on the next `POST`.
 
 ## Protocol (shape is defined by world-sim in shared/types/game.ts)
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/

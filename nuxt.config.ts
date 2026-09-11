@@ -93,6 +93,11 @@ export default defineNuxtConfig({
     sessionPassword: '',
   },
 
+  // Browsers still probe /favicon.ico; a redirect spares the dev error handler a 404 render.
+  routeRules: {
+    '/favicon.ico': { redirect: { to: '/favicon.svg', status: 301 } },
+  },
+
   experimental: {
     // Nuxt 5 turns off Nitro's v2-style auto-imports by default, which drops the
     // `#imports` virtual that prebuilt server code in node_modules (e.g.

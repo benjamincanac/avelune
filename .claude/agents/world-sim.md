@@ -18,18 +18,20 @@ independently.
 - `shared/utils/maze.ts` — the arena (`HUB_LAYOUT` + `generateHub`), collision,
   elevation (walkable props), `stepBody` kinematics, the movement constants both
   sides read, and `occupancyGrid` (a display-only wall raster for the minimap).
-- `shared/utils/characters.ts` — character roster / assignment logic.
+- `shared/utils/characters.ts` — the roster (one look in two bodies: `Developer`
+  on `Peasant_Male_Buzzed`, `Developer_Female` on `Peasant_Female_Long`;
+  `characterModel()` maps unknown `character` strings to the male body, so old
+  cookies still render) plus the accent-colour rules.
 - `shared/utils/propCatalog.ts` — the GLB template name lists (moved out of
-  `MazeScene.vue`) plus `PROP_CATALOG` / `ALL_PROP_KINDS`. Shared so the client
-  renderer and the dev prop editor agree on what's placeable. A prop `kind` is a
-  GLB basename; its directory is implied by which list it's in.
+  `MazeScene.vue`). A prop `kind` is a GLB basename; its directory is implied by
+  which list it's in.
 - `shared/data/hub-props.json` — the arena's hand-placed free-standing props (see invariant 4).
-- `shared/data/hub-structure.json` — the "exploded" colosseum (every arch/column/
-  seating slab/statue as an editable piece), baked from the client's procedural
-  composer (see invariant 4).
+- `shared/data/hub-structure.json` — an optional hand-edited kit-piece layer,
+  empty by default: the stadium bowl is procedural client code (`scene-3d`'s
+  `app/utils/stadium.ts`) and never passes through here (see invariant 4).
 - `shared/data/hub-oracle.json` — the Oracle's stand position as a bare `[x, y]`
   array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
-  scene and the editor; written by the editor's save route.
+  scene; edited by hand.
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, and the
   `ClientMessage` / `ServerMessage` unions.
 
@@ -52,18 +54,17 @@ independently.
    unbroken — the arena has no exit — plus a defensive border ring. Units are tiles; `PLAYER_RADIUS` and prop radii
    too. Keep tunables as exported constants so both sides read the same numbers.
 4. **The arena loads its props/pieces from two committed JSON files**, both
-   written by the dev editor and both appended to `plan.props` (each
-   `hand: true`) through `makeProp`. `hub-props.json` = free-standing clutter;
-   `hub-structure.json` = the exploded colosseum (arcade arches, columns, seating
-   slabs, statues…). Placements are `{kind, x, y, rot, scale, z?, s3?}`: `z` = 3D
+   edited by hand (the in-game editor is gone) and both appended to `plan.props` through `makeProp`. `hub-props.json` = free-standing clutter;
+   `hub-structure.json` = kit pieces placed as structure (normally none — the
+   stadium bowl is procedural). Placements are `{kind, x, y, rot, scale, z?, s3?}`: `z` = 3D
    elevation and `s3` = per-axis scale are **render-only** (carried onto the spec)
    — collision stays ground-based, so only ground-level (`z≈0`) kinds in
    `SOLID_PROPS` block. A `SOLID_PROPS` entry is a collision disc (`r`), or an
    oriented box (`box: [localX, localY]`) for wall/panel kinds a circle can't fit
    — `r` is then its bounding radius for broad-phase. Arches, doorways and
    entrances stay OUT so their openings remain walkable. Never store `top`/`r` in
-   the JSON — always derive via `makeProp`. `hub-structure.json` empty ⇒ not yet
-   baked (client shows the procedural composer output instead).
+   the JSON — always derive via `makeProp`. None of the stadium's own geometry
+   is in either file, and none of it collides: the tile ring is the only wall.
 
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),

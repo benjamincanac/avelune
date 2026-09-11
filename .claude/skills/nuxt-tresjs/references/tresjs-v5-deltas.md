@@ -46,7 +46,7 @@ Installed: events come from `@pmndrs/pointer-events`; names are `click`, `contex
 `pointerdown`, `pointerup`, `pointercancel`, `lostpointercapture`, `wheel`, plus
 `pointermissed` on the canvas. **There is no `pointer` prop** on `TresCanvas` in 5.8.3.
 This project does not use Tres pointer events — input is pointer lock + raw mouse deltas
-in GameScene.client.vue, and the editor picks with its own box tests.
+in GameScene.client.vue.
 
 ## Not installed here
 

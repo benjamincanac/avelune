@@ -17,7 +17,7 @@
 //
 // Ctrl-C for a clean shutdown (closes every socket).
 
-import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '../shared/utils/characters.ts'
+import { PLAYER_COLORS } from '../shared/utils/characters.ts'
 import { generateHub, isWalkable } from '../shared/utils/maze.ts'
 
 /* ------------------------------- args --------------------------------- */
@@ -60,15 +60,11 @@ function randomWaypoint(cx, cy, r) {
 const NAMES = ['Grix', 'Vesper', 'Mott', 'Bramble', 'Cinder', 'Fenn', 'Halo', 'Juno', 'Kobb', 'Lark', 'Nix', 'Odar', 'Pell', 'Quill', 'Rue', 'Sable', 'Torv', 'Umber', 'Wisp', 'Yarn']
 const CHAT_LINES = ['nice arena', 'over here', 'again?', 'this way', 'anyone seen the oracle', 'careful', 'follow me', 'hey']
 
+/** Every bot is the Developer too; only the handle and accent vary. */
 function randomAppearance() {
-  const gender = pick(GENDERS)
-  const outfit = pick(OUTFITS).id
-  const hair = pick(HAIRSTYLES[gender]).id
   return {
     username: `${pick(NAMES)}-bot`,
-    character: `${outfit}_${gender}_${hair}`,
     colorIndex: PLAYER_COLORS.map((_, i) => i).filter(i => i !== 3 && i !== 4)[Math.floor(rand(0, 6))],
-    outfitColor: Math.floor(Math.random() * outfitColorCount(outfit)),
   }
 }
 

@@ -10,7 +10,6 @@ import {
   CanvasTexture,
   CircleGeometry,
   Color,
-  CylinderGeometry,
   DirectionalLight,
   FogExp2,
   Group,
@@ -63,22 +62,27 @@ import {
   PROP_NAMES,
   VILLAGE_NAMES,
 } from '#shared/utils/propCatalog'
-import HUB_STRUCTURE from '#shared/data/hub-structure.json'
 import HUB_ORACLE from '#shared/data/hub-oracle.json'
-import { composeColosseum } from '~/utils/composeColosseum'
-import { createHubEditor } from '~/utils/hubEditor'
-import type { HubEditor } from '~/utils/hubEditor'
+
 import type { StonePalette } from '~/utils/textures'
-import { makeGrassTexture, makeRuneCircleTexture } from '~/utils/textures'
-import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
-import { applyOutfitColor } from '~/utils/appearance'
+import { makeGrassTexture } from '~/utils/textures'
+import { buildStadium, centerMarkTexture } from '~/utils/stadium'
+import type { Stadium } from '~/utils/stadium'
+import { buildLedFloor } from '~/utils/ledFloor'
+import type { LedFloor } from '~/utils/ledFloor'
+import { characterModel } from '#shared/utils/characters'
+import { prepareDeveloper } from '~/utils/developerLook'
+import { createOracleBody } from '~/utils/oracle3d'
+import type { OracleBody } from '~/utils/oracle3d'
 import { PALETTE } from '~/utils/palette'
 
 /**
  * Tempest's 3D world, built imperatively with three.js inside the Tres context.
  *
  * Tres provides the renderer, scene, camera, and render loop. The arena is one
- * hand-authored colosseum: a sand floor ringed by baked kit pieces, drawn as
+ * stadium: an LED tile floor (`app/utils/ledFloor.ts`) inside a procedural bowl
+ * of tiers, crowd and LED brand bands (`app/utils/stadium.ts`), plus any
+ * hand-placed kit props drawn as
  * instanced batches. The sky, sun, fog, and rain are driven by a day/night +
  * weather clock derived from the server's time, so every player sees the same
  * evening storm roll in.
@@ -104,20 +108,19 @@ interface ViewState {
   dashQueued: boolean
 }
 
-const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState, editor?: boolean }>()
+const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState }>()
 
 // Hub Oracle proximity/dialogue state, shared with GameScene and the HUD.
 const oracle = useOracle()
 
-const { scene, camera: cameraManager, renderer } = useTresContext()
+const { scene, camera: cameraManager } = useTresContext()
 const camera = cameraManager.activeCamera
 const { onBeforeRender } = useLoop()
 
-// Dev-only world editor: created in onMounted when `editor` is set (see the
-// bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
-let editorCtl: HubEditor | null = null
-// The editor's shared state, when editing. Drives the controller's editable bounds.
-let ed: ReturnType<typeof useEditor> | null = null
+/** The stadium, once built; the render loop animates it. */
+let stadium: Stadium | null = null
+/** The LED floor, once built; the render loop lights it under the players. */
+let ledFloor: LedFloor | null = null
 
 /** Full day/night cycle length. */
 const DAY_MS = 15 * 60 * 1000
@@ -336,8 +339,7 @@ const sunDir = new Vector3()
 /* Arena geometry                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** The arena is hand-authored and constant, in play and in the editor alike —
- *  build its plan once and read it everywhere. */
+/** The arena is constant — build its plan once and read it everywhere. */
 const hubPlan = generateHub()
 
 /** Procedural grass under and around the arena, built once. */
@@ -355,14 +357,11 @@ function ensureGroundTexture(): CanvasTexture {
 const floorGroup = new Group()
 scene.value.add(floorGroup)
 
-// The Oracle NPC — a monster (Quaternius Ultimate Monsters) as the arena's
-// ancient seer. Declared here (before the synchronous initial buildFloor) so
-// buildFloor can reset it on a rebuild.
-/** Where the Oracle stands, in tiles. Editable via the hub 'Oracle' marker: in
- *  the editor it follows the live (draggable) marker; in play it's the saved
- *  position from hub-oracle.json. */
+// The Oracle NPC — vercel.com's hero triangle floating over a bed of smoke
+// (`app/utils/oracle3d.ts`). Declared here (before the synchronous initial
+// buildFloor) so buildFloor can reset it on a rebuild.
+/** Where the Oracle stands, in tiles (hub-oracle.json). */
 function oraclePos(): { x: number, y: number } {
-  if (props.editor && ed?.current.value.oracle) return ed.current.value.oracle
   const [x, y] = HUB_ORACLE as [number, number]
   return { x, y }
 }
@@ -370,7 +369,7 @@ function oraclePos(): { x: number, y: number } {
 const ORACLE_NEAR = 7
 interface OracleRig {
   group: Group
-  mixer: AnimationMixer
+  body: OracleBody
   /** Speech bubble mirroring the players' — shows the Oracle's latest chat line. */
   bubble: Sprite
   bubbleCanvas: HTMLCanvasElement
@@ -414,74 +413,51 @@ function buildFloor() {
   meadow.position.set(plan.width / 2, 0, plan.height / 2)
   floorGroup.add(meadow)
 
-  buildColosseumHub(plan)
+  buildArena(plan)
   tagShadows(floorGroup)
-  // Re-sync the editor's own selectable clones (templates may have just
-  // finished loading, so this runs after each build phase).
-  editorCtl?.rebuild()
 }
 
 /* -------------------------------------------------------------------------- */
-/* Colosseum arena                                                            */
+/* Stadium arena                                                              */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Build the arena: a sand floor with a glowing rune circle, a backdrop shell so
- * the gaps between kit pieces never show raw sky, and every baked kit piece
- * from `plan.props`. Collision comes from the
+ * Build the arena: the LED floor with its centre mark, the stadium bowl around it,
+ * and any hand-placed kit piece from `plan.props`. Collision comes from the
  * shared tile stamps in `generateHub`, not from anything drawn here.
  */
-function buildColosseumHub(plan: FloorPlan) {
+function buildArena(plan: FloorPlan) {
   const { center, arenaRadius } = HUB_LAYOUT
 
-  // --- Procedural base (never editable): the sand arena floor and a backdrop
-  // shell. Everything else (arcade, columns, tiered stands, statues) is
-  // editable baked pieces.
-  const sand = new Mesh(
-    new CircleGeometry(arenaRadius + 1.5, 56),
-    new MeshStandardMaterial({ color: new Color('#c2a878'), roughness: 1 }),
-  )
-  sand.rotation.x = -Math.PI / 2
-  sand.position.set(center.x, 0.02, center.y)
-  floorGroup.add(sand)
+  // --- The LED floor (never editable): black tiles that light up white underfoot.
+  ledFloor = buildLedFloor()
+  floorGroup.add(ledFloor.group)
 
-  // A glowing slime-blue rune circle inlaid in the sand.
-  const runes = new Mesh(
+  // The centre mark — the Vercel ▲ in glowing slime blue, inlaid in the floor.
+  const mark = new Mesh(
     new CircleGeometry(arenaRadius * 0.7, 64),
-    new MeshBasicMaterial({ map: makeRuneCircleTexture(4242), color: new Color(PALETTE.slime), transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false }),
+    new MeshBasicMaterial({ map: centerMarkTexture(), color: new Color(PALETTE.slime), transparent: true, opacity: 0.55, blending: AdditiveBlending, depthWrite: false }),
   )
-  runes.rotation.x = -Math.PI / 2
-  runes.position.set(center.x, 0.05, center.y)
-  floorGroup.add(runes)
+  mark.rotation.x = -Math.PI / 2
+  mark.position.set(center.x, 0.05, center.y)
+  floorGroup.add(mark)
 
-  const backdrop = new Mesh(
-    new CylinderGeometry(30, 30, 26, 48, 1, true),
-    new MeshStandardMaterial({ color: new Color('#2b3038'), side: BackSide, roughness: 1 }),
-  )
-  backdrop.position.set(center.x, 13, center.y)
-  floorGroup.add(backdrop)
+  // --- The stadium bowl, crowd and brand lights: render-only, cached across rebuilds.
+  stadium = buildStadium()
+  floorGroup.add(stadium.group)
 
-  // --- Editable colosseum kit pieces. Pre-bake, render the procedural
-  // composition (visual only, no collision until baked); once baked the pieces
-  // flow through plan.props. In editor mode the controller owns the seeded
-  // clones, so skip the fallback here.
-  if (!props.editor && !HUB_STRUCTURE.length) renderComposed(composeColosseum())
-
-  // --- Solid + hand-placed pieces from the shared plan, rendered exactly where
-  // the server simulates their footprints.
+  // --- Hand-placed pieces from the shared plan, rendered exactly where the
+  // server simulates their footprints.
   renderPlanProps(plan)
 }
 
 /**
  * Render a plan's props as instanced batches per kind, exactly where the server
- * simulates their footprints. In editor mode, hand-placed props (incl. the
- * baked structure) are skipped so the editor controller can clone them as
- * individually selectable objects instead of drawing them twice.
+ * simulates their footprints.
  */
 function renderPlanProps(plan: FloorPlan) {
   const solids = new Map<string, Matrix4[]>()
   for (const p of plan.props) {
-    if (props.editor && p.hand) continue
     const arr = solids.get(p.kind) ?? []
     arr.push(propMatrix(p))
     solids.set(p.kind, arr)
@@ -499,20 +475,6 @@ function propMatrix(p: HubPropPlacement): Matrix4 {
   return p.s3
     ? placementMatrixScaled(p.x, p.z ?? 0, p.y, p.rot, p.s3[0], p.s3[1], p.s3[2])
     : placementMatrix(p.x, p.z ?? 0, p.y, p.rot, p.scale)
-}
-
-/** Render a composed piece list instanced (pre-bake fallback only). */
-function renderComposed(pieces: HubPropPlacement[]) {
-  const byKind = new Map<string, Matrix4[]>()
-  for (const p of pieces) {
-    const arr = byKind.get(p.kind) ?? []
-    arr.push(propMatrix(p))
-    byKind.set(p.kind, arr)
-  }
-  for (const [kind, mats] of byKind) {
-    const g = instantiateModule(kind, mats)
-    if (g) floorGroup.add(g)
-  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -550,6 +512,8 @@ function ensureCharacter(name: string) {
   if (characterTemplates.has(name) || characterLoading.has(name)) return
   characterLoading.add(name)
   gltfLoader.loadAsync(`/models/characters/${name}.glb`).then((gltf) => {
+    // Dress the template once (tee, jeans, sneakers, cap); every clone shares the result.
+    prepareDeveloper(gltf.scene)
     characterTemplates.set(name, gltf.scene)
   })
 }
@@ -562,9 +526,7 @@ function ensureClips() {
   })
 }
 
-// Prop template name lists (PROP_NAMES, PROP_DECOR_NAMES, NATURE_NAMES,
-// VILLAGE_NAMES, FANTASY_NAMES) live in #shared/utils/propCatalog so the dev
-// editor can share them; imported at the top of this file.
+// Prop template name lists live in #shared/utils/propCatalog; imported at the top of this file.
 
 const placementDummy = new Object3D()
 function placementMatrix(x: number, y: number, z: number, rotY: number, scale: number): Matrix4 {
@@ -646,43 +608,29 @@ async function loadTemplates(dir: string, names: readonly string[]) {
   }))
 }
 
-/** In the editor the whole palette must be placeable, so every catalog loads. */
-const EDITING = import.meta.dev && !!props.editor
-
 /**
- * Every kind the arena actually draws: the baked structure (via `plan.props`)
- * plus the pre-bake composition. In play we download only these, so the arena
- * never waits on the ~200 kit models it doesn't reference.
+ * Every kind the arena actually draws: the hand-placed props in `plan.props`.
+ * We download only these, so the arena never waits on the ~200 kit models it
+ * doesn't reference. The stadium itself is procedural, no GLBs.
  */
-const ARENA_KINDS = new Set<string>([
-  ...hubPlan.props.map(p => p.kind),
-  ...composeColosseum().map(p => p.kind),
-])
+const ARENA_KINDS = new Set<string>(hubPlan.props.map(p => p.kind))
 function arenaOnly(names: readonly string[]): readonly string[] {
-  return EDITING ? names : names.filter(name => ARENA_KINDS.has(name))
+  return names.filter(name => ARENA_KINDS.has(name))
 }
 
-// Wave 1 is the structural kit the arena is built from — nothing paints until
-// it lands. Wave 2 streams the decorative pieces (and, in the editor, the rest
-// of the palette) and triggers a second build, so late arrivals pop in.
+// The stadium paints at once; the hand-placed props stream in from whichever
+// kits the plan references and trigger one rebuild, so they pop in together.
+buildFloor()
 Promise.all([
   loadTemplates('props', arenaOnly(PROP_NAMES)),
-]).then(() => {
-  buildFloor()
-  return Promise.all([
-    loadTemplates('props', arenaOnly(PROP_DECOR_NAMES)),
-    loadTemplates('castle', arenaOnly(CASTLE_NAMES)),
-    ...(EDITING
-      ? [
-          loadTemplates('nature', NATURE_NAMES),
-          loadTemplates('village', VILLAGE_NAMES),
-          loadTemplates('fantasy', FANTASY_NAMES),
-          loadTemplates('dungeon', DUNGEON_NAMES),
-          loadTemplates('crypt', CRYPT_NAMES),
-        ]
-      : []),
-  ])
-}).then(() => buildFloor())
+  loadTemplates('props', arenaOnly(PROP_DECOR_NAMES)),
+  loadTemplates('castle', arenaOnly(CASTLE_NAMES)),
+  loadTemplates('nature', arenaOnly(NATURE_NAMES)),
+  loadTemplates('village', arenaOnly(VILLAGE_NAMES)),
+  loadTemplates('fantasy', arenaOnly(FANTASY_NAMES)),
+  loadTemplates('dungeon', arenaOnly(DUNGEON_NAMES)),
+  loadTemplates('crypt', arenaOnly(CRYPT_NAMES)),
+]).then(() => buildFloor())
 
 /* -------------------------------------------------------------------------- */
 /* Players                                                                    */
@@ -818,9 +766,8 @@ function drawBubble(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, te
 }
 
 function createRig(player: GamePlayer): Rig | null {
-  // The player's chosen character rides the server snapshot; fall back to a
-  // deterministic hash if it's somehow missing or unknown.
-  const characterName = isCharacter(player.character) ? player.character : characterFor(player.id)
+  // Every player is the Developer: the male or female Peasant rig, dressed once on its template.
+  const characterName = characterModel(player.character)
   const templateScene = characterTemplates.get(characterName)
   if (!templateScene || !sharedClips.length) {
     // Kick off the downloads; the rig appears once model and clips both land.
@@ -836,9 +783,6 @@ function createRig(player: GamePlayer): Rig | null {
   // The GLB faces +z; the rig's forward is +x (the group is rotated by -heading).
   model.rotation.y = Math.PI / 2
   model.scale.setScalar(CHARACTER_SCALE)
-  // Swap in the chosen outfit colorway (designed texture variant, not a dye).
-  // The accent color is a chat/nameplate identity only.
-  applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
   // Skinned meshes must keep rendering when bones move them outside their
   // original bounds.
   model.traverse((obj) => {
@@ -1009,63 +953,27 @@ const RECONCILE_RATE = 8
 const RECONCILE_IDLE_FREEZE = 0.4
 
 /* -------------------------------------------------------------------------- */
-/* Hub Oracle: the ancient seer by the arena wall. Unlike the player           */
-/* characters (shared universal skeleton + shared clips), this monster carries */
-/* its own rig and animation clips inside its GLB, so it gets its own mixer.   */
+/* Hub Oracle: vercel.com's hero triangle floating by the arena wall over a    */
+/* bed of smoke. Nothing to load — it's built from primitives in oracle3d.ts.  */
 /* -------------------------------------------------------------------------- */
 
-let oracleTemplate: Group | null = null
-let oracleClips: AnimationClip[] = []
-let oracleLoading = false
-
-function ensureOracle() {
-  if (oracleTemplate || oracleLoading) return
-  oracleLoading = true
-  gltfLoader.loadAsync('/models/monsters/MushroomKing.glb').then((gltf) => {
-    oracleTemplate = gltf.scene
-    oracleClips = gltf.animations
-  })
-}
-
-/** Scaled height — taller than the ~1.3-unit runners, so the Oracle looms. */
+/** Overall height (top of the triangle at rest) — taller than the ~1.3-unit runners, so it looms. */
 const ORACLE_HEIGHT = 2.2
 
 function createOracleRig(): OracleRig | null {
-  if (!oracleTemplate) {
-    ensureOracle()
-    return null
-  }
   const group = new Group()
 
-  const model = SkeletonUtils.clone(oracleTemplate)
-  // The source model isn't in game units; normalize it to a fixed height and
-  // sit its lowest point on the ground regardless of the pivot.
-  model.updateMatrixWorld(true)
-  const raw = new Box3().setFromObject(model)
-  const scale = ORACLE_HEIGHT / Math.max(0.001, raw.max.y - raw.min.y)
-  model.scale.setScalar(scale)
-  model.traverse((obj) => {
-    if (obj instanceof SkinnedMesh) obj.frustumCulled = false
-    if (obj instanceof Mesh) obj.castShadow = true
-  })
-  group.add(model)
+  const body = createOracleBody(ORACLE_HEIGHT)
+  group.add(body.group)
   const op = oraclePos()
-  group.position.set(op.x, -raw.min.y * scale, op.y)
-  // Face toward the arena centre, watching runners. (Flip by Math.PI if the
-  // source model turns out to face the other way.)
+  group.position.set(op.x, 0, op.y)
+  // Face the arena centre: the prism's front is +Z.
   group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
 
-  const mixer = new AnimationMixer(model)
-  const idle = oracleClips.find(clip => clip.name === 'Idle') ?? oracleClips[0]
-  if (idle) mixer.clipAction(idle).play()
-
-  // A floating name and a cool arcane glow so it reads as the Oracle.
-  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#bfe6ff'))
+  // A floating name so it reads as the Oracle.
+  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#f5f7ff'))
   label.sprite.position.set(0, ORACLE_HEIGHT + 0.3, 0)
   group.add(label.sprite)
-  const glow = new PointLight('#7fd0ff', 5, 7, 1.6)
-  glow.position.set(0, ORACLE_HEIGHT * 0.6, 0)
-  group.add(glow)
 
   // Speech bubble (hidden until the Oracle speaks in chat), like the players'.
   const bubbleBaseY = ORACLE_HEIGHT + 0.42
@@ -1075,7 +983,7 @@ function createOracleRig(): OracleRig | null {
   group.add(bubble.sprite)
 
   floorGroup.add(group)
-  return { group, mixer, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY }
+  return { group, body, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY }
 }
 
 onBeforeRender(({ delta, elapsed }) => {
@@ -1172,17 +1080,8 @@ onBeforeRender(({ delta, elapsed }) => {
     }
   }
 
-  // Editor mode owns the camera (free fly) — drive it and keep the sun/shadow
-  // target centered on where we're looking; skip the third-person follow-cam.
-  if (editorCtl) {
-    editorCtl.update(dt)
-    if (camera.value) {
-      local.x = camera.value.position.x
-      local.y = camera.value.position.z
-    }
-  }
   // Third-person camera: behind the shoulder, pulled in by walls.
-  else if (camera.value) {
+  if (camera.value) {
     const yaw = props.view.yaw
     const pitch = props.view.pitch
     const headX = local.x
@@ -1276,6 +1175,9 @@ onBeforeRender(({ delta, elapsed }) => {
       }
       positions.needsUpdate = true
     }
+
+    // The stadium's LEDs, crowd and floodlights follow the same clock.
+    stadium?.update(dt, elapsed, 1 - sky.dayness)
   }
 
   // Reconcile player rigs with the roster.
@@ -1337,6 +1239,8 @@ onBeforeRender(({ delta, elapsed }) => {
 
     rig.group.position.set(player.rx, player.rz, player.ry)
     rig.group.rotation.y = -player.ra
+    // A foot on a panel lights it; a jump lifts it off.
+    if (!airborne) ledFloor?.stamp(player.rx, player.ry)
 
     // The dash plays the sprint loop. Its speed burst only lasts DASH_DURATION,
     // so on the dash's rising edge we latch a slightly longer window and hold
@@ -1379,14 +1283,16 @@ onBeforeRender(({ delta, elapsed }) => {
     }
   }
 
-  // Hub Oracle: spawn it once its model lands, run its idle animation, float a
+  // Fade the floor after this frame's stamps, then upload it.
+  ledFloor?.update(dt)
+
+  // Hub Oracle: build it on first sight, float it over its smoke, show a
   // bubble when it speaks in chat, and track proximity (drives the HUD hint).
   oracleRig ??= createOracleRig()
   const op = oraclePos()
   if (oracleRig) {
-    oracleRig.mixer.update(dt)
-    // Follow the editable Oracle marker (live while dragging in the editor;
-    // constant in play). Keep it facing the arena centre.
+    oracleRig.body.update(dt, elapsed)
+    // Keep it on its mark, facing the arena centre.
     oracleRig.group.position.x = op.x
     oracleRig.group.position.z = op.y
     oracleRig.group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
@@ -1412,42 +1318,7 @@ onBeforeRender(({ delta, elapsed }) => {
 
 // Remove everything we added to the shared scene (also keeps HMR honest —
 // a stale setup's lights and geometry would otherwise stack up on reload).
-// Dev-only: spin up the hub prop editor once the render context exists. Guarded
-// by `import.meta.dev` so the whole controller (Raycaster, fly cam, listeners)
-// dead-code-eliminates from the production bundle.
-if (import.meta.dev) {
-  onMounted(() => {
-    if (!props.editor) return
-    const canvas = renderer.instance?.domElement
-    if (!canvas || !scene.value) return
-    ed = useEditor()
-    // Before the arena is baked, seed the editable structure layer from the
-    // procedural composition so every kit piece is immediately selectable and
-    // the first save writes hub-structure.json (the bake).
-    if (!HUB_STRUCTURE.length) ed.seedStructure(composeColosseum())
-    // Draw the arena for the editor to work over (the controller clones the
-    // hand-placed pieces on top as individually selectable objects).
-    buildFloor()
-    editorCtl = createHubEditor({
-      scene: scene.value,
-      getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
-      canvas,
-      getTemplate: kind => propTemplates.get(kind),
-      editor: ed,
-      getSize: () => ed!.current.value.size,
-    })
-    editorCtl.rebuild()
-    // Rebuild the scene on any structural change (seed / undo / redo). The
-    // controller re-clones its placements off its own deep watch.
-    watch(() => ed!.structureVersion.value, buildFloor)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).__editor = ed
-  })
-}
-
 onUnmounted(() => {
-  editorCtl?.dispose()
-  editorCtl = null
   scene.value.remove(ambient, hemi, sun, sun.target, torchLight, rain, skyDome, cloudDome, sunGlow, floorGroup, playerGroup)
 })
 

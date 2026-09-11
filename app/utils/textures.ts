@@ -1,5 +1,6 @@
 import { CanvasTexture, SRGBColorSpace } from 'three'
 import { createRng } from '#shared/utils/maze'
+import type { BrandLogo } from '~/utils/vercelBrands'
 
 /**
  * Procedural canvas textures — the arena's entire art budget.
@@ -248,4 +249,233 @@ export function makeRuneCircleTexture(seed: number): CanvasTexture {
       ctx.stroke()
     }
   })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Stadium: LED brand strip, centre mark, crowd, glow                         */
+/* -------------------------------------------------------------------------- */
+
+/** Brand face. A web font, so early boards are redrawn once it lands (see stadium.ts). */
+export const BOARD_FAMILY = 'Geist'
+const BOARD_FONT = `${BOARD_FAMILY}, ui-sans-serif, system-ui, sans-serif`
+
+export interface BoardStyle {
+  bg: string
+  fg: string
+  /** Lead with the Vercel triangle. */
+  mark: boolean
+}
+
+/** The Vercel mark: an equilateral triangle `size` tall, centred on (cx, cy). */
+export function drawVercelMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
+  const half = size / Math.sqrt(3)
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - size / 2)
+  ctx.lineTo(cx + half, cy + size / 2)
+  ctx.lineTo(cx - half, cy + size / 2)
+  ctx.closePath()
+  ctx.fill()
+}
+
+export interface LedStripCell {
+  label: string
+  style: BoardStyle
+  /** The brand's own mark, drawn instead of the ▲. */
+  logo?: BrandLogo
+  /** False when the logo already is the wordmark (v0). */
+  wordmark?: boolean
+}
+
+/** One LED cell at (x, y): solid field, the brand's mark or the ▲, and a label fitted to the cell width. */
+export function drawBrandCell(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, cell: LedStripCell) {
+  const { style, logo } = cell
+  const label = cell.wordmark === false ? '' : cell.label
+  ctx.fillStyle = style.bg
+  ctx.fillRect(x, y, w, h)
+  ctx.fillStyle = style.fg
+
+  const pad = h * 0.18
+  // A logo is a square box; the ▲ is measured by its height.
+  const mark = logo ? h * (label ? 0.5 : 0.62) : style.mark ? h * 0.4 : 0
+  const markWidth = logo ? mark : (2 * mark) / Math.sqrt(3)
+  const gap = mark && label ? h * 0.15 : 0
+  // Fit the label: long names shrink, short ones cap, so every cell fills its field.
+  let px = Math.round(h * 0.4)
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  for (; px > 8; px -= 2) {
+    ctx.font = `600 ${px}px ${BOARD_FONT}`
+    if (markWidth + gap + ctx.measureText(label).width <= w - pad * 2) break
+  }
+  // Centre the mark + label as one group.
+  let lx = x + (w - (markWidth + gap + ctx.measureText(label).width)) / 2
+  if (logo) {
+    ctx.save()
+    ctx.translate(lx, y + (h - mark) / 2)
+    ctx.scale(mark / 24, mark / 24)
+    ctx.fillStyle = logo.color ?? style.fg
+    ctx.fill(new Path2D(logo.path))
+    ctx.restore()
+    ctx.fillStyle = style.fg
+    lx += markWidth + gap
+  }
+  else if (style.mark) {
+    drawVercelMark(ctx, lx + markWidth / 2, y + h / 2, mark)
+    lx += markWidth + gap
+  }
+  // `middle` centres the em box; caps sit a touch high, so nudge down.
+  if (label) ctx.fillText(label, lx, y + h / 2 + px * 0.04)
+}
+
+/**
+ * A continuous LED ribbon: the cells side by side with accent dividers and rails.
+ * Meant to wrap a cylinder with `RepeatWrapping` and scroll via `offset.x`.
+ * Draws into the caller's canvas so it can be repainted once the web font lands.
+ */
+export function drawLedStrip(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, cells: LedStripCell[], accent: string) {
+  const { width: w, height: h } = canvas
+  const cw = w / cells.length
+  cells.forEach((cell, i) => drawBrandCell(ctx, Math.round(i * cw), 0, Math.ceil(cw), h, cell))
+  ctx.fillStyle = accent
+  const bar = Math.max(2, Math.round(h * 0.025))
+  // One divider per seam, including the wrap seam, so the loop never shows a joint.
+  for (let i = 0; i <= cells.length; i++) ctx.fillRect(Math.round(i * cw) - bar / 2, 0, bar, h)
+  ctx.fillRect(0, 0, w, bar)
+  ctx.fillRect(0, h - bar, w, bar)
+}
+
+/** A soft, faceless spectator silhouette, white so each instance can tint it. */
+export function makeCrowdTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 96
+  const ctx = canvas.getContext('2d')!
+  ctx.filter = 'blur(1.2px)'
+  ctx.fillStyle = '#ffffff'
+  // Shoulders and torso.
+  ctx.beginPath()
+  ctx.moveTo(9, 96)
+  ctx.lineTo(9, 54)
+  ctx.quadraticCurveTo(9, 37, 25, 35)
+  ctx.lineTo(39, 35)
+  ctx.quadraticCurveTo(55, 37, 55, 54)
+  ctx.lineTo(55, 96)
+  ctx.closePath()
+  ctx.fill()
+  // Head.
+  ctx.beginPath()
+  ctx.arc(32, 20, 13, 0, Math.PI * 2)
+  ctx.fill()
+  const texture = new CanvasTexture(canvas)
+  texture.colorSpace = SRGBColorSpace
+  return texture
+}
+
+/** Vertical soft falloff, white on transparent: the additive spill behind an LED band. */
+export function makeGlowBandTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 4
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')!
+  const g = ctx.createLinearGradient(0, 0, 0, 128)
+  g.addColorStop(0, 'rgba(255,255,255,0)')
+  g.addColorStop(0.5, 'rgba(255,255,255,0.9)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 4, 128)
+  return new CanvasTexture(canvas)
+}
+
+/** Radial soft falloff, white on transparent: a floodlight's bloom sprite. */
+export function makeRadialGlowTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 128
+  const ctx = canvas.getContext('2d')!
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+  g.addColorStop(0, 'rgba(255,255,255,0.95)')
+  g.addColorStop(0.25, 'rgba(255,255,255,0.45)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 128, 128)
+  return new CanvasTexture(canvas)
+}
+
+/**
+ * The stadium's centre mark, pitch-style: the touchline ring, a centre circle,
+ * and the Vercel triangle inside it. White, so the material tints it.
+ */
+export function makeVercelCenterTexture(): CanvasTexture {
+  return canvasTexture(512, (ctx) => {
+    const c = 256
+    ctx.clearRect(0, 0, 512, 512)
+    ctx.strokeStyle = '#ffffff'
+    ctx.fillStyle = '#ffffff'
+    for (const [radius, width] of [[244, 6], [228, 2], [104, 3]] as const) {
+      ctx.lineWidth = width
+      ctx.beginPath()
+      ctx.arc(c, c, radius, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    // A ▲'s mass sits low; lift it a touch so it reads centred in the circle.
+    ctx.globalAlpha = 0.6
+    drawVercelMark(ctx, c, c - 8, 120)
+    ctx.globalAlpha = 1
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Oracle: triangle rim light and smoke                                       */
+/* -------------------------------------------------------------------------- */
+
+/** The vercel.com hero's rim light: a blurred white triangle outline, brightest at the apex. */
+export function makeTriangleGlowTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 512
+  const ctx = canvas.getContext('2d')!
+  // Equilateral, 276 px tall, centroid on the canvas centre.
+  const outline = () => {
+    ctx.beginPath()
+    ctx.moveTo(256, 72)
+    ctx.lineTo(416, 348)
+    ctx.lineTo(96, 348)
+    ctx.closePath()
+  }
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineJoin = 'round'
+  ctx.shadowColor = '#ffffff'
+  for (const [blur, width, alpha] of [[70, 14, 0.35], [30, 8, 0.6], [8, 4, 1]] as const) {
+    ctx.shadowBlur = blur
+    ctx.lineWidth = width
+    ctx.globalAlpha = alpha
+    outline()
+    ctx.stroke()
+  }
+  // Apex hot spot.
+  ctx.shadowBlur = 0
+  ctx.globalAlpha = 1
+  const g = ctx.createRadialGradient(256, 92, 0, 256, 92, 110)
+  g.addColorStop(0, 'rgba(255,255,255,0.55)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 512, 512)
+  return new CanvasTexture(canvas)
+}
+
+/** A soft puff on transparent, white so the sprite tints it: one smoke particle. */
+export function makeSmokeTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 128
+  const ctx = canvas.getContext('2d')!
+  const rng = createRng(11)
+  for (let i = 0; i < 7; i++) {
+    const x = 64 + (rng() - 0.5) * 50
+    const y = 64 + (rng() - 0.5) * 50
+    const r = 26 + rng() * 22
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+    g.addColorStop(0, 'rgba(255,255,255,0.32)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 128, 128)
+  }
+  return new CanvasTexture(canvas)
 }

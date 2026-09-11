@@ -14,10 +14,8 @@ export interface Player {
   name: string
   /** A CSS color (hsl) used for the body accent and label. */
   color: string
-  /** Chosen character model basename (see shared/utils/characters). */
+  /** Character look id (see shared/utils/characters); there is one, the Developer. */
   character: string
-  /** Chosen outfit colorway index (resolved against the character's outfit). */
-  outfitColor: number
   x: number
   y: number
   /** Height above the floor plane (jumping, standing on props). */

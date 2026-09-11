@@ -7,10 +7,9 @@
  * never disagree: same plan in, same position out. Never fork any of this into
  * a component or the WS handler.
  *
- * The arena is fixed, not procedural. Its visible pieces are authored once in
- * the dev editor and committed as JSON (`hub-structure.json` for the colosseum
- * shell, `hub-props.json` for free-standing clutter), so no geometry ever
- * travels over the WebSocket — only players.
+ * The arena is fixed, not procedural.
+ * Its hand-placed pieces are committed as JSON: `hub-structure.json` (kit pieces), `hub-props.json` (clutter).
+ * So no geometry ever travels over the WebSocket — only players.
  */
 
 import hubProps from '../data/hub-props.json'
@@ -47,9 +46,6 @@ export interface PropSpec {
    *  test inside the `r` broad-phase; absent means the circular `r` is the shape. */
   bx?: number
   by?: number
-  /** Hand-placed via the dev editor — lets the editor isolate and re-render just
-   *  the props it owns. */
-  hand?: boolean
   /** 3D elevation (height off the ground) — for baked building pieces (upper
    *  floors, roofs). Render-only: collision stays ground-based (see makeProp). */
   z?: number
@@ -60,8 +56,8 @@ export interface PropSpec {
 
 /**
  * A hand-placed prop as stored in `shared/data/hub-props.json` (gameplay props)
- * or `shared/data/hub-structure.json` (baked village pieces), written by the dev
- * editor. `top`/`r` are never stored — they're always derived through `makeProp`
+ * or `shared/data/hub-structure.json` (kit pieces), both edited by hand.
+ * `top`/`r` are never stored — they're always derived through `makeProp`
  * so server collision and client rendering stay in lockstep. `z` (elevation) and
  * `s3` (per-axis scale) are optional render-only extras.
  */
@@ -240,7 +236,7 @@ export function generateHub(): FloorPlan {
   const props: PropSpec[] = []
   const placements = [...hubStructure, ...hubProps] as HubPropPlacement[]
   for (const p of placements) {
-    props.push({ ...makeProp(p.kind, p.x, p.y, p.rot, p.scale, p.s3), hand: true, z: p.z, s3: p.s3 })
+    props.push({ ...makeProp(p.kind, p.x, p.y, p.rot, p.scale, p.s3), z: p.z, s3: p.s3 })
   }
 
   return {

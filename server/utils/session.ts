@@ -18,7 +18,7 @@ import type { Player } from '#shared/types/game'
 // existing `mugen_id` cookies no longer match, so players re-onboard once.
 export const COOKIE_NAME = 'tempest_id'
 
-export type Identity = Pick<Player, 'id' | 'name' | 'color' | 'character' | 'outfitColor'>
+export type Identity = Pick<Player, 'id' | 'name' | 'color' | 'character'>
 
 let warnedNoSecret = false
 
@@ -56,8 +56,7 @@ export function verifyToken(token: string | undefined | null): Identity | null {
   try {
     const obj = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Identity
     if (obj && typeof obj.id === 'string' && typeof obj.name === 'string'
-      && typeof obj.color === 'string' && typeof obj.character === 'string'
-      && typeof obj.outfitColor === 'number') {
+      && typeof obj.color === 'string' && typeof obj.character === 'string') {
       return obj
     }
   }

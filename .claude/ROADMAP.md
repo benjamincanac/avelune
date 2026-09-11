@@ -18,21 +18,21 @@
 - [x] Bot load-testing script (`scripts/spawn-bots.mjs`)
 
 ### Identity, onboarding & app shell
-- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
-- [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
-- [x] **Direct entry**: no landing screen. `index.vue` probes `/api/auth` — a returning player drops straight into the arena, a new visitor lands on character creation
-- [x] **In-game Escape menu** (WoW-style): controls reference + fullscreen + return-to-game (+ a dev-only world editor button). While pointer-locked the Escape keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
+- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie); `GET`/`POST`/`DELETE /api/auth`; WS upgrade gated on the cookie. **Log out** (Escape menu → `DELETE /api/auth` + reload) clears the cookie and the entry flow lands on the gate
+- [x] **One look, two bodies** (`vercel-demo`): the old creator (outfits, hair, colorways, 3D preview) is gone. Everyone is the Developer — the Peasant rig (male `Developer` / female `Developer_Female`, `shared/utils/characters.ts`) tinted Vercel black at runtime with a black cap and ▲ marks hung off bones (`app/utils/developerLook.ts`). `outfitColor` left the protocol; unknown `character` ids (old cookies) render the male body
+- [x] **Minimal gate** (`CharacterGate.vue`): `index.vue` probes `/api/auth` — a returning player drops straight into the arena; a visitor without a cookie picks Male/Female + a name (required) and `POST /api/auth` mints the identity. A bare POST (the protocol test) still falls back to a `dev-xxxx` handle
+- [x] **In-game Escape menu** (WoW-style): controls reference + fullscreen + log out + return-to-game. While pointer-locked the Escape keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
 - [x] **Single session per identity**: `sessions` is keyed by identity id, so a second tab takes over — the newest socket wins and the old one gets a `kicked` frame (client stops reconnecting, shows an overlay with "play here instead"). `disconnect` is guarded by `sessions.get(id) === session` so the booted socket can't evict the live player
 - [x] Chat: bottom-left, arena-wide history, floating bubbles over rigs, system announcements (`announce()`)
 
 ### AI showcase
-- [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. `anthropic/claude-haiku-4.5` via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); `MushroomKing.glb` body on the sand with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
+- [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. `anthropic/claude-haiku-4.5` via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); its body is vercel.com's hero triangle — black prism, white glowing rim, smoke underneath (`app/utils/oracle3d.ts`) — with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
 
 ### World, art & assets
-- [x] **Colosseum arena** (`HUB_LAYOUT` 56×56 + `generateHub`): open sand disc with a rune circle, walled in by an unbroken stands ring — there is no exit, the arena is the whole world. Every visible piece is a hand-placed kit piece baked into `shared/data/hub-structure.json` and rendered instanced; only the sand and the ring are procedural
+- [x] **Stadium arena** (`HUB_LAYOUT` 56×56 + `generateHub`): open sand disc with the Vercel centre mark, walled in by an unbroken tile ring — there is no exit, the arena is the whole world. The bowl around it (tiers, crowd, LED bands, roof, floodlights) is procedural in `app/utils/stadium.ts`; `shared/data/hub-structure.json` is an optional hand-edited kit-piece layer (empty)
 - [x] Character roster: 8 Universal-skeleton Peasant/Ranger (M/F × 2 hairstyles) sharing one `animations.glb` clip library (Idle/Run/Jump/Roll), WebP textures, runtime colorway swap
 - [x] Asset pipeline: `convert_universal_characters.py` (WebP-crash byte-sanitizer), `rebuild_animations.py`, `convert_props.py`, `convert_fantasy.sh`/`convert_kits.sh` (`gltf-transform optimize` → meshopt + WebP), `make_og.py`
-- [x] **Dev-only in-game world editor** (Escape menu → "World editor", or `/?editor=1`; `import.meta.dev`-gated): fly camera + click-to-place / select / drag / rotate / scale / elevation, palette from `shared/utils/propCatalog.ts`. Pieces bake into `hub-structure.json`, free-standing clutter into `hub-props.json`, both appended to `plan.props` (`hand:true`) through `makeProp` so collision matches what you see. Tree-shaken from prod; save routes 404 in prod (read-only FS)
+- [x] ~~Dev-only in-game world editor~~ **removed 2026-09-10** (`useEditor`, `hubEditor`, `EditorPanel`, `/api/editor/save`, `public/thumbnails` + `make_thumbnails.py`, `PROP_CATALOG`/`ALL_PROP_KINDS`). The arena JSON (`hub-props.json`, `hub-structure.json`, `hub-oracle.json`) is edited by hand. Side effect: `arenaOnly()` now filters *every* kit catalog, so referenced nature-kit kinds load in play (they previously only loaded inside the editor)
 - [x] **Real `og.png`** rendered from game assets (`make_og.py`)
 
 ### Ship
@@ -40,7 +40,11 @@
 - [x] First Vercel deploy
 
 ### Vercel demo (branch `vercel-demo`)
-- [x] **Stadium dressing** — the arena becomes a Vercel stadium at the same size and architecture: an LED sponsor ribbon riding the parapet wall (two laps of the 18 brands — 13 platform primitives with the ▲, 5 frameworks as light text-only panels), 18 cloth banners on the upper-tier facade, and the Vercel ▲ replacing the rune circle in the sand. All canvas-drawn (`app/utils/stadium.ts`, `app/utils/vercelBrands.ts`, `textures.ts`), render-only — nothing in `shared/` changed
+- [x] **Vercel stadium** — the medieval kit colosseum (481 baked Ruins/Castle pieces) is replaced by a procedural stadium on the same footprint (`app/utils/stadium.ts`): one `LatheGeometry` bowl (lower tier, LED fascia, upper tier, LED parapet), ~4k instanced spectator billboards with a shader bounce + Mexican wave, four inward-facing LED bands scrolling the 18-brand strip (`vercelBrands.ts`: 13 primitives with the ▲, 5 frameworks as white cells), a roof ring with trusses/columns, an LED halo over the sand, and floodlights that come on at night. Glow is faked with additive bands, no post-processing. Render-only; `hub-structure.json` emptied, no kit GLB loads in play. Still to tune by eye: band heights, crowd palette, glow strength
+- [x] **Real brand marks on the LED strip** — Next.js, Nuxt, SvelteKit (Svelte flame), Turborepo and v0 draw their Simple Icons paths (CC0, inlined in `vercelBrands.ts`, brand colours on the white cells) next to the wordmark; the platform primitives keep the ▲; eve has no published mark yet
+- [x] **LED dance floor** — the sand is a black 1-tile grid of panels that light up white under every runner (footprint-based, fading trail, idle sparks); the halo reuses the Oracle rim-light recipe (`app/utils/ledFloor.ts`, wired in `MazeScene.vue`).
+- [x] **Oracle = the vercel.com triangle**, same 2.2-unit height as the old monster, floating and swaying over a bed of smoke
+- [ ] `scripts/make_og.py` still renders the medieval door + statues as the OG hero — rebuild it from the stadium
 - [ ] Carry the swag beyond the arena: HUD/gate/palette in Vercel black & white, brand the Oracle's lore
 
 ### Removed in the simplification (2026-09-10)
@@ -49,7 +53,9 @@ dungeon tower and its floors, procedural labyrinth generation, biomes, timed tra
 deaths, floor clears, records/leaderboards, fog of war, spectator mode, the video main
 menu, the great door (with `bigDoor.ts` and its wall notch), and the daily-seed
 machinery. `shared/utils/maze.ts` is now just the arena plus the collision/kinematics
-both sides share.
+both sides share. Later the same day (`vercel-demo`) the Ruins/Castle kit colosseum went
+too — `composeColosseum.ts` and the baked `hub-structure.json` pieces — replaced by the
+procedural Vercel stadium.
 
 ## Next up (prioritized)
 
