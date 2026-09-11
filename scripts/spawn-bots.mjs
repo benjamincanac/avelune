@@ -58,7 +58,7 @@ function randomWaypoint(cx, cy, r) {
 /* --------------------------- bot appearance --------------------------- */
 
 const NAMES = ['Grix', 'Vesper', 'Mott', 'Bramble', 'Cinder', 'Fenn', 'Halo', 'Juno', 'Kobb', 'Lark', 'Nix', 'Odar', 'Pell', 'Quill', 'Rue', 'Sable', 'Torv', 'Umber', 'Wisp', 'Yarn']
-const CHAT_LINES = ['nice arena', 'over here', 'again?', 'this way', 'anyone seen the oracle', 'careful', 'follow me', 'hey']
+const CHAT_LINES = ['nice arena', 'over here', 'again?', 'this way', 'anyone seen the coach', 'careful', 'follow me', 'hey']
 
 /** Every bot is the Developer too; only the handle and accent vary. */
 function randomAppearance() {

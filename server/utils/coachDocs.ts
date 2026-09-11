@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { nativeFetch } from './nativeFetch'
 
 /**
- * The Oracle's documentation sources: every Vercel framework and primitive.
+ * The Coach's documentation sources: every Vercel framework and primitive.
  * Two kinds. Remote MCP servers are used as-is (tools prefixed per server so names never
  * collide). Sites without an MCP are reached through `search_docs` / `read_docs_page` over
  * their public llms.txt index and Markdown page endpoints.
@@ -63,7 +63,7 @@ const SNIPPET_CHARS = 360
 
 async function fetchText(url: string, max: number): Promise<string> {
   const res = await nativeFetch(url, {
-    headers: { 'user-agent': 'VercelStadiumOracle/1.0', 'accept': 'text/markdown, text/plain, text/html;q=0.5' },
+    headers: { 'user-agent': 'VercelStadiumCoach/1.0', 'accept': 'text/markdown, text/plain, text/html;q=0.5' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   })
   if (!res.ok) throw new Error(`${res.status} fetching ${url}`)
@@ -237,8 +237,8 @@ async function connectOne(src: McpSource): Promise<ToolSet> {
   const client = await Promise.race([
     createMCPClient({
       transport: { type: 'http', url: src.url, fetch: nativeFetch },
-      clientName: 'vercel-stadium-oracle',
-      onUncaughtError: error => console.log('[oracle] mcp', src.id, error instanceof Error ? error.message : error),
+      clientName: 'vercel-stadium-coach',
+      onUncaughtError: error => console.log('[coach] mcp', src.id, error instanceof Error ? error.message : error),
     }),
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error('connect timeout')), MCP_CONNECT_TIMEOUT)),
   ])
@@ -260,16 +260,16 @@ async function connectMissing(): Promise<void> {
     if (r.status === 'fulfilled') {
       mcpTools = { ...mcpTools, ...r.value }
       mcpConnected.add(src.id)
-      console.log('[oracle] mcp connected', src.id, Object.keys(r.value).length, 'tools')
+      console.log('[coach] mcp connected', src.id, Object.keys(r.value).length, 'tools')
     }
     else {
-      console.log('[oracle] mcp failed', src.id, r.reason instanceof Error ? r.reason.message : r.reason)
+      console.log('[coach] mcp failed', src.id, r.reason instanceof Error ? r.reason.message : r.reason)
     }
   })
 }
 
 /**
- * Every docs tool the Oracle can call. MCP servers connect lazily on the first
+ * Every docs tool the Coach can call. MCP servers connect lazily on the first
  * question and stay connected; servers that failed are retried on later questions.
  */
 export async function docsTools(): Promise<ToolSet> {

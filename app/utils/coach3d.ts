@@ -15,18 +15,18 @@ import type { CanvasTexture } from 'three'
 import { makeSmokeTexture, makeTriangleGlowTexture } from '~/utils/textures'
 
 /**
- * The Oracle's body: vercel.com's hero triangle, in 3D.
+ * The Coach's body: vercel.com's hero triangle, in 3D.
  * A black prism inside a slightly larger white one, so a white rim shows on both faces.
  * Additive glow planes fake the site's bloom; a bed of smoke sprites rises underneath.
- * Render-only; `oraclePos()` in ArenaScene still places and turns the group.
+ * Render-only; `coachPos()` in ArenaScene still places and turns the group.
  */
 
-export interface OracleBody {
+export interface CoachBody {
   group: Group
   update: (dt: number, elapsed: number) => void
 }
 
-/** Triangle height as a share of the Oracle's overall height; the rest is hover clearance. */
+/** Triangle height as a share of the Coach's overall height; the rest is hover clearance. */
 const TRIANGLE_SHARE = 0.68
 /** Outer prism scale: the white rim's width. */
 const RIM = 1.06
@@ -57,7 +57,7 @@ interface Puff {
   drift: number
 }
 
-// The Oracle is rebuilt on every arena rebuild; the canvases are not.
+// The Coach is rebuilt on every arena rebuild; the canvases are not.
 let glowTex: CanvasTexture | null = null
 let smokeTex: CanvasTexture | null = null
 const glowTexture = () => (glowTex ??= makeTriangleGlowTexture())
@@ -69,7 +69,7 @@ function respawn(puff: Puff) {
   puff.drift = (Math.random() - 0.5) * 0.4
 }
 
-export function createOracleBody(totalHeight: number): OracleBody {
+export function createCoachBody(totalHeight: number): CoachBody {
   const group = new Group()
   const triH = totalHeight * TRIANGLE_SHARE
   const baseY = totalHeight - triH

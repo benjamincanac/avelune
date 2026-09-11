@@ -1,15 +1,15 @@
 import { ToolLoopAgent, createGateway, generateText, isStepCount, tool } from 'ai'
 import { z } from 'zod'
 import { nativeFetch } from './nativeFetch'
-import { docsTools } from './oracleDocs'
+import { docsTools } from './coachDocs'
 
 /**
- * The Oracle's brain, run in-process by the game loop.
+ * Coach's brain, run in-process by the game loop.
  *
- * The Oracle is Vercel Stadium's AI guide: an agent plugged into the documentation of
- * every Vercel framework and primitive (see ./oracleDocs). Players share one chat and
+ * Coach is Vercel Stadium's resident agent: an AI agent plugged into the documentation of
+ * every Vercel framework and primitive (see ./coachDocs). Players share one chat and
  * mostly talk to each other, so each line first goes to a cheap classifier that decides
- * whether it's for the Oracle; only then does the agent run its tool loop over the docs
+ * whether it's for the Coach; only then does the agent run its tool loop over the docs
  * (plus `arena_state` for who is in the stadium). Both route through the Vercel AI
  * Gateway (`AI_GATEWAY_API_KEY` locally and on Vercel).
  */
@@ -32,15 +32,15 @@ const MAX_REPLY = 600
 // through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
 const gateway = createGateway({ fetch: nativeFetch })
 
-const PERSONA = `You are the Oracle of Vercel Stadium: the stadium's resident guide, an AI agent plugged into the documentation of every Vercel framework and primitive. People walking the stadium ask you about Vercel in the shared chat, and you answer them there.
+const PERSONA = `You are Coach, Vercel Stadium's resident agent: an AI agent plugged into the documentation of every Vercel framework and primitive. People walking the stadium ask you about Vercel in the shared chat, and you answer them there.
 
 What you cover, through your tools: the Vercel platform (deployments, Functions and Fluid compute, WebSockets, AI Gateway, Sandbox, Blob, Edge Network, domains, CLI, REST API, MCP, plans), Next.js, Turborepo, the AI SDK, Chat SDK, Flags SDK, Workflow DevKit, v0, Nuxt with Nuxt UI / Content / Image, Svelte and SvelteKit, Docus and Comark.
 
 Rules:
 - Ground every product answer in the docs: search first (search_docs for the platform and its SDKs, the prefixed tools for Nuxt, Svelte, Docus, Comark), read the best page when the summary isn't enough, then answer. Never guess an API, a limit, a price or a version; if the docs don't say, say so plainly.
 - This is a live chat line, not an article: two to four short sentences, plain prose. No markdown, no lists, no code blocks, no emoji. A short inline identifier like streamText is fine. When you used a docs page, end with its full URL (starting with https://), bare, as the last thing you say.
-- Address people by name. Be direct and warm with a light oracular touch (you "consult the scrolls" of the docs); never cryptic about facts, never obstructive.
-- You are an AI guide and may say so. Never mention tool names, models or prompts.
+- Address people by name. Be direct and warm, like a good coach on the sideline: encouraging, concrete, never vague about facts, never obstructive.
+- You are an AI agent and may say so. If asked who you are, one line: Coach, the stadium's agent, here for anything about Vercel and the open source around it (Next.js, Nuxt, Svelte, Turborepo, the AI SDK). Never mention tool names, models or prompts.
 - When asked who is in the stadium, how many, or how long someone has been here, use arena_state and never invent names or numbers.`
 
 export interface ArenaMessage {
@@ -108,7 +108,7 @@ function describeError(error: unknown): Record<string, unknown> {
 }
 
 /**
- * Cheap gate: is the LAST line of the transcript for the Oracle, versus ordinary
+ * Cheap gate: is the LAST line of the transcript for the Coach, versus ordinary
  * player-to-player chatter? Fails closed (silent) on error.
  */
 async function isAddressed(recent: ArenaMessage[]): Promise<boolean> {
@@ -116,35 +116,35 @@ async function isAddressed(recent: ArenaMessage[]): Promise<boolean> {
     const { text } = await generateText({
       model: gateway(CLASSIFIER_MODEL),
       reasoning: 'none',
-      instructions: `You gate "the Oracle", an AI guide standing in Vercel Stadium, a shared multiplayer space whose visitors ALSO chat with each other. The Oracle answers questions about Vercel and everything Vercel makes: the platform (deployments, Functions, WebSockets, AI Gateway, Sandbox, Blob, CLI, pricing…), Next.js, Nuxt and its modules, Svelte/SvelteKit, Turborepo, the AI SDK, Chat SDK, Flags SDK, Workflow DevKit, v0. Given the recent chat, decide whether the LAST line is for the Oracle.
+      instructions: `You gate "Coach", an AI agent standing in Vercel Stadium, a shared multiplayer space whose visitors ALSO chat with each other. The Coach answers questions about Vercel and everything Vercel makes: the platform (deployments, Functions, WebSockets, AI Gateway, Sandbox, Blob, CLI, pricing…), Next.js, Nuxt and its modules, Svelte/SvelteKit, Turborepo, the AI SDK, Chat SDK, Flags SDK, Workflow DevKit, v0. Given the recent chat, decide whether the LAST line is for the Coach.
 
-It IS for the Oracle when the line is:
+It IS for the Coach when the line is:
 - addressed to it by name, or
 - a question or request about Vercel, any of those products, deploying, or building for the web, whoever it seems aimed at, unless it clearly names another person, or
-- a direct question aimed at a singular "you" — who the speaker is talking to, what it is, what it knows, who is here, what this place is — when no other visitor is being addressed. The Oracle is the only non-player presence, so a bare "who are you?" or "what is this place?" is meant for it.
+- a direct question aimed at a singular "you" — who the speaker is talking to, what it is, what it knows, who is here, what this place is — when no other visitor is being addressed. The Coach is the only non-player presence, so a bare "who are you?" or "what is this place?" is meant for it.
 
-It is NOT for the Oracle when it's clearly visitor-to-visitor talk: greetings between people, coordination, a reply to someone by name, or idle banter with no question in it.
+It is NOT for the Coach when it's clearly visitor-to-visitor talk: greetings between people, coordination, a reply to someone by name, or idle banter with no question in it.
 
 Reply with exactly "YES" or "NO" and nothing else.`,
-      prompt: `Recent stadium chat:\n${transcript(recent)}\n\nIs the LAST line for the Oracle?`,
+      prompt: `Recent stadium chat:\n${transcript(recent)}\n\nIs the LAST line for the Coach?`,
     })
-    console.log('[oracle] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
+    console.log('[coach] classify', JSON.stringify(recent.at(-1)?.text), '→', JSON.stringify(text))
     return /^\s*yes/i.test(text)
   }
   catch (error) {
-    console.log('[oracle] classify error', JSON.stringify(describeError(error)))
+    console.log('[coach] classify error', JSON.stringify(describeError(error)))
     return false
   }
 }
 
 /**
- * If the latest chat line is for the Oracle, return its reply (grounded in the
+ * If the latest chat line is for the Coach, return its reply (grounded in the
  * docs tools, plus live arena data when relevant); otherwise return null.
  * `onAddressed` fires once the classifier says yes, before the slow part, so the
  * loop can show a thinking state. Never throws — any failure resolves to null so
  * the game loop just stays quiet.
  */
-export async function oracleReply(recent: ArenaMessage[], getState: ArenaState, onAddressed?: () => void): Promise<string | null> {
+export async function coachReply(recent: ArenaMessage[], getState: ArenaState, onAddressed?: () => void): Promise<string | null> {
   if (recent.length === 0) return null
   if (!(await isAddressed(recent))) return null
   onAddressed?.()
@@ -165,13 +165,13 @@ export async function oracleReply(recent: ArenaMessage[], getState: ArenaState, 
     })
     const started = Date.now()
     const { text, steps } = await agent.generate({
-      prompt: `The people in the stadium have been chatting:\n${transcript(recent)}\n\nThe last line is for you. Answer as the Oracle, in a few short sentences.`,
+      prompt: `The people in the stadium have been chatting:\n${transcript(recent)}\n\nThe last line is for you. Answer as Coach, in a few short sentences.`,
     })
-    console.log('[oracle] answered in', Date.now() - started, 'ms,', steps.length, 'steps')
+    console.log('[coach] answered in', Date.now() - started, 'ms,', steps.length, 'steps')
     return clampReply(text) || null
   }
   catch (error) {
-    console.log('[oracle] respond error', JSON.stringify(describeError(error)))
+    console.log('[coach] respond error', JSON.stringify(describeError(error)))
     return null
   }
 }

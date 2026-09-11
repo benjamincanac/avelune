@@ -18,7 +18,7 @@ import { PALETTE } from '~/utils/palette'
  * The arena floor as an LED dance floor: black panels on a 1-tile grid that light up white.
  * Render-only, like the stadium; collision and positions never read it.
  * One energy value per tile drives both a tone-mapped white core and an additive halo above it.
- * The halo reuses the Oracle triangle's rim-light treatment: additive, untonemapped, same tint.
+ * The halo reuses the Coach triangle's rim-light treatment: additive, untonemapped, same tint.
  * Built once and cached, since `buildFloor` clears and re-adds the group on every rebuild.
  */
 
@@ -44,7 +44,7 @@ const SPARK_LEVEL = 0.3
 const SEAM = 0.035
 /** A foot on a seam lights both panels: the footprint is sampled at its four corners. */
 const FOOT = PLAYER_RADIUS * 0.9
-/** Same tint as the Oracle's rim light, so both halos match. */
+/** Same tint as the Coach's rim light, so both halos match. */
 const HALO_TINT = '#dfe6ff'
 
 const HEADER = /* glsl */ `
@@ -142,7 +142,7 @@ export function buildLedFloor(): LedFloor {
   panels.position.set(CX, 0.02, CZ)
   group.add(panels)
 
-  // Halo: the same additive, untonemapped, fog-free recipe as the Oracle's rim light.
+  // Halo: the same additive, untonemapped, fog-free recipe as the Coach's rim light.
   const halo = new Mesh(geometry, new ShaderMaterial({
     uniforms: { uEnergy: uniforms.uEnergy, uSize: uniforms.uSize, uColor: { value: new Color(HALO_TINT) }, uGain: { value: 1.25 } },
     vertexShader: HALO_VERTEX,

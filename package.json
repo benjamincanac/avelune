@@ -2,7 +2,7 @@
   "name": "vercel-stadium",
   "private": true,
   "type": "module",
-  "description": "Vercel Stadium — a shared 3D stadium on Vercel WebSockets with the Oracle, an AI agent plugged into the docs of every Vercel framework and primitive. Authoritative Nitro game loop, TresJS rendering, one realtime connection per player.",
+  "description": "Vercel Stadium — a shared 3D stadium on Vercel WebSockets with the Coach, an AI agent plugged into the docs of every Vercel framework and primitive. Authoritative Nitro game loop, TresJS rendering, one realtime connection per player.",
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=24"

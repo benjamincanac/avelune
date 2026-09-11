@@ -5,9 +5,9 @@ description: >
   Use for the camera (wall-aware third-person boom, pointer-lock delta look),
   sky/day-night cycle + weather, the procedural stadium (bowl, crowd, LED brand
   bands, roof, floodlights), instanced kit props, character model playback, the
-  Oracle rig, and the minimap.
+  Coach rig, and the minimap.
   Files: GameScene.client.vue, ArenaScene.vue, MiniMap.vue, and
-  app/utils/{textures,stadium,vercelBrands,oracle3d,developerLook,palette}.ts.
+  app/utils/{textures,stadium,vercelBrands,coach3d,developerLook,palette}.ts.
 model: inherit
 ---
 
@@ -28,7 +28,7 @@ render it and predict motion; you never receive geometry over the wire.
   `requestLock()` is normal — clicking the world recovers.
 - `app/components/ArenaScene.vue` — the arena: the sand disc + Vercel centre
   mark, the stadium group from `buildStadium()` (animated per frame through its
-  `update`), the instanced batches built from `plan.props`, the Oracle rig, and
+  `update`), the instanced batches built from `plan.props`, the Coach rig, and
   the sky/day-night + weather clock.
 - `app/utils/stadium.ts` — the procedural Vercel stadium (`vercel-demo`): one
   `LatheGeometry` bowl (two tiers, fascia, parapet), an instanced billboard
@@ -66,12 +66,12 @@ render it and predict motion; you never receive geometry over the wire.
   (`app/pages/dev/look.vue` + `components/dev/LookLab*`, 404 in prod); its
   `window.__labShot(width, quality, yaw)` renders a JPEG even while the tab is
   hidden.
-- `app/utils/oracle3d.ts` — the Oracle's body: vercel.com's hero triangle. A
+- `app/utils/coach3d.ts` — the Coach's body: vercel.com's hero triangle. A
   black extruded prism inside a 6 % larger white one (the rim), two additive
   glow planes (canvas: blurred outline + apex hot spot), a white point light and
   28 smoke sprites rising underneath. `update(dt, elapsed)` floats, sways and
   recycles the smoke; `ArenaScene` still places/turns the group from
-  `arena-oracle.json`. Canvases are cached at module level because the rig is
+  `arena-coach.json`. Canvases are cached at module level because the rig is
   rebuilt on every arena rebuild.
 - `app/utils/textures.ts` — procedural/canvas textures and normal maps, plus
   the stadium's canvas art: the LED brand strip (`drawLedStrip`), the centre

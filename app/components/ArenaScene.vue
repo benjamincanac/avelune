@@ -62,7 +62,7 @@ import {
   PROP_NAMES,
   VILLAGE_NAMES,
 } from '#shared/utils/propCatalog'
-import ARENA_ORACLE from '#shared/data/arena-oracle.json'
+import ARENA_COACH from '#shared/data/arena-coach.json'
 
 import type { StonePalette } from '~/utils/textures'
 import { makeGrassTexture } from '~/utils/textures'
@@ -72,8 +72,8 @@ import { buildLedFloor } from '~/utils/ledFloor'
 import type { LedFloor } from '~/utils/ledFloor'
 import { characterModel } from '#shared/utils/characters'
 import { prepareDeveloper } from '~/utils/developerLook'
-import { createOracleBody } from '~/utils/oracle3d'
-import type { OracleBody } from '~/utils/oracle3d'
+import { createCoachBody } from '~/utils/coach3d'
+import type { CoachBody } from '~/utils/coach3d'
 import { PALETTE } from '~/utils/palette'
 
 /**
@@ -110,8 +110,8 @@ interface ViewState {
 
 const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState }>()
 
-// Oracle proximity/speech state, shared with GameScene and the HUD.
-const oracle = useOracle()
+// Coach proximity/speech state, shared with GameScene and the HUD.
+const coach = useCoach()
 
 const { scene, camera: cameraManager } = useTresContext()
 const camera = cameraManager.activeCamera
@@ -357,20 +357,20 @@ function ensureGroundTexture(): CanvasTexture {
 const floorGroup = new Group()
 scene.value.add(floorGroup)
 
-// The Oracle NPC — vercel.com's hero triangle floating over a bed of smoke
-// (`app/utils/oracle3d.ts`). Declared here (before the synchronous initial
+// The Coach NPC — vercel.com's hero triangle floating over a bed of smoke
+// (`app/utils/coach3d.ts`). Declared here (before the synchronous initial
 // buildFloor) so buildFloor can reset it on a rebuild.
-/** Where the Oracle stands, in tiles (arena-oracle.json). */
-function oraclePos(): { x: number, y: number } {
-  const [x, y] = ARENA_ORACLE as [number, number]
+/** Where the Coach stands, in tiles (arena-coach.json). */
+function coachPos(): { x: number, y: number } {
+  const [x, y] = ARENA_COACH as [number, number]
   return { x, y }
 }
 /** Within this many tiles the runner may consult it (drives the HUD prompt). */
-const ORACLE_NEAR = 7
-interface OracleRig {
+const COACH_NEAR = 7
+interface CoachRig {
   group: Group
-  body: OracleBody
-  /** Speech bubble mirroring the players' — shows the Oracle's latest chat line. */
+  body: CoachBody
+  /** Speech bubble mirroring the players' — shows the Coach's latest chat line. */
   bubble: Sprite
   bubbleCanvas: HTMLCanvasElement
   bubbleTexture: CanvasTexture
@@ -378,7 +378,7 @@ interface OracleRig {
   /** World-space bottom edge of the bubble; it grows upward from here. */
   bubbleBaseY: number
 }
-let oracleRig: OracleRig | null = null
+let coachRig: CoachRig | null = null
 
 /**
  * Tag the freshly built world for shadows: opaque standard-material meshes cast
@@ -397,8 +397,8 @@ function tagShadows(root: Group) {
 
 function buildFloor() {
   floorGroup.clear()
-  // floorGroup.clear() detached the Oracle; drop the ref so it gets rebuilt.
-  oracleRig = null
+  // floorGroup.clear() detached the Coach; drop the ref so it gets rebuilt.
+  coachRig = null
 
   const plan = hubPlan
 
@@ -953,30 +953,30 @@ const RECONCILE_RATE = 8
 const RECONCILE_IDLE_FREEZE = 0.4
 
 /* -------------------------------------------------------------------------- */
-/* The Oracle: vercel.com's hero triangle floating by the arena wall over a    */
-/* bed of smoke. Nothing to load — it's built from primitives in oracle3d.ts.  */
+/* The Coach: vercel.com's hero triangle floating by the arena wall over a    */
+/* bed of smoke. Nothing to load — it's built from primitives in coach3d.ts.  */
 /* -------------------------------------------------------------------------- */
 
 /** Overall height (top of the triangle at rest) — taller than the ~1.3-unit runners, so it looms. */
-const ORACLE_HEIGHT = 2.2
+const COACH_HEIGHT = 2.2
 
-function createOracleRig(): OracleRig | null {
+function createCoachRig(): CoachRig | null {
   const group = new Group()
 
-  const body = createOracleBody(ORACLE_HEIGHT)
+  const body = createCoachBody(COACH_HEIGHT)
   group.add(body.group)
-  const op = oraclePos()
+  const op = coachPos()
   group.position.set(op.x, 0, op.y)
   // Face the arena centre: the prism's front is +Z.
   group.rotation.y = Math.atan2(ARENA_LAYOUT.center.x - op.x, ARENA_LAYOUT.center.y - op.y)
 
-  // A floating name so it reads as the Oracle.
-  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#f5f7ff'))
-  label.sprite.position.set(0, ORACLE_HEIGHT + 0.3, 0)
+  // A floating name so it reads as Coach.
+  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'Coach', '#f5f7ff'))
+  label.sprite.position.set(0, COACH_HEIGHT + 0.3, 0)
   group.add(label.sprite)
 
-  // Speech bubble (hidden until the Oracle speaks in chat), like the players'.
-  const bubbleBaseY = ORACLE_HEIGHT + 0.42
+  // Speech bubble (hidden until the Coach speaks in chat), like the players'.
+  const bubbleBaseY = COACH_HEIGHT + 0.42
   const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
   bubble.sprite.position.set(0, bubbleBaseY + bubble.sprite.scale.y / 2, 0)
   bubble.sprite.visible = false
@@ -1286,36 +1286,36 @@ onBeforeRender(({ delta, elapsed }) => {
   // Fade the floor after this frame's stamps, then upload it.
   ledFloor?.update(dt)
 
-  // The Oracle: build it on first sight, float it over its smoke, show a bubble
+  // The Coach: build it on first sight, float it over its smoke, show a bubble
   // when it speaks in chat (or "…" while it thinks), and track proximity.
-  oracleRig ??= createOracleRig()
-  const op = oraclePos()
-  if (oracleRig) {
-    oracleRig.body.update(dt, elapsed)
+  coachRig ??= createCoachRig()
+  const op = coachPos()
+  if (coachRig) {
+    coachRig.body.update(dt, elapsed)
     // Keep it on its mark, facing the arena centre.
-    oracleRig.group.position.x = op.x
-    oracleRig.group.position.z = op.y
-    oracleRig.group.rotation.y = Math.atan2(ARENA_LAYOUT.center.x - op.x, ARENA_LAYOUT.center.y - op.y)
-    const speech = oracle.speech.value
+    coachRig.group.position.x = op.x
+    coachRig.group.position.z = op.y
+    coachRig.group.rotation.y = Math.atan2(ARENA_LAYOUT.center.x - op.x, ARENA_LAYOUT.center.y - op.y)
+    const speech = coach.speech.value
     const speaking = speech != null && speech.until > now
-    const line = speaking ? speech.text : oracle.thinking.value ? '…' : ''
+    const line = speaking ? speech.text : coach.thinking.value ? '…' : ''
     if (line) {
-      if (oracleRig.bubbleText !== line) {
-        oracleRig.bubbleText = line
-        const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, line)
-        oracleRig.bubbleTexture.needsUpdate = true
-        oracleRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
-        oracleRig.bubble.position.y = oracleRig.bubbleBaseY + oracleRig.bubble.scale.y / 2
+      if (coachRig.bubbleText !== line) {
+        coachRig.bubbleText = line
+        const height = drawBubble(coachRig.bubbleCanvas.getContext('2d')!, coachRig.bubbleCanvas, line)
+        coachRig.bubbleTexture.needsUpdate = true
+        coachRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
+        coachRig.bubble.position.y = coachRig.bubbleBaseY + coachRig.bubble.scale.y / 2
       }
-      oracleRig.bubble.visible = true
-      oracleRig.bubble.material.opacity = speaking ? Math.min(1, (speech.until - now) / 300) : 1
+      coachRig.bubble.visible = true
+      coachRig.bubble.material.opacity = speaking ? Math.min(1, (speech.until - now) / 300) : 1
     }
     else {
-      oracleRig.bubble.visible = false
-      oracleRig.bubbleText = ''
+      coachRig.bubble.visible = false
+      coachRig.bubbleText = ''
     }
   }
-  oracle.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < ORACLE_NEAR : false
+  coach.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < COACH_NEAR : false
 })
 
 // Remove everything we added to the shared scene (also keeps HMR honest —

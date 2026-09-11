@@ -3,9 +3,9 @@
 // head config instead of a runtime composable.
 const site = {
   name: 'Vercel Stadium',
-  title: 'Vercel Stadium — a multiplayer arena on Vercel WebSockets, with an AI Oracle',
+  title: 'Vercel Stadium — a multiplayer arena on Vercel WebSockets, with an AI Coach',
   description:
-    'A shared 3D stadium on the Vercel Functions WebSocket beta. Walk the LED floor with everyone else online, chat, and ask the Oracle — an AI agent plugged into the documentation of every Vercel framework and primitive — anything about the platform. Authoritative Nitro game loop, TresJS rendering, one WebSocket per player.',
+    'A shared 3D stadium on the Vercel Functions WebSocket beta. Walk the LED floor with everyone else online, chat, and ask the Coach — an AI agent plugged into the documentation of every Vercel framework and primitive — anything about the platform. Authoritative Nitro game loop, TresJS rendering, one WebSocket per player.',
   tagline: 'Nuxt × Vercel WebSockets × AI SDK',
   repo: 'https://github.com/benjamincanac/tempest',
   deployUrl:

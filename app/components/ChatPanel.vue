@@ -6,11 +6,11 @@ import type { ChatMessage, UseGame } from '~/composables/useGame'
  * Left-column chat, MMO style: a scrollback of messages from everyone in the
  * arena filling the height the parent gives it, with the input underneath.
  * Enter focuses it from anywhere; Escape hands control back to the game. The
- * Oracle's docs answers end with a URL, so its lines are rendered with links.
+ * Coach's docs answers end with a URL, so its lines are rendered with links.
  */
 
 const props = defineProps<{ game: UseGame }>()
-const oracle = useOracle()
+const coach = useCoach()
 
 // Scheme optional: the model sometimes cites "vercel.com/docs/…" bare.
 const URL_RE = /((?:https?:\/\/)?(?:[a-z0-9-]+\.)+(?:com|dev|org|app|sh)\/[^\s]+)/i
@@ -29,7 +29,7 @@ const focused = ref(false)
 const input = useTemplateRef('input')
 const scrollback = useTemplateRef('scrollback')
 
-const placeholder = computed(() => focused.value ? 'Press Esc to play…' : 'Press Enter to chat or ask the Oracle…')
+const placeholder = computed(() => focused.value ? 'Press Esc to play…' : 'Press Enter to chat or ask Coach…')
 
 const messages = computed<ChatMessage[]>(() => props.game.chatLog.value)
 
@@ -108,10 +108,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
         </template>
       </p>
       <p
-        v-if="oracle.thinking.value"
+        v-if="coach.thinking.value"
         class="animate-pulse text-xs italic text-muted"
       >
-        The Oracle is consulting the docs…
+        Coach is checking the docs…
       </p>
     </div>
 

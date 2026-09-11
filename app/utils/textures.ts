@@ -424,7 +424,7 @@ export function makeVercelCenterTexture(): CanvasTexture {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Oracle: triangle rim light and smoke                                       */
+/* Coach: triangle rim light and smoke                                       */
 /* -------------------------------------------------------------------------- */
 
 /** The vercel.com hero's rim light: a blurred white triangle outline, brightest at the apex. */

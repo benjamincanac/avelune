@@ -6,7 +6,7 @@ definePageMeta({
 })
 
 const game = useGame()
-const oracle = useOracle()
+const coach = useCoach()
 
 const gameRoot = useTemplateRef('gameRoot')
 const gameScene = useTemplateRef('gameScene')
@@ -210,7 +210,7 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         <MiniMap :game="game" />
       </aside>
 
-      <!-- Oracle: a discovery hint when near it. The Oracle answers questions
+      <!-- Coach: a discovery hint when near it. Coach answers questions
            about Vercel in the chat when addressed — no separate dialog. -->
       <Transition
         enter-active-class="transition duration-200 ease-out"
@@ -219,11 +219,11 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         leave-to-class="opacity-0 translate-y-2"
       >
         <div
-          v-if="oracle.near.value"
+          v-if="coach.near.value"
           class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex justify-center"
         >
           <span class="flex items-center gap-1.5 rounded-full bg-black/60 px-3.5 py-1.5 text-[13px] text-highlighted ring ring-white/10 backdrop-blur">
-            The Oracle listens — <span class="text-muted">ask about Vercel in chat</span>
+            Coach is listening — <span class="text-muted">ask about Vercel in chat</span>
           </span>
         </div>
       </Transition>

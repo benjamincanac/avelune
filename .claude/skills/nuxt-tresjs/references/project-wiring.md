@@ -20,7 +20,7 @@
 
 - SSR is on. Anything touching `window`, `document` or WebGL at import or setup time sits in a `.client.vue` component, under `<ClientOnly>`, or behind `import.meta.client`. `@tresjs/nuxt` ships `TresCanvas` as a client + server pair, so the canvas itself is safe; your own three.js code is not.
 - `@tresjs/nuxt` auto-imports the `@tresjs/core` composables (`useTresContext`, `useLoop`, `useLoader`, `extend`, …), registers the `Tres*` components, and patches the Vue compiler so `<TresMesh>` and friends resolve. Explicit imports (`import { useLoop, useTresContext } from '@tresjs/core'`) still work and are what ArenaScene does.
-- Cross-layer state (chat bubbles, Oracle speech) flows through Nuxt `useState` composables (`useGame`, `useOracle`), not props into the canvas.
+- Cross-layer state (chat bubbles, Coach speech) flows through Nuxt `useState` composables (`useGame`, `useCoach`), not props into the canvas.
 - `shared/**` is also run by the server: it must stay free of three.js and DOM imports.
 
 ## The Tres side (imperative pattern)

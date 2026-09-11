@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import type { ClientMessage, MoveInput, Player, ServerMessage } from '#shared/types/game'
-import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
+import { MAX_CHAT_LENGTH, COACH_COLOR, COACH_ID, COACH_NAME } from '#shared/types/game'
 
 export interface GamePlayer extends Player {
   /** Render position/heading, smoothly interpolated toward the server state. */
@@ -22,7 +22,7 @@ export interface ChatMessage {
   at: number
   /** System announcement — rendered without a sender. */
   system?: boolean
-  /** The Oracle, not a player — the chat panel styles it apart. */
+  /** The Coach, not a player — the chat panel styles it apart. */
   npc?: boolean
 }
 
@@ -75,7 +75,7 @@ const SNAP_DISTANCE = 5
  * (status, count) are mirrored into refs instead.
  */
 export function useGame(): UseGame {
-  const oracle = useOracle()
+  const coach = useCoach()
   const status = ref<GameStatus>('connecting')
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
@@ -144,7 +144,9 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Vercel Stadium, ${msg.self.name}. Ask the Oracle anything about Vercel either about our frameworks like Next.js, Nuxt or our products like AI Gateway or v0. Press Esc for the menu.`)
+          announce(`Welcome to Vercel Stadium, ${msg.self.name}. Press Esc for the menu.`)
+          // Coach introduces itself as its own chat line, locally only (not broadcast).
+          pushChat({ id: COACH_ID, name: COACH_NAME, color: COACH_COLOR, text: `Hey ${msg.self.name}, I'm Coach, the stadium's resident agent. Ask me anything about Vercel: deployments, Fluid compute, AI Gateway, v0… and the open source around it: Next.js, Nuxt, Svelte, Turborepo, the AI SDK. I read the docs live, so every answer comes with a link. I can also tell you who's in the stadium right now.`, at: Date.now(), npc: true })
         }
         break
       case 'join':
@@ -173,11 +175,11 @@ export function useGame(): UseGame {
         }
         break
       case 'chat': {
-        // The Oracle speaks as a reserved id, not a roster player: render it
+        // The Coach speaks as a reserved id, not a roster player: render it
         // with its own name/accent and float a bubble over the 3D NPC.
-        if (msg.id === ORACLE_ID) {
-          oracle.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
-          pushChat({ id: ORACLE_ID, name: ORACLE_NAME, color: ORACLE_COLOR, text: msg.text, at: Date.now(), npc: true })
+        if (msg.id === COACH_ID) {
+          coach.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
+          pushChat({ id: COACH_ID, name: COACH_NAME, color: COACH_COLOR, text: msg.text, at: Date.now(), npc: true })
           break
         }
         const player = players.get(msg.id)
@@ -199,8 +201,8 @@ export function useGame(): UseGame {
       case 'pong':
         clearPong()
         break
-      case 'oracle':
-        oracle.thinking.value = msg.thinking
+      case 'coach':
+        coach.thinking.value = msg.thinking
         break
     }
   }

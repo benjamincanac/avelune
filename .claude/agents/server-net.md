@@ -16,19 +16,19 @@ bytes between it and clients.
 ## Files you own
 - `server/utils/game.ts` — the authoritative arena. Fixed-rate **20 Hz** tick
   loop; owns all simulation and player state; validates every action
-  server-side; broadcasts snapshots. Also owns the chat→Oracle hop
-  (`considerOracle` + the `snapshot()` the Oracle's tool reads, and the `oracle`
-  thinking frames around a slow docs answer); the Oracle's brain itself belongs
-  to `oracle-ai`.
+  server-side; broadcasts snapshots. Also owns the chat→Coach hop
+  (`considerCoach` + the `snapshot()` the Coach's tool reads, and the `coach`
+  thinking frames around a slow docs answer); the Coach's brain itself belongs
+  to `coach-ai`.
 - `server/api/ws.ts` — `defineWebSocketHandler` (Nitro v3 native crossws,
   identical in dev and on Vercel — no Vercel-specific upgrade bridge). Bridges
   peer open/message/close into the game world.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
 - `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete` (log out: clears the
-  cookie, so the next load lands on the gate). The Oracle has no HTTP route: it
-  runs in-process from the game loop (`server/utils/oracle.ts`, owned by the
-  `oracle-ai` agent).
+  cookie, so the next load lands on the gate). The Coach has no HTTP route: it
+  runs in-process from the game loop (`server/utils/coach.ts`, owned by the
+  `coach-ai` agent).
 - `server/utils/nativeFetch.ts` + `server/plugins/nativeFetch.ts` — the real
   `fetch` captured at boot. Nuxt-nightly's SSR entry replaces `globalThis.fetch`
   with a loopback into this app's own router once a process renders any page
@@ -80,8 +80,8 @@ bytes between it and clients.
 ## Protocol (shape is defined by world-sim in shared/types/game.ts)
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/
 `now` clock), `join`, `leave`, `state` (only players that moved, at 10 Hz),
-`chat` (`{id, text}` — the Oracle broadcasts under the reserved `ORACLE_ID`),
-`kicked` (booted for a duplicate tab; carries a `reason`), `pong`, `oracle`
+`chat` (`{id, text}` — the Coach broadcasts under the reserved `COACH_ID`),
+`kicked` (booted for a duplicate tab; carries a `reason`), `pong`, `coach`
 (`{thinking}` — on once the classifier accepts a line, off when the reply lands). The
 `welcome.now` server clock drives client day/night + weather — keep it monotonic
 and honest.

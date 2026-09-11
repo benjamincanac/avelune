@@ -29,7 +29,7 @@ independently.
 - `shared/data/arena-structure.json` — an optional hand-edited kit-piece layer,
   empty by default: the stadium bowl is procedural client code (`scene-3d`'s
   `app/utils/stadium.ts`) and never passes through here (see invariant 4).
-- `shared/data/arena-oracle.json` — the Oracle's stand position as a bare `[x, y]`
+- `shared/data/arena-coach.json` — the Coach's stand position as a bare `[x, y]`
   array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
   scene; edited by hand.
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, and the
@@ -69,11 +69,11 @@ independently.
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
 `action` (`jump`|`dash`), `chat`, `ping`. Server→client: `welcome`, `join`,
-`leave`, `state`, `chat`, `kicked`, `pong`, `oracle`. `welcome` carries `{self, players,
+`leave`, `state`, `chat`, `kicked`, `pong`, `coach`. `welcome` carries `{self, players,
 now}` — `self` is always a `Player`, and `now` is the server clock the client's
-day/night + weather run on. `chat` is `{id, text}` with no scoping; the Oracle
-speaks through the reserved `ORACLE_ID` sender, never a roster player, and
-`oracle` is `{thinking: boolean}` while it consults the docs. `kicked`
+day/night + weather run on. `chat` is `{id, text}` with no scoping; the Coach
+speaks through the reserved `COACH_ID` sender, never a roster player, and
+`coach` is `{thinking: boolean}` while it consults the docs. `kicked`
 carries a `reason` and boots a socket when the same identity opens another
 (single session per player). When you change a frame's shape, flag both
 consumers explicitly — the change is not done until `server-net` and the client

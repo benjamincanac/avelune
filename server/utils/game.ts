@@ -1,5 +1,5 @@
 import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage } from '#shared/types/game'
-import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
+import { MAX_CHAT_LENGTH, COACH_ID, COACH_NAME } from '#shared/types/game'
 import {
   DASH_COOLDOWN,
   DASH_DURATION,
@@ -10,8 +10,8 @@ import {
   stepBody,
 } from '#shared/utils/arena'
 import type { Identity } from './session'
-import type { ArenaMessage } from './oracle'
-import { oracleReply } from './oracle'
+import type { ArenaMessage } from './coach'
+import { coachReply } from './coach'
 
 /**
  * The authoritative arena.
@@ -172,7 +172,7 @@ export interface Connection {
 }
 
 /**
- * A read-only snapshot of the living stadium, for the Oracle's `arena_state`
+ * A read-only snapshot of the living stadium, for the Coach's `arena_state`
  * tool. Because this runs in the same process as the authoritative game loop,
  * it reads the real in-memory roster directly — no HTTP hop, and always the
  * true state (unlike a separate service, which on serverless could miss the
@@ -190,42 +190,42 @@ export function snapshot() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Oracle: listens to the arena chat and answers only when a message is        */
-/* actually addressed to it (the classifier in ./oracle decides). While it     */
-/* consults the docs, everyone sees an `oracle` thinking frame.                */
+/* Coach: listens to the arena chat and answers only when a message is        */
+/* actually addressed to it (the classifier in ./coach decides). While it     */
+/* consults the docs, everyone sees an `coach` thinking frame.                */
 /* -------------------------------------------------------------------------- */
 
-/** Recent arena chat as context for the Oracle (players' lines and its own). */
+/** Recent arena chat as context for the Coach (players' lines and its own). */
 const arenaChat: ArenaMessage[] = []
 const ARENA_CHAT_CONTEXT = 12
 /** One reply in flight at a time, plus a cooldown after each — anti-flood. */
-let oracleBusy = false
-let oracleQuietUntil = 0
-const ORACLE_COOLDOWN = 4000
+let coachBusy = false
+let coachQuietUntil = 0
+const COACH_COOLDOWN = 4000
 
-function considerOracle(name: string, text: string) {
+function considerCoach(name: string, text: string) {
   arenaChat.push({ name, text })
   if (arenaChat.length > ARENA_CHAT_CONTEXT) arenaChat.shift()
   // Don't even classify while replying or cooling down: the classifier gates
   // *what* it answers, these gate *how often* — together they prevent floods.
-  if (oracleBusy || Date.now() < oracleQuietUntil) return
-  oracleBusy = true
+  if (coachBusy || Date.now() < coachQuietUntil) return
+  coachBusy = true
   let thinking = false
-  oracleReply([...arenaChat], snapshot, () => {
+  coachReply([...arenaChat], snapshot, () => {
     thinking = true
-    broadcast({ t: 'oracle', thinking: true })
+    broadcast({ t: 'coach', thinking: true })
   })
     .then((reply) => {
       if (!reply) return
-      oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
-      arenaChat.push({ name: ORACLE_NAME, text: reply })
+      coachQuietUntil = Date.now() + COACH_COOLDOWN
+      arenaChat.push({ name: COACH_NAME, text: reply })
       if (arenaChat.length > ARENA_CHAT_CONTEXT) arenaChat.shift()
-      broadcast({ t: 'chat', id: ORACLE_ID, text: reply })
+      broadcast({ t: 'chat', id: COACH_ID, text: reply })
     })
     .catch(() => {})
     .finally(() => {
-      oracleBusy = false
-      if (thinking) broadcast({ t: 'oracle', thinking: false })
+      coachBusy = false
+      if (thinking) broadcast({ t: 'coach', thinking: false })
     })
 }
 
@@ -320,8 +320,8 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           const text = msg.text.trim().slice(0, MAX_CHAT_LENGTH)
           if (!text) return
           broadcast({ t: 'chat', id: player.id, text }, player.id)
-          // The Oracle overhears the arena and answers only when addressed.
-          considerOracle(player.name, text)
+          // The Coach overhears the arena and answers only when addressed.
+          considerCoach(player.name, text)
           break
         }
         case 'ping':

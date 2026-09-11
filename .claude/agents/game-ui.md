@@ -18,8 +18,8 @@ isn't the 3D world.
 - `app/components/BrandMark.vue` — the top-left identity/status chip.
 - `app/composables/useGame.ts` — the client-side game/socket state composable the
   UI binds to.
-The Oracle (`useOracle.ts` and the chat wiring) is owned by the `oracle-ai`
-agent — hand oracle work there.
+The Coach (`useCoach.ts` and the chat wiring) is owned by the `coach-ai`
+agent — hand coach work there.
 
 ## Context & invariants
 1. **This project uses Nuxt UI (v4) + Tailwind.** Prefer its components and the
@@ -33,9 +33,9 @@ agent — hand oracle work there.
    it every frame); UI-facing bits are mirrored into refs (`status`, `count`,
    `selfId`, `kicked`, `chatLog`), so bind to those.
 3. **Chat is one arena-wide channel.** Frames carry only `{id, text}` — no
-   scoping to filter on. The Oracle arrives under the reserved `ORACLE_ID` and is
+   scoping to filter on. The Coach arrives under the reserved `COACH_ID` and is
    styled apart (`npc`, with its cited docs URL linkified); while it works,
-   `useOracle().thinking` (from the `oracle` frame) shows "consulting the docs…"
+   `useCoach().thinking` (from the `coach` frame) shows "consulting the docs…"
    under the scrollback. `announce()` pushes local system lines (`system`) that
    never touch the wire. The input is capped at `MAX_CHAT_LENGTH` from the shared
    types, not a literal.
