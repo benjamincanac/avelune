@@ -7,11 +7,13 @@ import {
   JUMP_VELOCITY,
   PLAYER_SPEED,
   PLAYER_RADIUS,
+  isWalkable,
+  getFountainWaterContact,
   stepBody,
   surfaceHeight,
 } from '../shared/utils/maze'
 import type { FloorPlan, KinematicBody } from '../shared/utils/maze'
-import { COURTYARD, COURTYARD_ASSETS } from '../shared/utils/courtyard'
+import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN } from '../shared/utils/courtyard'
 
 const plan = generateHub()
 const dt = 1 / 20
@@ -84,45 +86,92 @@ test('tree trunks stop centered walking and dashing players', () => {
   }
 })
 
-test('central fountain uses its scaled collision footprint from every approach', () => {
-  const fountains = plan.props.filter(p => p.kind === 'Courtyard_Fountain')
-  assert.equal(fountains.length, 1)
-  const prop = fountains[0]!
-  assert.deepEqual({ x: prop.x, y: prop.y }, { x: COURTYARD.arena.x, y: COURTYARD.arena.y })
+test('fountain has a large stepped basin and a solid central pedestal', () => {
+  const prop = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
   assert.deepEqual(COURTYARD.fountain, { x: prop.x, y: prop.y })
   assert.equal(prop.scale, 1.4)
   assert.equal(prop.r, COURTYARD_ASSETS.Courtyard_Fountain.radius * 1.4)
-  assert.equal(prop.top, COURTYARD_ASSETS.Courtyard_Fountain.height * 1.4)
-  assert.equal(surfaceHeight(plan, prop.x + prop.r - 0.01, prop.y), prop.top)
-  assert.equal(surfaceHeight(plan, prop.x + prop.r + 0.01, prop.y), 0)
+  for (const [radius, height] of [[3.9, 0], [3.65, 0.18], [3.4, 0.36], [3.15, 0.54], [2.95, 0.30], [2, 0.12], [0.4, 2.7]]) {
+    assert.equal(surfaceHeight(plan, prop.x + radius! * prop.scale, prop.y), height! * prop.scale)
+  }
+  const world = { ...plan, props: [prop] }
   for (let i = 0; i < 8; i++) {
     const a = Math.PI / 4 * i
     const dx = Math.cos(a)
     const dy = Math.sin(a)
     for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
-      const distance = prop.r + PLAYER_RADIUS + 1
-      const body = bodyAt(prop.x + dx * distance, prop.y + dy * distance)
-      for (let step = 0; step < 20; step++) {
-        walk(body, -dx, -dy, 1, speed)
-        assert.ok(Math.hypot(body.x - prop.x, body.y - prop.y) > prop.r)
-      }
+      const body = bodyAt(prop.x + dx * (prop.r + 0.5), prop.y + dy * (prop.r + 0.5))
+      walk(body, -dx, -dy, 100, speed, world)
+      const radius = Math.hypot(body.x - prop.x, body.y - prop.y)
+      assert.ok(radius > FOUNTAIN.pedestalRadius * prop.scale)
+      assert.ok(radius < 2, `entered basin at angle ${a}: ${radius}`)
+      assert.equal(body.z, FOUNTAIN.floorHeight * prop.scale)
+      walk(body, dx, dy, 100, speed, world)
+      walk(body, 0, 0, 20, speed, world)
+      assert.ok(Math.hypot(body.x - prop.x, body.y - prop.y) > prop.r)
       assert.equal(body.z, 0)
     }
   }
 })
 
-test('fountain blocks walking and grounded jumps', () => {
+test('the pedestal blocks a grounded jump from inside the basin', () => {
   const prop = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
-  for (const jump of [false, true]) {
-    const body = bodyAt(prop.x, prop.y + prop.r + 0.2)
-    if (jump) {
-      body.vz = JUMP_VELOCITY
-      body.grounded = false
-    }
-    walk(body, 0, -1)
-    assert.ok(body.y > prop.y + prop.r)
-    assert.equal(body.z, 0)
+  const world = { ...plan, props: [prop] }
+  const body = { ...bodyAt(prop.x + 1.4, prop.y), z: FOUNTAIN.floorHeight * prop.scale, vz: JUMP_VELOCITY, grounded: false }
+  walk(body, -1, 0, 50, PLAYER_SPEED, world)
+  assert.ok(body.x > prop.x + FOUNTAIN.pedestalRadius * prop.scale)
+  assert.equal(body.z, FOUNTAIN.floorHeight * prop.scale)
+})
+
+test('water slows wading, releases jumping feet, and leaves dry movement unchanged', () => {
+  const prop = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
+  const world = { ...plan, props: [prop] }
+  const body = { ...bodyAt(prop.x + 2, prop.y), z: FOUNTAIN.floorHeight * prop.scale }
+  const contact = getFountainWaterContact(prop, body)!
+  assert.ok(contact.depth > 0.5)
+  const startX = body.x
+  stepBody(world, body, 0.1, 0, dt)
+  assert.ok(body.x - startX < 0.07)
+  body.vz = JUMP_VELOCITY
+  walk(body, 0, 0, 3, PLAYER_SPEED, world)
+  assert.equal(getFountainWaterContact(prop, body), null)
+  walk(body, 0, 0, 30, PLAYER_SPEED, world)
+  assert.ok(getFountainWaterContact(prop, body))
+  const dry = bodyAt(prop.x + prop.r + 1, prop.y)
+  const dryX = dry.x
+  stepBody(world, dry, 0.1, 0, dt)
+  assert.equal(dry.x, dryX + 0.1)
+  assert.equal(dry.z, 0)
+  assert.equal(getFountainWaterContact(prop, dry), null)
+})
+
+test('fountain footprints and water contact follow rotated per-axis scale', () => {
+  const source = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
+  const prop = { ...source, s3: [1.8, 1.4, 0.8] as [number, number, number], rot: Math.PI / 3, r: FOUNTAIN.outerRadius * 1.8, z: 20 }
+  const world = { ...plan, props: [prop] }
+  const point = (x: number, y: number) => ({
+    x: prop.x + x * 1.8 * Math.cos(prop.rot) + y * 0.8 * Math.sin(prop.rot),
+    y: prop.y - x * 1.8 * Math.sin(prop.rot) + y * 0.8 * Math.cos(prop.rot),
+  })
+  for (const [x, y] of [[2, 0], [0, 2], [-2, 0], [0, -2]]) {
+    const p = point(x!, y!)
+    assert.equal(surfaceHeight(world, p.x, p.y), FOUNTAIN.floorHeight * 1.4)
+    const contact = getFountainWaterContact(prop, { ...p, z: FOUNTAIN.floorHeight * 1.4 })!
+    assert.ok(Math.abs(contact.x - x!) < 1e-12)
+    assert.ok(Math.abs(contact.y - y!) < 1e-12)
+    assert.equal(contact.surfaceHeight, FOUNTAIN.waterHeight * 1.4)
   }
+  const start = point(4, 0)
+  const a = bodyAt(start.x, start.y)
+  const b = { ...a }
+  for (let i = 0; i < 80; i++) {
+    const dx = -Math.cos(prop.rot) * PLAYER_SPEED * dt
+    const dy = Math.sin(prop.rot) * PLAYER_SPEED * dt
+    stepBody(world, a, dx, dy, dt)
+    stepBody(structuredClone(world), b, dx, dy, dt)
+    assert.deepEqual(a, b)
+  }
+  assert.ok(getFountainWaterContact(prop, a))
 })
 
 test('bench blocks walking, supports jump landings, and allows walking off', () => {
@@ -158,4 +207,49 @@ test('independently generated worlds produce identical movement', () => {
     stepBody(secondPlan, b, x, y, dt)
     assert.deepEqual(a, b)
   }
+})
+
+test('village lanes and every building frontage remain connected to spawn', () => {
+  // Sample player-sized dry ground, then traverse each edge through the same
+  // kinematics used by prediction and the server. A clear minimap tile alone
+  // does not guarantee that a street fits a player between authored props.
+  const spacing = 0.5
+  const nodes = new Map<string, { x: number, y: number }>()
+  const key = (x: number, y: number) => `${x},${y}`
+  for (let x = COURTYARD.min + spacing; x < COURTYARD.max; x += spacing) {
+    for (let y = COURTYARD.min + spacing; y < COURTYARD.max; y += spacing) {
+      let clear = surfaceHeight(plan, x, y) === 0
+      for (let i = 0; clear && i < 8; i++) {
+        const angle = i * Math.PI / 4
+        const px = x + Math.cos(angle) * (PLAYER_RADIUS + 0.05)
+        const py = y + Math.sin(angle) * (PLAYER_RADIUS + 0.05)
+        clear = isWalkable(plan, Math.floor(px), Math.floor(py)) && surfaceHeight(plan, px, py) === 0
+      }
+      if (clear) nodes.set(key(x, y), { x, y })
+    }
+  }
+  const queue = [{ x: plan.start.x, y: plan.start.y }]
+  const reached = new Set([key(plan.start.x, plan.start.y)])
+  for (let index = 0; index < queue.length; index++) {
+    const source = queue[index]!
+    for (const [dx, dy] of [[spacing, 0], [-spacing, 0], [0, spacing], [0, -spacing]]) {
+      const destination = key(source.x + dx!, source.y + dy!)
+      if (!nodes.has(destination) || reached.has(destination)) continue
+      const body = bodyAt(source.x, source.y)
+      for (let substep = 0; substep < 4; substep++) stepBody(plan, body, dx! / 4, dy! / 4, dt)
+      if (Math.hypot(body.x - source.x - dx!, body.y - source.y - dy!) > 0.001 || body.z !== 0) continue
+      reached.add(destination)
+      queue.push(nodes.get(destination)!)
+    }
+  }
+  for (const [x, y] of [[28, 22], [20, 30], [36, 30], [28, 39], [14, 25], [42, 24], [28, 16]]) {
+    assert.ok(reached.has(key(x!, y!)), `street at ${x},${y} is disconnected from spawn`)
+  }
+  for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
+    const x = prop.x + Math.sin(prop.rot) * (prop.by! + 1)
+    const y = prop.y + Math.cos(prop.rot) * (prop.by! + 1)
+    assert.ok(queue.some(node => Math.hypot(node.x - x, node.y - y) < 0.6), `frontage of ${prop.kind} at ${prop.x},${prop.y} is inaccessible`)
+  }
+  const disconnected = [...nodes].filter(([position]) => !reached.has(position))
+  assert.equal(disconnected.length, 0, `isolated dry ground: ${disconnected.slice(0, 6).map(([position]) => position).join('; ')}`)
 })

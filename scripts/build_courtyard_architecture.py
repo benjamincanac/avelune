@@ -27,15 +27,18 @@ def mat(name, color, rough=.7, metal=0):
     p.inputs['Metallic'].default_value=metal
     return m
 
-stone=mat('Sunwashed ivory plaster',(.76,.735,.65))
+stone=mat('Warm limewashed plaster',(.86,.80,.67))
 trim=mat('Carved pale limestone',(.84,.81,.69))
 wood=mat('Weathered walnut beams',(.15,.115,.087))
-roof=mat('Mineral blue roof slate',(.075,.185,.235),.78)
-rooflight=mat('Sunlit blue slate edges',(.13,.275,.32),.75)
+roof=mat('Warm terracotta roof tiles',(.48,.19,.115),.82)
+rooflight=mat('Sunlit clay tile edges',(.67,.30,.18),.80)
 glass=mat('Dusky blue window',(.06,.145,.18),.22,.12)
 gold=mat('Warm brass accents',(.56,.34,.105),.32,.6)
-leafmat=mat('Garden foliage',(.19,.35,.14))
-materials=[stone,trim,wood,roof,rooflight,glass,gold,leafmat]
+leafmat=mat('Garden foliage',(.16,.34,.085))
+shutter=mat('Painted teal shutters',(.07,.27,.25))
+cloth=mat('Avelune blue linen',(.06,.19,.38))
+petal=mat('Buttercream garden flowers',(.98,.80,.35))
+materials=[stone,trim,wood,roof,rooflight,glass,gold,leafmat,shutter,cloth,petal]
 
 
 def reset():
@@ -117,7 +120,7 @@ def arch(x,y,z,w,h,door=False):
         box('Arch keystone',(x,y-.09,z+h+.035),(.14,.14,.17),trim,.035)
         for side in [-1,1]:
             sx=x+side*(rad+.19)
-            box('Celadon shutter',(sx,y-.025,z+(h-rad)*.52),(.20,.07,max(.35,h-rad-.05)),roof,.025)
+            box('Celadon shutter',(sx,y-.025,z+(h-rad)*.52),(.20,.07,max(.35,h-rad-.05)),shutter,.025)
             for dz in [.19,max(.29,h-rad-.18)]:
                 box('Shutter strap',(sx,y-.072,z+dz),(.22,.025,.033),gold,.009)
         beam('Window mullion',(x,y-.035,z+.02),(x,y-.035,z+h-.035),.045,trim)
@@ -149,7 +152,21 @@ def gable_roof(cx,cy,z,w,d,rise):
             for j in range(16):
                 a=i*17+j;faces.append((a,a+17,a+18,a+1))
         surface=mesh('Swept roof underlay',verts,faces,roof)
-        # Rounded barrel strips follow the sweep; staggered horizontal courses.
+        # Staggered clay tiles with raised lower lips catch directional light.
+        tileverts=[];tilefaces=[]
+        columns=max(1,int(w/.36))
+        for row in range(9):
+            t0=row/9;t1=(row+1)/9
+            for col in range(columns):
+                left=cx-w/2+(col+(row%2)*.45)*w/columns
+                right=min(cx+w/2,left+w/columns-.018)
+                if right<=left:continue
+                k=len(tileverts)
+                for tx,t,lip in [(left,t0,.025),(right,t0,.025),(right,t1,.060),(left,t1,.060)]:
+                    tileverts.append((tx,cy+side*half*t,z+rise*roof_shape(t)+lip))
+                tilefaces.append((k,k+1,k+2,k+3))
+        mesh('Overlapping staggered clay tiles',tileverts,tilefaces,rooflight,False)
+        # Fine joints articulate the tile courses at a distance.
         cols=max(1,int(w/.27))
         for i in range(cols):
             x=cx-w/2+(i+.5)*w/cols
@@ -196,10 +213,61 @@ def planter(x,y,z,w=1.1):
         cx=x-w*.44+w*.88*i/21
         cy=y+random.uniform(-.12,.12)
         height=.15+random.random()*.18
+        if i%3==0:
+            bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1,radius=.065,location=(cx,cy-.05,z+height+.05))
+            bpy.context.object.name='Small garden blossom'
+            bpy.context.object.scale=(1,1,.55)
+            bpy.context.object.data.materials.append(petal)
         for side in [-1,1]:
             mesh('Trailing garden leaf',[(cx,cy,z+.11),(cx+side*.11,cy-.10,z+height),
                  (cx+side*.23,cy-.22,z+height-.07),(cx+side*.09,cy-.16,z+height-.02)],
                  [(0,1,3),(1,2,3)],leafmat,False)
+
+
+def ivy(x,y,z,width=1.0,height=2.0):
+    verts=[];faces=[]
+    for strand in range(7):
+        sx=x+(strand/6-.5)*width
+        length=height*(.65+random.random()*.35)
+        points=[]
+        for j in range(14):
+            t=j/13
+            px=sx+.09*math.sin(t*10+strand);pz=z-t*length
+            points.append((px,y,pz))
+            for side in [-1,1]:
+                size=random.uniform(.065,.135)
+                k=len(verts)
+                verts.extend([(px,y-.025,pz),(px+side*size,y-.055,pz+size*.5),
+                              (px+side*size*1.7,y-.04,pz-size*.25),(px+side*size*.7,y-.085,pz-size*.8)])
+                faces.extend([(k,k+1,k+3),(k+1,k+2,k+3)])
+        tube('Climbing ivy stems',points,.012,leafmat,4)
+    mesh('Individual ivy leaves',verts,faces,leafmat,False)
+
+
+def banner(x,y,z,height=1.45):
+    beam('Banner wall bracket',(x,y+.18,z+.1),(x,y-.17,z+.1),.045,gold)
+    beam('Banner crossbar',(x-.32,y-.17,z),(x+.32,y-.17,z),.04,gold)
+    verts=[]
+    for j in range(9):
+        t=j/8
+        for side in [-1,1]:
+            verts.append((x+side*.27,y-.17-.06*math.sin(t*7),z-height*t+(.15 if j==8 else 0)))
+    verts.append((x,y-.17-.06*math.sin(7),z-height))
+    faces=[(j*2,j*2+1,j*2+3,j*2+2) for j in range(8)]+[(16,17,18)]
+    mesh('Blue village banner',verts,faces,cloth,False)
+    # A simple original diamond emblem.
+    mesh('Banner ivory emblem',[(x,y-.25,z-.35),(x+.10,y-.25,z-.57),
+          (x,y-.25,z-.84),(x-.10,y-.25,z-.57)],[(0,1,2,3)],trim,False)
+
+
+def balcony(x,y,z,w=1.3):
+    box('Balcony carved ledge',(x,y-.19,z),(w,.62,.13),wood,.025)
+    box('Balcony handrail',(x,y-.48,z+.48),(w+.08,.07,.075),wood,.016)
+    for j in range(7):
+        dx=(j/6-.5)*w
+        beam('Balcony spindle',(x+dx,y-.48,z+.06),(x+dx,y-.48,z+.47),.035)
+    for side in [-1,1]:
+        beam('Balcony support',(x+side*w*.35,y+.1,z-.45),(x+side*w*.35,y-.4,z-.02),.08)
 
 
 def dormer(cx):
@@ -232,6 +300,13 @@ def inn():
     for x in [-2.65,0,2.65]:
         arch(x,-2.335,2.37,.78,1.03)
         if x:planter(x,-2.57,2.28)
+    balcony(0,-2.35,2.16)
+    ivy(-3.32,-2.46,3.62,.7,2.9)
+    ivy(3.1,-2.46,3.56,.8,1.1)
+    banner(1.4,-2.4,3.47,1.35)
+    for x in [-2.65,0,2.65]:
+        side_arch(x,-2.335,2.37,.78,1.03,math.pi)
+        side_arch(x,-2.335,.6,1.02,1.12,math.pi)
     arch(0,-2.335,.25,1.23,1.73,True)
     for x in [-2.62,2.62]:arch(x,-2.335,.6,1.02,1.12)
     for x in [-1.35,1.35]:
@@ -241,6 +316,9 @@ def inn():
         for x in [-1.15,1.15]:
             side_arch(x,-3.815,.65,.85,1.05,side*math.pi/2)
             side_arch(x,-3.815,2.4,.73,1.0,side*math.pi/2)
+        for y in [-.1]:
+            beam('Side facade diagonal',(side*3.825,y-.50,2.3),(side*3.825,y,3.5),.14)
+            beam('Side facade diagonal',(side*3.825,y,3.5),(side*3.825,y+.50,2.3),.14)
         box('End story belt',(side*3.815,0,2.12),(.18,4.6,.2),wood,.035)
         beam('Gable timber',(side*3.805,0,3.7),(side*3.805,0,4.87),.13)
     gable_roof(0,0,3.7,8.2,5.25,1.35)
@@ -269,6 +347,10 @@ def shop():
     arch(-1.61,-1.85,.18,1.05,1.8,True)
     for x in [.2,1.65]:arch(x,-1.85,.62,1.02,1.13)
     planter(.85,-2.10,.57,2.6)
+    ivy(2.48,-1.96,2.35,.5,1.55)
+    for x in [-1.2,1.2]:side_arch(x,-1.85,.65,.9,1.12,math.pi)
+    for x in [-.8,2.65]:beam('Merchant facade timber',(x,-1.90,.3),(x,-1.90,2.35),.13)
+    banner(-.82,-1.96,2.23,.96)
     # Front awning uses the same sculpted roof language.
     gable_roof(.8,-1.70,2.14,3.25,1.65,.34)
     for x in [-.58,2.18]:beam('Awning bracket',(x,-1.87,1.62),(x,-2.42,2.16),.10)
@@ -318,6 +400,8 @@ def tower():
     for angle in [math.pi/2,math.pi,3*math.pi/2]:
         for x in [-1.07,1.07]:side_arch(x,-1.80,5.36,.60,1.10,angle)
         side_arch(0,-1.80,2.9,.76,1.52,angle)
+    banner(-1.22,-1.92,4.64,1.9)
+    ivy(1.34,-1.90,2.75,.65,2.3)
     tower_roof(6.64,4.45,2.12)
     tube('Tower finial',[(0,0,8.69),(0,0,8.93),(0,0,9.10)],.047,gold,8)
     bpy.ops.mesh.primitive_uv_sphere_add(segments=12,ring_count=6,radius=.13,location=(0,0,8.91))

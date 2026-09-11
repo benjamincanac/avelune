@@ -129,3 +129,10 @@ files the game loads, and the scripts that do it.
 Run conversions headless and report the before/after file sizes and any dropped
 meshes/animations. When a new pack needs a manual download, say exactly what to
 fetch and where to drop it rather than guessing a URL.
+
+## Wadeable fountain
+
+The lower fountain radius is 3.8 at model scale, with water radius 3.05 at Y 0.48
+and floor Y 0.12. Three exterior steps and the inner step at radius 2.85 to 3.05,
+Y 0.30, match `FOUNTAIN` in `shared/utils/courtyard.ts`. Keep the generator profile
+and shared collision dimensions aligned. The authored 1.4 scale applies to both.

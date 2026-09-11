@@ -1,6 +1,6 @@
-# Tempest, a 3D multiplayer world on Vercel
+# Avelune, a 3D multiplayer world on Vercel
 
-[![License: MIT](https://img.shields.io/github/license/benjamincanac/tempest?color=black)](https://github.com/benjamincanac/tempest/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/github/license/benjamincanac/avelune?color=black)](https://github.com/benjamincanac/avelune/blob/main/LICENSE)
 [![Nuxt](https://img.shields.io/badge/Nuxt-black?logo=nuxt&logoColor=00DC82)](https://nuxt.com)
 
 A shared 3D world built with **Nuxt** and **[TresJS](https://tresjs.org)** on [Vercel Functions WebSockets](https://vercel.com/docs/functions/websockets). Everyone shares a colorful fantasy courtyard with a central fountain plaza, market stalls and gardens. An AI Oracle answers when you speak to it, reading the live state of the game to do so.
@@ -14,7 +14,7 @@ Everything is simulated server-side and fanned out over the socket. No database 
 
 ## Deploy
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Favelune&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=avelune&repository-name=avelune)
 
 ## Run it
 
@@ -30,7 +30,7 @@ The Oracle needs an `AI_GATEWAY_API_KEY`. Without one it just stays quiet.
 ## The world
 
 - **The courtyard.** A central fountain plaza surrounded by gardens, market stalls, The Wayfarer inn and Moss & Mortar shop. Buildings and stalls are scenery; combat, trading and interiors are not implemented. Architecture and furniture are editable placements with shared collision dimensions.
-- **The Oracle.** An ancient seer beside the northern garden. It listens to the chat and answers only when it decides a line was meant for it, in character, and it can look up who is actually in the arena right now before it does.
+- **The Oracle.** An ancient seer beside the northern garden. It listens to the chat and answers only when it decides a line was meant for it, in character, and it can look up who is actually in the village right now before it does.
 - **The sky.** A full day/night cycle and drifting weather (clear, overcast, rain), shared by everyone through the server clock.
 
 ## How it works
@@ -39,7 +39,7 @@ Nitro v3 ships native [crossws](https://crossws.h3.dev) WebSocket support that w
 
 ### The world never goes over the wire
 
-The arena is hand-authored into [`shared/data/courtyard-structure.json`](shared/data/courtyard-structure.json) and built by `generateHub()` in [`shared/utils/maze.ts`](shared/utils/maze.ts): collision tiles, spawn, and every prop with its footprint. Server and client build the identical world from the identical data, the server for collision, the client for rendering and prediction. The socket only ever carries players.
+The village is hand-authored into [`shared/data/courtyard-structure.json`](shared/data/courtyard-structure.json) and built by `generateHub()` in [`shared/utils/maze.ts`](shared/utils/maze.ts): collision tiles, spawn, and every prop with its footprint. Server and client build the identical world from the identical data, the server for collision, the client for rendering and prediction. The socket only ever carries players.
 
 ### Authoritative simulation, client-owned heading
 
@@ -77,13 +77,13 @@ app/
 ├── composables/useGame.ts    # connection, reconnect, roster, chat, clock sync
 └── components/
     ├── GameScene.client.vue  # Tres canvas + pointer lock, WASD, mouse-look
-    ├── MazeScene.vue         # 3D world: arena, sky/weather, players, Oracle
+    ├── MazeScene.vue         # 3D world: village, sky/weather, players, Oracle
     └── CharacterGate.vue     # onboarding
 
 shared/
 ├── types/game.ts             # wire protocol
 ├── data/courtyard-structure.json # authored courtyard buildings
-└── utils/maze.ts             # arena generation, collision, shared kinematics
+└── utils/maze.ts             # village generation, collision, shared kinematics
 
 server/
 ├── api/ws.ts                 # /api/ws — one crossws handler everywhere
@@ -99,3 +99,11 @@ Connections close when a Vercel Function reaches its [max duration](https://verc
 ## License
 
 [MIT](LICENSE)
+
+### Weather
+
+Type `/weather clear`, `/weather overcast`, or `/weather rain` in chat to change
+the weather for everyone. `/weather auto` restores the natural cycle.
+
+Type `/time dawn`, `/time day`, `/time sunset`, or `/time night` to set the time
+of day for everyone. `/time auto` restores the natural cycle without changing weather.

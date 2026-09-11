@@ -1,15 +1,16 @@
 import {
   BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry,
-  DoubleSide, Group, InstancedMesh, Mesh,
+  DoubleSide, Group, IcosahedronGeometry, InstancedMesh, Mesh,
   MeshBasicMaterial, MeshStandardMaterial, Object3D, PlaneGeometry,
-  RingGeometry, Vector3,
+  RingGeometry, TorusGeometry, Vector3,
 } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { COURTYARD } from '#shared/utils/courtyard'
+import { COURTYARD, FOUNTAIN } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/maze'
 import { createCourtyardLandscape } from './courtyardLandscape'
 import { createFountainWater } from './fountainWater'
+import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
 
 /** Ground and distant scenery. All walkable elevations stay at ground level;
@@ -20,11 +21,11 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   const dummy = new Object3D()
   const stoneMap = makeCourtyardSurface('stone')
   const plazaMap = makePlazaSurface()
-  const stone = new MeshStandardMaterial({ color: '#c8c4b3', map: stoneMap, roughness: 0.95 })
+  const stone = new MeshStandardMaterial({ color: '#b8c4c7', map: stoneMap, roughness: 0.95 })
   const paleStone = new MeshStandardMaterial({ color: '#e5dcc4', map: stoneMap, roughness: 0.95 })
   const grass = new MeshStandardMaterial({ color: '#7a9d58', roughness: 1 })
   const soil = new MeshStandardMaterial({ color: '#7f745b', roughness: 1 })
-  const arenaMaterial = new MeshStandardMaterial({ color: '#d9d5c4', map: plazaMap, roughness: 1 })
+  const arenaMaterial = new MeshStandardMaterial({ color: '#e4cf9f', map: plazaMap, roughness: 1 })
   const shadow = new MeshBasicMaterial({ color: '#453c2b', transparent: true, opacity: 0.07, depthWrite: false })
 
   function flat(geometry: BufferGeometry, material: MeshStandardMaterial | MeshBasicMaterial, x: number, z: number, y = 0.025) {
@@ -61,7 +62,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     dummy.rotation.set(0, (rng() - 0.5) * 0.008, 0)
     dummy.updateMatrix()
     paving.setMatrixAt(i, dummy.matrix)
-    paving.setColorAt(i, new Color().setHSL(0.12, 0.055 + s.shade * 0.04, 0.85 + s.shade * 0.1))
+    paving.setColorAt(i, new Color().setHSL(0.53 + s.shade * 0.04, 0.025 + s.shade * 0.025, 0.85 + s.shade * 0.12))
   })
   paving.receiveShadow = true
   group.add(paving)
@@ -117,7 +118,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   }
   // Foundation follows authored fountain placements, including editor scaling.
   for (const p of placements.filter(p => p.kind === 'Courtyard_Fountain')) {
-    const radius = 2.12 * p.scale
+    const radius = (FOUNTAIN.outerRadius + 0.2) * p.scale
     const base = flat(new CircleGeometry(radius, 64), paleStone, p.x, p.y, 0.045)
     const rim = flat(new RingGeometry(radius, radius + 0.1, 64), blueInlay, p.x, p.y, 0.047)
     for (const mesh of [base, rim]) {
@@ -125,20 +126,57 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     }
   }
 
-  const landscape = createCourtyardLandscape(templates)
+  const landscape = createCourtyardLandscape(templates, placements)
   group.add(landscape.group)
 
-  // Festival pennants sag between buildings, above the playable space.
+  // Ropes follow authored tree transforms, including editor moves and scaling.
+  const trees = placements.filter(p => p.kind === 'Courtyard_Tree')
+  const spans: { start: Vector3, end: Vector3 }[] = []
+  const ropeMaterial = new MeshStandardMaterial({ color: '#82745b', roughness: 1 })
+  const tieGeometry = new TorusGeometry(0.13, 0.022, 5, 20)
+  function tieToTree(tree: HubPropPlacement) {
+    const [sx, sy, sz] = tree.s3 ?? [tree.scale, tree.scale, tree.scale]
+    // Bent trunk center and radius at height 3.4 in the botanical model.
+    const x = -0.22 * sx
+    const z = -0.17 * sz
+    const point = new Vector3(tree.x + x * Math.cos(tree.rot) + z * Math.sin(tree.rot),
+      (tree.z ?? 0) + 3.4 * sy, tree.y - x * Math.sin(tree.rot) + z * Math.cos(tree.rot))
+    const tie = new Mesh(tieGeometry, ropeMaterial)
+    tie.position.copy(point)
+    tie.rotation.set(-Math.PI / 2, 0, tree.rot)
+    tie.scale.set(sx, sz, sy)
+    group.add(tie)
+    return point
+  }
+  for (const targetZ of [17, 40]) {
+    const nearby = trees.filter(p => targetZ === 17 ? p.y < 30 : p.y >= 30)
+    const nearest = (left: boolean) => nearby.filter(p => left ? p.x < 28 : p.x >= 28)
+      .sort((a, b) => Math.abs(a.y - targetZ) - Math.abs(b.y - targetZ))[0]
+    const left = nearest(true)
+    const right = nearest(false)
+    if (left && right) spans.push({ start: tieToTree(left), end: tieToTree(right) })
+  }
+  // No tree pair means no floating rope in that part of the editor layout.
+  if (!spans.length) tieGeometry.dispose()
+  const ropePoint = (span: { start: Vector3, end: Vector3 }, t: number) => {
+    const point = span.start.clone().lerp(span.end, t)
+    point.y -= Math.sin(t * Math.PI) * 0.45
+    return point
+  }
   const pennants: Mesh[] = []
-  const ropes = new InstancedMesh(new CylinderGeometry(0.016, 0.016, 1, 5), stone, 100)
+  const ropes = new InstancedMesh(new CylinderGeometry(0.016, 0.016, 1, 5), ropeMaterial, spans.length * 50)
   group.add(ropes)
   let ropeIndex = 0
-  for (const z of [15, 36]) {
+  const flagGeometry = new BufferGeometry()
+  flagGeometry.setAttribute('position', new BufferAttribute(new Float32Array([-0.28, 0, 0, 0.02, -0.64, 0.06, 0.28, 0, 0]), 3))
+  flagGeometry.computeVertexNormals()
+  const flagMaterials = ['#426c94', '#e5ce89', '#7195b1', '#eee2c2'].map(color => new MeshStandardMaterial({ color, side: DoubleSide, roughness: 1 }))
+  for (const span of spans) {
     const vertices: number[] = []
-    const colors = ['#d18969', '#6d9e9d', '#e0bd70', '#e6dcc0']
     for (let i = 0; i <= 50; i++) {
       const t = i / 50
-      vertices.push(12 + t * 32, 5.8 - Math.sin(t * Math.PI) * 1.6, z)
+      const point = ropePoint(span, t)
+      vertices.push(point.x, point.y, point.z)
     }
     // Fine wooden rope segments avoid a screen-space line width dependency.
     for (let i = 0; i < 50; i++) {
@@ -153,15 +191,42 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     }
     for (let i = 1; i < 24; i++) {
       const t = i / 24
-      const geometry = new BufferGeometry()
-      geometry.setAttribute('position', new BufferAttribute(new Float32Array([-0.28, 0, 0, 0.02, -0.64, 0.06, 0.28, 0, 0]), 3))
-      geometry.computeVertexNormals()
-      const flag = new Mesh(geometry, new MeshStandardMaterial({ color: colors[i % 4], side: DoubleSide, roughness: 1 }))
-      flag.position.set(12 + t * 32, 5.8 - Math.sin(t * Math.PI) * 1.6, z)
+      const flag = new Mesh(flagGeometry, flagMaterials[i % 4]!)
+      flag.position.copy(ropePoint(span, t))
       group.add(flag)
       pennants.push(flag)
     }
   }
+
+  // Light floral swags follow the existing overhead ropes, clear of all players.
+  const garlandLeaves = new InstancedMesh(new IcosahedronGeometry(0.12, 0), new MeshStandardMaterial({ color: '#6b934e', roughness: 1 }), spans.length * 94)
+  const garlandPetals = new InstancedMesh(new IcosahedronGeometry(0.068, 0), new MeshStandardMaterial({ color: '#f2e6b7', roughness: 1 }), spans.length * 55)
+  let leafIndex = 0
+  let petalIndex = 0
+  for (const span of spans) {
+    for (let i = 1; i < 48; i++) {
+      const t = i / 48
+      const { x, y, z } = ropePoint(span, t)
+      for (const side of [-1, 1]) {
+        dummy.position.set(x + side * 0.07, y - 0.035, z + side * 0.12)
+        dummy.rotation.set(side * 0.3, i * 1.7, side * 0.6)
+        dummy.scale.set(1.5, 0.3, 0.75)
+        dummy.updateMatrix()
+        garlandLeaves.setMatrixAt(leafIndex++, dummy.matrix)
+      }
+      if (i % 4) continue
+      for (let petal = 0; petal < 5; petal++) {
+        const angle = petal / 5 * Math.PI * 2
+        dummy.position.set(x + Math.cos(angle) * 0.07, y - 0.1 + Math.sin(angle) * 0.07, z - 0.035)
+        dummy.rotation.set(0, 0, angle)
+        dummy.scale.set(1, 0.7, 0.35)
+        dummy.updateMatrix()
+        garlandPetals.setMatrixAt(petalIndex++, dummy.matrix)
+        garlandPetals.setColorAt(petalIndex - 1, new Color(i % 8 ? '#ffffff' : '#f3cd62'))
+      }
+    }
+  }
+  group.add(garlandLeaves, garlandPetals)
 
   // Soft contact patches help anchor trunks and furniture in overcast light.
   for (const p of placements) {
@@ -176,16 +241,30 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     effect.group.scale.set(p.s3?.[0] ?? p.scale, verticalScale, p.s3?.[2] ?? p.scale)
     group.add(effect.group)
     // Scaling time with height keeps gravity constant in world units.
-    return { effect, timeScale: 1 / Math.sqrt(verticalScale) }
+    return { effect, timeScale: 1 / Math.sqrt(verticalScale), actors: [] as FountainInteractor[] }
   })
   return {
     group,
-    update(time: number) {
+    update(time: number, players: readonly FountainInteractor[] = []) {
       landscape.update(time)
       pennants.forEach((flag, i) => {
         flag.rotation.x = Math.sin(time * 1.5 + i * 0.65) * 0.16
       })
-      for (const { effect, timeScale } of fountains) effect.update(time * timeScale)
+      for (const { effect, timeScale, actors } of fountains) {
+        effect.group.updateWorldMatrix(true, false)
+        actors.length = players.length
+        for (let i = 0; i < players.length; i++) {
+          const player = players[i]!
+          const point = dummy.position.set(player.x, player.feetY, player.z)
+          effect.group.worldToLocal(point)
+          const actor = actors[i] ??= { id: player.id, x: 0, z: 0, feetY: 0 }
+          actor.id = player.id
+          actor.x = point.x
+          actor.z = point.z
+          actor.feetY = point.y
+        }
+        effect.update(time * timeScale, actors)
+      }
     },
     dispose() {
       for (const { effect } of fountains) {

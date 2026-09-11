@@ -21,7 +21,7 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
   const hiddenObjects: Object3D[] = []
   occlusion.render = (...args) => {
     scene.traverse((object) => {
-      if ((object instanceof Sprite || object.name === 'courtyard-atmosphere' || object.userData.fountainSurface) && object.visible) {
+      if ((object instanceof Sprite || object.name === 'courtyard-atmosphere' || object.userData.fountainSurface || object.userData.fountainCaustics) && object.visible) {
         hiddenObjects.push(object)
         object.visible = false
       }

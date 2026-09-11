@@ -2,19 +2,25 @@ import {
   BufferAttribute, BufferGeometry, DynamicDrawUsage, Group, InstancedMesh,
   Mesh, MeshPhysicalMaterial, Object3D, SphereGeometry, Vector3,
 } from 'three'
-import { createFountainSimulation } from './fountainSimulation'
+import { createFountainInteractions, createFountainSimulation } from './fountainSimulation'
+import { FOUNTAIN } from '../../shared/utils/courtyard'
+import type { FountainBodySample } from './fountainSimulation'
 import { createFountainSurface } from './fountainSurface'
+
+export type FountainInteractor = FountainBodySample
 
 /** Cosmetic water physics, independent of authoritative player movement. */
 export function createFountainWater() {
   const group = new Group()
   group.name = 'Simulated fountain water'
-  const sim = createFountainSimulation()
+  const sim = createFountainSimulation(96, FOUNTAIN.waterRadius, FOUNTAIN.pedestalRadius)
   const upperSim = createFountainSimulation(24, 0.44, 0)
-  const waterY = 0.48
+  const waterY = FOUNTAIN.waterHeight
+  const interactions = createFountainInteractions(sim, waterY, FOUNTAIN.floorHeight)
   const basin = createFountainSurface(sim, waterY)
   const upperBasin = createFountainSurface(upperSim, 1.81)
   group.add(basin.mesh, upperBasin.mesh)
+  if (basin.caustics) group.add(basin.caustics)
 
   const dropletGeometry = new SphereGeometry(1, 6, 4)
   const dropletMaterial = new MeshPhysicalMaterial({
@@ -25,6 +31,7 @@ export function createFountainWater() {
   const droplets = new InstancedMesh(dropletGeometry, dropletMaterial, maxParticles)
   droplets.instanceMatrix.setUsage(DynamicDrawUsage)
   droplets.frustumCulled = false
+  droplets.userData.fountainParticles = true
   group.add(droplets)
   const dummy = new Object3D()
   const up = new Vector3(0, 1, 0)
@@ -67,6 +74,7 @@ export function createFountainWater() {
   })
   const streams = new Mesh(streamGeometry, streamMaterial)
   streams.name = 'Continuous ballistic fountain streams'
+  streams.userData.fountainParticles = true
   streams.frustumCulled = false
   group.add(streams)
 
@@ -184,16 +192,25 @@ export function createFountainWater() {
 
   return {
     group,
-    update(timeSeconds: number) {
+    update(timeSeconds: number, interactors: readonly FountainInteractor[] = []) {
       if (!Number.isFinite(timeSeconds)) return
       if (previous === undefined || timeSeconds < previous || timeSeconds - previous > 1) {
         sim.reset()
+        interactions.reset()
         upperSim.reset()
         particles.length = 0
         accumulator = 0
         emission = 0
         previous = timeSeconds
       }
+      interactions.update(timeSeconds, interactors, (x, z, strength) => {
+        for (let i = 0; i < 12 && particles.length < maxParticles; i++) {
+          const angle = i / 12 * Math.PI * 2 + tick * 0.7
+          const speed = 0.4 + Math.min(strength, 8) * 0.08
+          particles.push({ x, z, y: waterY + 0.02, vx: Math.cos(angle) * speed, vz: Math.sin(angle) * speed,
+            vy: 0.7 + (i % 3) * 0.2 + Math.min(strength, 8) * 0.1, life: 0.7, splash: true })
+        }
+      })
       accumulator += Math.min(0.1, timeSeconds - previous)
       previous = timeSeconds
       let substeps = 0
@@ -213,6 +230,7 @@ export function createFountainWater() {
       streamGeometry.dispose()
       streamMaterial.dispose()
       particles.length = 0
+      interactions.reset()
       group.clear()
     },
   }

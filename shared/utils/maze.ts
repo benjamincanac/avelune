@@ -15,7 +15,7 @@
 
 import hubProps from '../data/courtyard-props.json'
 import hubStructure from '../data/courtyard-structure.json'
-import { COURTYARD, COURTYARD_ASSETS } from './courtyard'
+import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN } from './courtyard'
 
 /** How far players move, in tiles per second. */
 export const PLAYER_SPEED = 3.2
@@ -305,6 +305,37 @@ export function moveWithCollision(
 /* Vertical kinematics                                                        */
 /* -------------------------------------------------------------------------- */
 
+/** Inverse the model placement, using the same Y rotation as Three.js. */
+function fountainPoint(prop: PropSpec, x: number, y: number) {
+  const [sx, sy, sz] = prop.s3 ?? [prop.scale, prop.scale, prop.scale]
+  const c = Math.cos(prop.rot)
+  const s = Math.sin(prop.rot)
+  const dx = x - prop.x
+  const dy = y - prop.y
+  return { x: (dx * c - dy * s) / sx, y: (dx * s + dy * c) / sz, heightScale: sy }
+}
+
+function fountainHeight(radius: number) {
+  if (radius > FOUNTAIN.outerRadius) return 0
+  if (radius > FOUNTAIN.middleStepRadius) return FOUNTAIN.outerStepHeight
+  if (radius > FOUNTAIN.rimRadius) return FOUNTAIN.middleStepHeight
+  if (radius > FOUNTAIN.waterRadius) return FOUNTAIN.rimHeight
+  if (radius > FOUNTAIN.innerStepRadius) return FOUNTAIN.innerStepHeight
+  if (radius <= FOUNTAIN.pedestalRadius) return FOUNTAIN.pedestalHeight
+  return FOUNTAIN.floorHeight
+}
+
+/** Water contact uses local model coordinates and world-space foot depth.
+ * Like solid collision, authored elevation remains render-only. */
+export function getFountainWaterContact(prop: PropSpec, body: Pick<KinematicBody, 'x' | 'y' | 'z'>) {
+  if (prop.kind !== 'Courtyard_Fountain') return null
+  const point = fountainPoint(prop, body.x, body.y)
+  const radius = Math.hypot(point.x, point.y)
+  const surfaceHeight = FOUNTAIN.waterHeight * point.heightScale
+  if (radius <= FOUNTAIN.pedestalRadius || radius >= FOUNTAIN.waterRadius || body.z >= surfaceHeight) return null
+  return { x: point.x, y: point.y, depth: surfaceHeight - body.z, surfaceHeight }
+}
+
 /** Height of the walkable surface at a point (0 = ground, else a prop top). */
 export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
   let top = 0
@@ -326,7 +357,11 @@ export function surfaceHeight(plan: FloorPlan, x: number, y: number): number {
       const ly = dx * s + dy * c
       if (Math.abs(lx) > prop.bx || Math.abs(ly) > prop.by) continue
     }
-    top = prop.top
+    if (prop.kind === 'Courtyard_Fountain') {
+      const point = fountainPoint(prop, x, y)
+      top = Math.max(top, fountainHeight(Math.hypot(point.x, point.y)) * point.heightScale)
+    }
+    else top = prop.top
   }
   return top
 }
@@ -353,6 +388,14 @@ export function occupancyGrid(plan: FloorPlan): Uint8Array {
     // over-estimate for diagonal ones (fine for a map). Circles use `r`.
     let ax = prop.r
     let ay = prop.r
+    // Only the central column is a wall. The basin and steps are walkable.
+    if (prop.kind === 'Courtyard_Fountain') {
+      const [sx, , sz] = prop.s3 ?? [prop.scale, prop.scale, prop.scale]
+      const c = Math.cos(prop.rot)
+      const s = Math.sin(prop.rot)
+      ax = FOUNTAIN.pedestalRadius * Math.hypot(sx * c, sz * s)
+      ay = FOUNTAIN.pedestalRadius * Math.hypot(sx * s, sz * c)
+    }
     if (prop.bx != null && prop.by != null) {
       const c = Math.abs(Math.cos(prop.rot))
       const s = Math.abs(Math.sin(prop.rot))
@@ -392,6 +435,20 @@ export interface KinematicBody {
  * prediction.
  */
 export function stepBody(plan: FloorPlan, body: KinematicBody, dx: number, dy: number, dt: number) {
+  // Narrow steps must not be skipped by a dash. Keep this refinement local
+  // to fountain approaches so movement on dry ground retains its exact behavior.
+  const nearFountain = plan.props.some(prop => prop.kind === 'Courtyard_Fountain'
+    && Math.hypot(body.x - prop.x, body.y - prop.y) <= prop.r + Math.hypot(dx, dy) + PLAYER_RADIUS)
+  const steps = nearFountain ? Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.12)) : 1
+  for (let i = 0; i < steps; i++) stepBodyOnce(plan, body, dx / steps, dy / steps, dt / steps)
+}
+
+function stepBodyOnce(plan: FloorPlan, body: KinematicBody, dx: number, dy: number, dt: number) {
+  let depth = 0
+  for (const prop of plan.props) depth = Math.max(depth, getFountainWaterContact(prop, body)?.depth ?? 0)
+  const speed = 1 - 0.4 * Math.min(1, depth / 0.5)
+  dx *= speed
+  dy *= speed
   // Horizontal, axis-separated so tall props block like walls but slide.
   if (dx !== 0 || dy !== 0) {
     const walled = moveWithCollision(plan, body.x, body.y, dx, dy)

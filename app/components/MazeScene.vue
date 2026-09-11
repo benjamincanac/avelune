@@ -43,6 +43,7 @@ import {
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
 import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
+import type { FountainInteractor } from '~/utils/fountainWater'
 import { createCourtyardSky } from '~/utils/courtyardSky'
 import { COURTYARD_LANDSCAPE_NAMES } from '~/utils/courtyardLandscape'
 import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
@@ -54,7 +55,7 @@ import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterM
 import type { CharacterAsset } from '~/utils/characterModels'
 
 /**
- * Tempest's 3D world, built imperatively with three.js inside the Tres context.
+ * Avelune's 3D world, built imperatively with three.js inside the Tres context.
  *
  * Tres provides the renderer, scene, camera, and render loop. The courtyard
  * uses authored placements of custom buildings, furniture and trees, drawn as
@@ -122,6 +123,7 @@ scene.value.add(torchLight)
  *  build its plan once and read it everywhere. */
 const hubPlan = generateHub()
 
+const waterActors: FountainInteractor[] = []
 let courtyard: ReturnType<typeof createCourtyardScene> | null = null
 
 /** Everything world-shaped lives here so a rebuild can swap it wholesale. */
@@ -808,7 +810,6 @@ onBeforeRender(({ delta }) => {
   const dt = Math.min(delta, 0.1)
   const now = Date.now()
   const serverNow = props.game.serverNow()
-  courtyard?.update(serverNow / 1000)
   const selfId = props.game.selfId.value
   const self = selfId ? props.game.players.get(selfId) : undefined
 
@@ -935,7 +936,7 @@ onBeforeRender(({ delta }) => {
   }
 
   if (camera.value && renderer.instance instanceof WebGLRenderer) {
-    atmosphere.update(serverNow, dt, camera.value, renderer.instance, local.x, local.y)
+    atmosphere.update(serverNow, dt, camera.value, renderer.instance, local.x, local.y, props.game.weather.value, props.game.timeOfDay.value)
   }
 
   // Reconcile player rigs with the roster.
@@ -1039,6 +1040,18 @@ onBeforeRender(({ delta }) => {
       rig.bubbleText = ''
     }
   }
+
+  waterActors.length = props.game.players.size
+  let waterActorIndex = 0
+  for (const [id, player] of props.game.players) {
+    const actor = waterActors[waterActorIndex] ??= { id, x: 0, z: 0, feetY: 0 }
+    actor.id = id
+    actor.x = id === selfId ? local.x : player.rx
+    actor.z = id === selfId ? local.y : player.ry
+    actor.feetY = id === selfId ? local.z : player.rz
+    waterActorIndex++
+  }
+  courtyard?.update(serverNow / 1000, waterActors)
 
   // Hub Oracle: spawn it once its model lands, run its idle animation, float a
   // bubble when it speaks in chat, and track proximity (drives the HUD hint).

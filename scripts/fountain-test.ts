@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createFountainSimulation } from '../app/utils/fountainSimulation.ts'
+import { createFountainInteractions, createFountainSimulation } from '../app/utils/fountainSimulation.ts'
 
 function energy(sim: ReturnType<typeof createFountainSimulation>) {
   return sim.heights.reduce((sum, h, i) => sum + h * h + sim.velocities[i]! ** 2, 0)
@@ -117,4 +117,44 @@ test('surface normals follow slopes and foam spreads with bounded surface flow',
   sim.reset()
   assert.ok(sim.flowX.every(value => value === 0))
   assert.ok(sim.flowZ.every(value => value === 0))
+})
+
+test('wading creates wakes while stationary bodies, first observations and teleports stay quiet', () => {
+  const sim = createFountainSimulation(96, 3.05, 0.56)
+  const interactions = createFountainInteractions(sim, 0.48, 0.12)
+  const body = { id: 'walker', x: 1, z: 0, feetY: 0.12 }
+  interactions.update(0, [body])
+  interactions.update(1 / 60, [body])
+  assert.equal(energy(sim), 0)
+  for (let frame = 2; frame <= 30; frame++) {
+    interactions.update(frame / 60, [{ ...body, x: 1 + frame * 0.025 }])
+    sim.step()
+  }
+  assert.ok(energy(sim) > 0)
+  assert.ok(sim.foam.some(value => value > 0))
+  assert.ok(Math.abs(sim.heights.reduce((sum, h) => sum + h, 0)) < 1e-5)
+  sim.reset()
+  interactions.update(31 / 60, [{ ...body, x: -2 }])
+  assert.equal(energy(sim), 0)
+  interactions.update(32 / 60, [])
+  interactions.update(33 / 60, [body])
+  assert.equal(energy(sim), 0)
+})
+
+test('entering water splashes once, but a suspended body and reconnect do not disturb it', () => {
+  const sim = createFountainSimulation(96, 3.05, 0.56)
+  const interactions = createFountainInteractions(sim, 0.48, 0.12)
+  const body = { id: 'jumper', x: 1.5, z: 0, feetY: 0.8 }
+  let splashes = 0
+  const splash = () => splashes++
+  interactions.update(0, [body], splash)
+  interactions.update(0.1, [{ ...body, x: 1.6 }], splash)
+  assert.equal(energy(sim), 0)
+  interactions.update(0.2, [{ ...body, x: 1.6, feetY: 0.3 }], splash)
+  assert.equal(splashes, 1)
+  assert.ok(energy(sim) > 0)
+  sim.reset()
+  interactions.update(2, [{ ...body, feetY: 0.12 }], splash)
+  assert.equal(energy(sim), 0)
+  assert.equal(splashes, 1)
 })

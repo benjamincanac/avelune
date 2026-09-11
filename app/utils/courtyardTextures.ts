@@ -50,9 +50,9 @@ export function makePlazaSurface() {
   const ctx = canvas.getContext('2d')!
   const rng = createRng(813)
   const center = canvas.width / 2
-  const rings = 9
-  ctx.lineWidth = 1.1
-  ctx.strokeStyle = 'rgba(82,91,85,0.24)'
+  const rings = 20
+  ctx.lineWidth = 0.85
+  ctx.strokeStyle = 'rgba(116,99,67,0.28)'
   for (let ring = 1; ring <= rings; ring++) {
     const inner = (ring - 1) * center / rings
     const outer = ring * center / rings
@@ -65,7 +65,7 @@ export function makePlazaSurface() {
       ctx.arc(center, center, outer, start, end)
       ctx.arc(center, center, inner, end, start, true)
       ctx.closePath()
-      ctx.fillStyle = `rgba(125,139,121,${0.025 + rng() * 0.085})`
+      ctx.fillStyle = `rgba(168,143,98,${0.025 + rng() * 0.1})`
       ctx.fill()
       ctx.stroke()
     }

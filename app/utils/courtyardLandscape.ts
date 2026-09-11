@@ -1,7 +1,10 @@
 import {
-  Box3, BufferAttribute, BufferGeometry, Color, DoubleSide, Group,
+  Box3, BufferAttribute, BufferGeometry, Color, CylinderGeometry, DoubleSide, Group,
   InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Object3D, Vector3,
 } from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { COURTYARD_ASSETS } from '#shared/utils/courtyard'
+import type { HubPropPlacement } from '#shared/utils/maze'
 
 export const COURTYARD_LANDSCAPE_NAMES = ['tree', 'bush', 'flowers', 'rock'] as const
 
@@ -14,7 +17,7 @@ const gardens = [
 
 /** Decorative landscape only. All relief and tree trunks remain outside the
  * playable square; garden plants are low enough to walk through. */
-export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) {
+export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>, villagePlacements: readonly HubPropPlacement[] = []) {
   const group = new Group()
   group.name = 'Courtyard landscape'
   const ownedGeometries: BufferGeometry[] = []
@@ -95,7 +98,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
   ownedMaterials.push(terrainMaterial)
 
   const dummy = new Object3D()
-  type Placement = { x: number, z: number, y: number, size: number, angle: number }
+  type Placement = { x: number, z: number, y: number, size: number, angle: number, width?: number }
   const placements = new Map<string, Placement[]>()
   function place(name: string, x: number, z: number, y: number, size: number) {
     const list = placements.get(name) ?? []
@@ -103,16 +106,140 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
     placements.set(name, list)
   }
 
-  // Authored woodland groups frame the town rather than forming an even ring.
-  const trees = [
-    [-6, 10, 8.4], [-11, 17, 7], [-4, 25, 9.1],
-    [57, 6, 9.4], [63, 15, 7.8], [57, 23, 8.6],
-    [2, -14, 7.2], [10, -18, 8], [46, -16, 7.6], [59, 44, 8.4],
+  // Separate copses leave broad views between them, with smaller saplings and
+  // shrubs feathering the edges. Never put decorative trunks inside collision.
+  const outsideVillage = (x: number, z: number) => x <= 6 || x >= 50 || z <= 6 || z >= 50
+  const copses = [
+    { x: -10, z: 17, rx: 10, rz: 19, count: 10 },
+    { x: 65, z: 12, rx: 12, rz: 18, count: 9 },
+    { x: 12, z: -20, rx: 21, rz: 12, count: 8 },
+    { x: 69, z: 59, rx: 16, rz: 12, count: 6 },
+    { x: 16, z: 67, rx: 17, rz: 9, count: 7 },
   ]
-  for (const [x = 0, z = 0, size = 8] of trees) {
-    place('tree', x, z, height(x, z) - 0.1, size)
-    place('bush', x + 2.8, z - 1.4, height(x + 2.8, z - 1.4) - 0.03, 0.8 + random() * 0.4)
+  const treePositions: { x: number, z: number }[] = []
+  for (const copse of copses) {
+    for (let attempt = 0, planted = 0; attempt < copse.count * 12 && planted < copse.count; attempt++) {
+      const angle = random() * Math.PI * 2
+      const radius = Math.sqrt(random())
+      const x = copse.x + Math.cos(angle) * copse.rx * radius
+      const z = copse.z + Math.sin(angle) * copse.rz * radius
+      if (!outsideVillage(x, z) || treePositions.some(p => Math.hypot(p.x - x, p.z - z) < 4.8)) continue
+      const size = 5.5 + (1 - radius) * 4 + random() * 3
+      place('tree', x, z, height(x, z) - 0.12, size)
+      treePositions.push({ x, z })
+      planted++
+      for (let i = 0; i < 2; i++) {
+        const spread = 2.2 + random() * 2.5
+        const direction = random() * Math.PI * 2
+        const bx = x + Math.cos(direction) * spread
+        const bz = z + Math.sin(direction) * spread
+        if (!outsideVillage(bx, bz)) continue
+        place('bush', bx, bz, height(bx, bz) - 0.05, 0.65 + random() * 0.8)
+        if (i === 0) place('flowers', bx + 0.5, bz, height(bx + 0.5, bz), 0.32 + random() * 0.2)
+      }
+    }
   }
+
+  // Sparse folded leaf sprays preserve the detailed tree's broken silhouette
+  // at distance, with under 1k triangles instead of the full tree's 38k.
+  const distantParts: BufferGeometry[] = []
+  function branch(start: Vector3, end: Vector3, radius: number) {
+    const direction = end.clone().sub(start)
+    const cylinder = new CylinderGeometry(radius * 0.3, radius, direction.length(), 5).toNonIndexed()
+    cylinder.deleteAttribute('uv')
+    cylinder.applyQuaternion(dummy.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), direction.normalize()))
+    cylinder.translate((start.x + end.x) / 2, (start.y + end.y) / 2, (start.z + end.z) / 2)
+    const tint = new Float32Array(cylinder.getAttribute('position').count * 3)
+    color.set('#635d43')
+    for (let i = 0; i < tint.length; i += 3) tint.set([color.r, color.g, color.b], i)
+    cylinder.setAttribute('color', new BufferAttribute(tint, 3))
+    distantParts.push(cylinder)
+  }
+  branch(new Vector3(), new Vector3(0.025, 0.78, -0.015), 0.038)
+  const leafPositions: number[] = []
+  const leafColors: number[] = []
+  const axis = new Vector3()
+  const across = new Vector3()
+  const leafCenter = new Vector3()
+  const normal = new Vector3()
+  for (let cluster = 0; cluster < 12; cluster++) {
+    const angle = cluster * 2.399
+    const radius = cluster < 8 ? 0.24 : 0.095
+    const cy = 0.58 + cluster * 0.027
+    const center = new Vector3(Math.cos(angle) * radius, cy, Math.sin(angle) * radius)
+    if (cluster < 8) branch(new Vector3(0.01, cy - 0.23, 0), center, 0.018)
+    for (let leaf = 0; leaf < 17; leaf++) {
+      const elevation = 1 - 2 * (leaf + 0.5) / 17
+      const radial = Math.sqrt(1 - elevation * elevation)
+      const theta = leaf * 2.399 + cluster
+      normal.set(Math.cos(theta) * radial, elevation, Math.sin(theta) * radial)
+      leafCenter.copy(center).addScaledVector(normal, 0.075)
+      axis.set(Math.cos(theta + 0.7), 0.5, Math.sin(theta + 0.7)).normalize()
+      across.crossVectors(normal, axis).normalize()
+      const length = 0.12 + ((leaf + cluster) % 4) * 0.014
+      const width = length * 0.32
+      const points = [
+        leafCenter.clone().addScaledVector(axis, -length * 0.5),
+        leafCenter.clone().addScaledVector(across, width),
+        leafCenter.clone().addScaledVector(axis, length * 0.65),
+        leafCenter.clone().addScaledVector(across, -width),
+        leafCenter.clone().addScaledVector(normal, length * 0.12),
+      ]
+      color.set('#527745').multiplyScalar(0.9 + elevation * 0.13 + ((leaf + cluster) % 3) * 0.08)
+      for (const index of [0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4]) {
+        const point = points[index]!
+        leafPositions.push(point.x, point.y, point.z)
+        leafColors.push(color.r, color.g, color.b)
+      }
+    }
+  }
+  const leafGeometry = new BufferGeometry()
+  leafGeometry.setAttribute('position', new BufferAttribute(new Float32Array(leafPositions), 3))
+  leafGeometry.setAttribute('color', new BufferAttribute(new Float32Array(leafColors), 3))
+  leafGeometry.computeVertexNormals()
+  distantParts.push(leafGeometry)
+  const distantGeometry = mergeGeometries(distantParts)!
+  distantParts.forEach(part => part.dispose())
+  const distantMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 1, side: DoubleSide })
+  const distantTrees: Placement[] = []
+  const woodland = [
+    { x: -45, z: 4, rx: 21, rz: 34 },
+    { x: -28, z: -49, rx: 37, rz: 22 },
+    { x: 57, z: -53, rx: 26, rz: 20 },
+    { x: 101, z: 35, rx: 23, rz: 48 },
+    { x: 75, z: 104, rx: 36, rz: 19 },
+    { x: 16, z: 109, rx: 24, rz: 16 },
+    { x: -43, z: 92, rx: 29, rz: 28 },
+  ]
+  for (const copse of woodland) {
+    for (let i = 0; i < 75; i++) {
+      const angle = random() * Math.PI * 2
+      const radius = Math.sqrt(random())
+      const x = copse.x + Math.cos(angle) * copse.rx * radius
+      const z = copse.z + Math.sin(angle) * copse.rz * radius
+      if (!outsideVillage(x, z)) continue
+      const y = height(x, z)
+      const slope = Math.hypot(height(x + 1, z) - y, height(x, z + 1) - y)
+      if (slope > 0.65 || distantTrees.some(p => Math.hypot(p.x - x, p.z - z) < 3.8)) continue
+      distantTrees.push({ x, z, y: y - 0.22, size: 6 + random() * 5, angle, width: 0.8 + random() * 0.35 })
+    }
+  }
+  const distantForest = new InstancedMesh(distantGeometry, distantMaterial, distantTrees.length)
+  distantTrees.forEach((p, i) => {
+    dummy.position.set(p.x, p.y, p.z)
+    dummy.rotation.set(0, p.angle, 0)
+    dummy.scale.set(p.size * p.width!, p.size, p.size * p.width!)
+    dummy.updateMatrix()
+    distantForest.setMatrixAt(i, dummy.matrix)
+    const variation = 0.8 + random() * 0.2
+    distantForest.setColorAt(i, color.setRGB(variation, 0.9 + random() * 0.1, variation))
+  })
+  distantForest.receiveShadow = true
+  distantForest.computeBoundingSphere()
+  group.add(distantForest)
+  instances.push(distantForest)
+  ownedGeometries.push(distantGeometry)
+  ownedMaterials.push(distantMaterial)
   // Partly buried, rotated rock clusters create visible geological structure
   // across the foothills, with the larger faces reserved for distant ridges.
   const outcrops = [[-19, -3], [72, -8], [-13, 60], [81, 47], [18, -53], [-55, -39]]
@@ -125,6 +252,18 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
     }
   }
 
+  const buildings = villagePlacements.filter(p => ['Courtyard_Inn', 'Courtyard_Shop', 'Courtyard_Tower'].includes(p.kind))
+  function beneathBuilding(x: number, z: number) {
+    return buildings.some((p) => {
+      const asset = COURTYARD_ASSETS[p.kind as 'Courtyard_Inn' | 'Courtyard_Shop' | 'Courtyard_Tower']
+      const dx = x - p.x
+      const dz = z - p.y
+      const c = Math.cos(p.rot)
+      const s = Math.sin(p.rot)
+      return Math.abs(dx * c - dz * s) < asset.width * (p.s3?.[0] ?? p.scale) / 2 + 0.35
+        && Math.abs(dx * s + dz * c) < asset.depth * (p.s3?.[2] ?? p.scale) / 2 + 0.35
+    })
+  }
   const grassPlacements: Placement[] = []
   for (const garden of gardens) {
     for (let i = 0; i < 900; i++) {
@@ -132,20 +271,25 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
       const radius = Math.sqrt(random())
       const x = garden.x + Math.cos(angle) * garden.rx * radius
       const z = garden.z + Math.sin(angle) * garden.rz * radius
+      if (beneathBuilding(x, z)) continue
       grassPlacements.push({ x, z, y: 0.025, size: 0.7 + random() * 0.8, angle: random() * Math.PI * 2 })
       if (i % 90 === 0) place('flowers', x, z, 0.015, 0.30 + random() * 0.16)
       else if (i % 137 === 0) place('bush', x, z, 0.01, 0.26 + random() * 0.1)
     }
   }
 
-  // Meadow islands continue the gardens beyond the wall without placing any
-  // decorative relief or solid trunks in the playable square.
-  for (let i = 0; i < 2200; i++) {
-    const x = -16 + random() * 88
-    const z = -16 + random() * 88
-    if (x > 6 && x < 50 && z > 6 && z < 50) continue
-    if (Math.sin(x * 0.23) + Math.cos(z * 0.31) < -0.15) continue
-    grassPlacements.push({ x, z, y: height(x, z), size: 0.8 + random() * 0.9, angle: random() * Math.PI * 2 })
+  // Dense patchy meadow near the wall thins uphill. Scattered flower drifts
+  // follow the same moisture pattern, leaving dry gaps rather than a lawn.
+  for (let i = 0; i < 16500; i++) {
+    const x = -35 + random() * 126
+    const z = -35 + random() * 126
+    if (!outsideVillage(x, z)) continue
+    const distance = Math.max(Math.abs(x - 28), Math.abs(z - 28))
+    const patch = Math.sin(x * 0.14 + Math.sin(z * 0.19)) + Math.cos(z * 0.16 - x * 0.035)
+    if (patch < -0.9 || random() > 1 - smooth(30, 65, distance) * 0.87) continue
+    const y = height(x, z)
+    grassPlacements.push({ x, z, y, size: 0.9 + random() * 1.1, angle: random() * Math.PI * 2 })
+    if (i % 130 === 0 && patch > 0.1) place('flowers', x, z, y, 0.28 + random() * 0.24)
   }
 
   // Curved, tapered blades with several segments, a soft base-to-tip gradient,
@@ -242,6 +386,12 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
         matrix.multiplyMatrices(dummy.matrix, source)
         batch.setMatrixAt(i, matrix)
       })
+      if (name === 'tree' || name === 'bush') {
+        list.forEach((p, i) => {
+          const variation = 0.5 + Math.sin(p.x * 1.37 + p.z * 0.73) * 0.5
+          batch.setColorAt(i, color.setRGB(0.83 + variation * 0.17, 0.91 + variation * 0.09, 0.76 + variation * 0.2))
+        })
+      }
       batch.castShadow = name !== 'flowers'
       batch.receiveShadow = true
       batch.computeBoundingSphere()

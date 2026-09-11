@@ -1,4 +1,4 @@
-# Tempest — Roadmap
+# Avelune Roadmap
 
 > A 3D MMO on Vercel, starting with a shared fantasy courtyard and an AI Oracle NPC.
 > Nuxt + TresJS + Vercel WebSockets. It exists to demo the Vercel WebSocket upgrade
@@ -8,6 +8,8 @@
 ## Status: done ✓
 
 ### Core loop & simulation
+- [x] Shared `/time dawn|day|sunset|night|auto` command, independent of weather and synchronized on join.
+- [x] Shared `/weather clear|overcast|rain|auto` chat command, synchronized for connected players and new arrivals.
 - [x] Authoritative 20 Hz server sim; client prediction via shared kinematics (`shared/utils/maze.ts` → `stepBody`), input-aware reconcile that never drags you backward against your own input
 - [x] Third-person camera (wall-aware boom), raw-delta mouse-look, pointer lock + fullscreen (`F`)
 - [x] Jump (`Space`) & dash (`Shift`) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward
@@ -18,6 +20,7 @@
 - [x] Bot load-testing script (`scripts/spawn-bots.mjs`)
 
 ### Identity, onboarding & app shell
+- [x] Avelune branding, village wording in the UI, and metadata matching the current world. Existing deployment URLs and identity cookies are preserved.
 - [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
 - [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
 - [x] **Direct entry**: no landing screen. `index.vue` probes `/api/auth` — a returning player drops straight into the arena, a new visitor lands on character creation
@@ -29,11 +32,14 @@
 - [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. `anthropic/claude-haiku-4.5` via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); `MushroomKing.glb` body on the sand with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
 
 ### World, art & assets
+- [x] Denser village with 14 buildings, connected side streets, varied roof heights, terracotta tiles, timber façades, ivy, blue banners and flowering planters. Overhead garlands attach to authored tree trunks with visible rope ties. Shared-physics connectivity tests cover streets and building frontages.
 - [x] Colorful fantasy courtyard: custom buildings, tiled roofs, shuttered windows, fountain, market stalls, gardens, trees and a central sparring circle. Authored `courtyard-*.json` layouts replace the active colosseum layout; the original `hub-*.json` files are retained.
 - [x] Original sculpted environment models generated in Blender, curved roofs, carved fountain, botanical assets, layered terrain, grass wind, contact occlusion and restrained bloom. Unused downloaded environment models and their editor thumbnails have been removed.
+- [x] Village outskirts: irregular woodland clusters, layered shrubs and wildflowers, denser meadow grass, and lightweight trees on distant hills. Decorative vegetation stays outside the playable boundary.
 - [x] Anime fantasy art pass: steeper slate roofs, dormers, exposed gable timber, pointed leaf canopies, denser wind-driven meadows and radial limestone paving. Atmospheric sky with volumetric cloud shading, sun/moon/stars and sky reflections follows the shared clock. Rebuilt architecture and nature assets use Meshopt compression.
-- [x] Fountain impacts displace water locally into volume-balanced ripples, transport and disperse foam, and launch splashes along the surface normal. Both bowls use circular reflective surfaces with Fresnel, fine animated normals and guarded 256px planar reflections. Water remains a visual simulation.
-- [x] Central enlarged fountain with gravity driven jets, splash droplets and fixed timestep wave simulation in both bowls. Water stays visual; authoritative movement uses the scaled solid footprint.
+- [x] Enlarged wadeable fountain with shared stepped collision and water drag, player entry splashes and wakes, and refracted basin views.
+- [x] Fountain impacts displace water locally into volume-balanced ripples, transport and disperse foam, and launch splashes along the surface normal. Both bowls use circular reflective surfaces with Fresnel, fine animated normals and guarded 256px planar reflections. Surface waves remain cosmetic; wading uses shared authoritative kinematics.
+- [x] Central enlarged fountain with gravity driven jets, splash droplets and fixed timestep wave simulation in both bowls. Surface waves stay visual; shared stepped basin collision supports wading.
 - [x] Courtyard asset dimensions shared with collision, merged geometry and instanced placements, animated pennants and fountain ripples, readable night lighting, courtyard minimap landmarks.
 - [x] **Colosseum arena** (`HUB_LAYOUT` 56×56 + `generateHub`): open sand disc with a rune circle, walled in by an unbroken stands ring — there is no exit, the arena is the whole world. Every visible piece is a hand-placed kit piece baked into `shared/data/hub-structure.json` and rendered instanced; only the sand and the ring are procedural
 - [x] Downloaded Peasant/Ranger character models restored. Removed the experimental character and its generator, assets and customization code. Escape menu character editing supports Save and Cancel.
@@ -43,7 +49,7 @@
 - [x] **Real `og.png`** rendered from game assets (`make_og.py`)
 
 ### Ship
-- [x] `git init`, `benjamincanac/tempest` repo created & pushed
+- [x] `git init`, `benjamincanac/avelune` repo created & pushed
 - [x] First Vercel deploy
 
 ### Removed in the simplification (2026-09-10)
@@ -61,7 +67,7 @@ both sides share.
 - [ ] Verify the Oracle works deployed: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in chat (needs `AI_GATEWAY_API_KEY`)
 - [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the newer kits are already meshopt+WebP)
 
-### 2. Make the arena worth standing in
+### 2. Make the village worth standing in
 - [ ] Audio — nothing is implemented yet: footsteps, jump/land, dash whoosh, ambient wind/crowd, positional audio for other players (three.js `AudioListener`/`PositionalAudio`)
 - [ ] Emotes / a wave or cheer clip, so players can interact without typing
 - [ ] Mobile/touch controls (virtual stick + look drag)
@@ -92,6 +98,6 @@ both sides share.
 - Blender 5.1.2 at `/Applications/Blender.app/Contents/MacOS/Blender` — asset scripts run headless (`--background --python scripts/<x>.py -- <args>`); kit conversion uses `npx @gltf-transform/cli optimize`
 - Quaternius packs download from Google Drive folders linked on quaternius.com pack pages (`gdown --folder`); the Universal characters + Modular Fantasy Outfits are itch.io-only behind Cloudflare (manual download, then run `convert_universal_characters.py`)
 - Protocol testing: `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
-- Repo: `github.com/benjamincanac/tempest` (branch `main`)
+- Repo: `github.com/benjamincanac/avelune` (branch `main`)
 - **Shared-code invariant:** anything affecting gameplay position/collision must live in `shared/utils/maze.ts` so server and prediction agree; client-only code renders it
 - Domain subagents live in `.claude/agents/` (`world-sim`, `server-net`, `scene-3d`, `game-ui`, `oracle-ai`, `assets`); see `CLAUDE.md`

@@ -68,6 +68,13 @@ independently.
    Never store `top`/`r` in the JSON; always derive via `makeProp`. Box collision
    must invert Three.js Y rotation: `localX = dx*cos - dy*sin`,
    `localY = dx*sin + dy*cos`. The opposite signs mirror diagonal footprints.
+   `Courtyard_Fountain` is a special stepped basin, not a solid disc. `FOUNTAIN`
+   in `courtyard.ts` defines its radial floors, rim, water level, and central
+   pedestal. `surfaceHeight` and `getFountainWaterContact` inverse the placement
+   rotation and per-axis scale. Water contact uses model-local x/y and world
+   foot depth. `stepBody` slows submerged feet and substeps near fountains so
+   dashes cannot skip narrow steps. Visual ripples remain client-only.
+
 
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
@@ -89,3 +96,15 @@ agent are told what moved.
 - `pnpm exec jiti scripts/world-test.ts` checks spawn, boundaries, courtyard
   obstacles, diagonal boxes, bench jumping, and deterministic movement.
 - The protocol test is `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`.
+
+## Shared weather commands
+
+`/weather clear|overcast|rain|auto` changes the shared server weather mode.
+The server includes `welcome.weather` and broadcasts `{ t: "weather", mode }`.
+`{ t: "system", text }` carries command feedback, with usage errors sent only to
+the caller. The client stores `game.weather` and passes it to the sky renderer;
+`auto` uses the existing server clock cycle. Commands skip chat bubbles and the Oracle.
+
+`/time dawn|day|sunset|night|auto` independently controls the shared sun phase.
+`welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases
+leave the server clock, weather and animations running; `auto` restores the cycle.

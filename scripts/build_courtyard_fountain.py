@@ -83,42 +83,62 @@ def bevel(obj, width=.025, segments=2):
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
-# Individual wedge-cut stones on the lowest course give credible construction.
-for k in range(16):
-    n = 6
-    verts = []
-    for z in (.0, .14):
-        for r in (1.57, 1.86):
-            for i in range(n + 1):
-                a = 2 * math.pi * (k + .014 + .972 * i / n) / 16
-                verts.append((r * math.cos(a), r * math.sin(a), z))
-    faces = []
-    stride = 2 * (n + 1)
-    for i in range(n):
-        faces.extend([(i, i+1, i+n+2, i+n+1),
-                      (stride+i+n+1, stride+i+n+2, stride+i+1, stride+i),
-                      (i+stride, i+stride+1, i+1, i),
-                      (i+n+1, i+n+2, i+n+2+stride, i+n+1+stride)])
-    faces.extend([(0, n+1, n+1+stride, stride), (n, n+stride, 2*n+1+stride, 2*n+1)])
-    mesh = bpy.data.meshes.new('Cut stone')
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    obj = bpy.data.objects.new('Plinth voussoir', mesh)
-    bpy.context.collection.objects.link(obj)
-    bevel(obj, .014, 2)
-    finish(obj, stone, False)
+# Three broad, individually cut stone courses form a walkable approach.
+# Keep this profile aligned with shared fountain collision constants.
+for course, (inner, outer, top, count) in enumerate([
+    (3.5, 3.8, .18, 40), (3.25, 3.5, .36, 36), (3.05, 3.25, .54, 32),
+]):
+    for k in range(count):
+        n = 6
+        verts = []
+        for z in (.0, top):
+            for r in (inner, outer):
+                for i in range(n + 1):
+                    a = math.tau * (k + .005 + .99 * i / n) / count
+                    verts.append((r * math.cos(a), r * math.sin(a), z))
+        faces = []
+        stride = 2 * (n + 1)
+        for i in range(n):
+            faces.extend([(i, i+1, i+n+2, i+n+1),
+                          (stride+i+n+1, stride+i+n+2, stride+i+1, stride+i),
+                          (i+stride, i+stride+1, i+1, i),
+                          (i+n+1, i+n+2, i+n+2+stride, i+n+1+stride)])
+        faces.extend([(0, n+1, n+1+stride, stride), (n, n+stride, 2*n+1+stride, 2*n+1)])
+        mesh = bpy.data.meshes.new('Cut limestone')
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        obj = bpy.data.objects.new(f'Pool stair {course + 1}', mesh)
+        bpy.context.collection.objects.link(obj)
+        bevel(obj, .008, 2)
+        finish(obj, carving if course == 2 else stone, False)
 
-# Continuous curved basin: outer ogee molding, narrow lip, open interior.
-lathe('Sculpted lower basin', [
-    (.0,.12),(1.59,.12),(1.64,.15),(1.65,.18),(1.62,.21),
-    (1.57,.24),(1.58,.28),(1.63,.34),(1.70,.39),(1.76,.42),
-    (1.79,.46),(1.79,.52),(1.775,.55),(1.75,.57),(1.65,.57),
-    (1.625,.55),(1.62,.52),(1.60,.45),(1.55,.38),(1.46,.33),
-    (1.31,.30),(.0,.30),(.0,.12)
-])
-lathe('Basin lip highlight', [(1.755,.543),(1.776,.548),(1.78,.558),
-    (1.763,.573),(1.743,.574),(1.737,.565),(1.755,.543)], carving)
-lathe('Basin neck fillet', [(1.623,.215),(1.64,.224),(1.643,.235),(1.627,.244),(1.616,.232),(1.623,.215)], carving)
+# Watertight floor and submerged inner step. Runtime water sits at .48.
+basin = lathe('Shallow wading basin', [
+    (0, 0), (3.05, 0), (3.05, .30), (2.85, .30),
+    (2.85, .12), (0, .12), (0, 0),
+], n=160)
+for face in basin.data.polygons:
+    face.use_smooth = False
+
+# Celadon inlay gives the clear water a readable bottom without textures.
+for radius in (.78, 2.55):
+    lathe('Submerged celadon inlay', [
+        (radius, .121), (radius + .035, .121),
+    ], teal, 160)
+for k in range(24):
+    a = math.tau * k / 24
+    r = 2.7
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(r*math.cos(a), r*math.sin(a), .124))
+    tile = bpy.context.object
+    tile.name = 'Submerged mosaic diamond'
+    tile.scale = (.055, .055, .006)
+    tile.rotation_euler.z = a + math.pi / 4
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bevel(tile, .003, 1)
+    finish(tile, teal, False)
+
+# The existing pedestal rises from the new, lower pool floor.
+lathe('Submerged pedestal foundation', [(0,.12),(.55,.12),(.55,.30),(0,.30)])
 
 # The stem is an urn-shaped, gently fluted stone baluster.
 lathe('Pedestal foot', [(0,.30),(.53,.30),(.55,.33),(.55,.36),(.52,.39),
@@ -185,8 +205,6 @@ def leaf(name, angle, r0, r1, z0, z1, width, mat=carving):
     bpy.context.collection.objects.link(obj)
     return finish(obj, mat)
 
-for k in range(12):
-    leaf('Basin acanthus relief', math.tau*k/12, 1.636, 1.765, .285, .49, .085)
 for k in range(8):
     leaf('Capital lily carving', math.tau*k/8, .345, .657, 1.645, 1.928, .075)
 
@@ -227,8 +245,13 @@ print('FOUNTAIN', {'bytes': OUTPUT.stat().st_size,
     'vertices':len(verts), 'radius':round(max(math.hypot(v.x,v.y) for v in verts), 4),
     'height':round(max(v.z for v in verts), 4), 'min_z':round(min(v.z for v in verts),4)})
 
-# Optional studio image for inspecting the authored mesh.
+# Optional Meshopt output preserves vertex colors and the four material groups.
 import sys
+if '--compress' in sys.argv:
+    import subprocess
+    subprocess.run(['npx', '--yes', '@gltf-transform/cli@4.4.1', 'meshopt', str(OUTPUT), str(OUTPUT)], check=True)
+
+# Optional studio image for inspecting the authored mesh.
 if '--render' in sys.argv:
     floor_mat = material('Studio floor', (.25,.29,.24))
     bpy.ops.mesh.primitive_plane_add(size=200)
@@ -237,7 +260,7 @@ if '--render' in sys.argv:
     camera = bpy.context.object
     camera.rotation_euler = (Vector((0,0,1.03)) - camera.location).to_track_quat('-Z','Y').to_euler()
     camera.data.type = 'ORTHO'
-    camera.data.ortho_scale = 4.7
+    camera.data.ortho_scale = 9.2
     bpy.context.scene.camera = camera
     for loc, energy, size, color in [((2,-3,7),900,5,(1,.88,.71)),((-3,-1,4),600,4,(.7,.82,1))]:
         bpy.ops.object.light_add(type='AREA', location=loc)

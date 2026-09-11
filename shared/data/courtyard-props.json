@@ -50,16 +50,16 @@
   },
   {
     "kind": "Courtyard_Planter",
-    "x": 18,
+    "x": 16,
     "y": 19,
-    "rot": 0,
+    "rot": 1.5708,
     "scale": 1
   },
   {
     "kind": "Courtyard_Planter",
-    "x": 38,
+    "x": 35,
     "y": 20,
-    "rot": 0,
+    "rot": 1.5708,
     "scale": 1
   },
   {
@@ -99,7 +99,7 @@
   },
   {
     "kind": "Courtyard_Planter",
-    "x": 37,
+    "x": 39,
     "y": 14.4,
     "rot": 0,
     "scale": 1
@@ -162,7 +162,7 @@
   },
   {
     "kind": "Courtyard_Stall",
-    "x": 42,
+    "x": 41.5,
     "y": 28,
     "rot": -1.5708,
     "scale": 1

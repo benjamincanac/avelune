@@ -1,12 +1,12 @@
 import {
   CanvasTexture, Color, CylinderGeometry, DoubleSide, ExtrudeGeometry, Group,
-  IcosahedronGeometry, Mesh, MeshStandardMaterial, PlaneGeometry, Shape,
-  SRGBColorSpace, TorusGeometry, Vector3,
+  IcosahedronGeometry, LatheGeometry, Mesh, MeshStandardMaterial, PlaneGeometry, Shape, ShapeGeometry,
+  SRGBColorSpace, TorusGeometry, Vector2, Vector3,
 } from 'three'
 import type { BufferGeometry, Material } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { COURTYARD_ASSETS } from '#shared/utils/courtyard'
+import { COURTYARD_ASSETS, FOUNTAIN } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
 import { makeCourtyardSurface } from './courtyardTextures'
 
@@ -16,10 +16,10 @@ export function createCourtyardAssets(): Map<string, Group> {
   const rng = createRng(812)
   const surface = makeCourtyardSurface('plaster')
   const mat = (color: string, extra = {}) => new MeshStandardMaterial({ color, map: surface, roughness: 0.88, ...extra })
-  const stone = mat('#c8b796')
-  const trim = mat('#ecdabe')
+  const stone = mat('#adb9bd')
+  const trim = mat('#e3dfcd')
   const mortar = mat('#998e7a')
-  const plaster = mat('#f0d6a4')
+  const plaster = mat('#eee5ce')
   const pink = mat('#dba693')
   const wood = mat('#665043')
   const darkWood = mat('#433b38')
@@ -28,7 +28,7 @@ export function createCourtyardAssets(): Map<string, Group> {
   const roof = ['#bd7359', '#c67b5e', '#cd8363', '#b46a54'].map(c => mat(c))
   const blueRoof = ['#547f8e', '#5d8795', '#668e9c', '#537888'].map(c => mat(c))
   const leaves = ['#49764b', '#65914f', '#80a85c', '#9ebc6b'].map(c => mat(c))
-  const petals = ['#e4b65e', '#cc7594', '#9691c0', '#efcf9c'].map(c => mat(c))
+  const petals = ['#f3cf59', '#f4ecd3', '#9ab4cf', '#f4ecd3'].map(c => mat(c))
   const window = mat('#536f70', { roughness: 0.28, metalness: 0.12 })
   const light = mat('#ffdf9a', { emissive: '#ffb85c', emissiveIntensity: 0.65 })
   const water = mat('#63bcc1', { roughness: 0.19, metalness: 0.25, transparent: true, opacity: 0.88 })
@@ -79,8 +79,16 @@ export function createCourtyardAssets(): Map<string, Group> {
       const pz = z + (rng() - 0.5) * 0.65
       const h = 0.15 + rng() * 0.25
       cylinder(g, 0.025, 0.03, h, px, y + h / 2, pz, leaves[0], 4)
-      const bloom = mesh(g, new IcosahedronGeometry(0.1 + rng() * 0.06, 0), petals[i % petals.length]!, px, y + h, pz)
-      bloom.scale.y = 0.55
+      const leaf = mesh(g, new IcosahedronGeometry(0.18, 0), leaves[i % leaves.length]!, px, y + h * 0.4, pz)
+      leaf.scale.set(1, 0.3, 0.65)
+      leaf.rotation.set(0, rng() * Math.PI, 0.4)
+      const radius = 0.07 + rng() * 0.03
+      for (let petal = 0; petal < 5; petal++) {
+        const angle = petal * Math.PI * 2 / 5
+        const bloom = mesh(g, new IcosahedronGeometry(radius, 0), petals[i % petals.length]!, px + Math.cos(angle) * radius, y + h, pz + Math.sin(angle) * radius)
+        bloom.scale.set(1, 0.4, 1)
+      }
+      mesh(g, new IcosahedronGeometry(0.045, 0), gold, px, y + h + 0.03, pz)
     }
   }
   function roofAt(g: Group, width: number, depth: number, y: number, rise: number, colors: MeshStandardMaterial[]) {
@@ -230,6 +238,14 @@ export function createCourtyardAssets(): Map<string, Group> {
     box(g, 3, 0.55, 1.4, 0, 0.275, 0, stone)
     box(g, 3.12, 0.12, 1.52, 0, 0.56, 0, trim)
     box(g, 2.82, 0.08, 1.21, 0, 0.64, 0, mortar)
+    // Blue inset panels and modest flowers keep the authored stone footprint.
+    for (const side of [-1, 1]) {
+      box(g, 2.72, 0.31, 0.035, 0, 0.29, side * 0.716, teal)
+      for (const x of [-1.38, 1.38]) box(g, 0.045, 0.4, 0.055, x, 0.29, side * 0.73, gold)
+      box(g, 2.8, 0.035, 0.055, 0, 0.1, side * 0.73, gold)
+    }
+    flowers(g, 0, 0.67, -0.26, 2.65, 22)
+    flowers(g, 0, 0.67, 0.26, 2.65, 22)
     assets.set('Courtyard_Planter', g)
   }
   {
@@ -276,11 +292,15 @@ export function createCourtyardAssets(): Map<string, Group> {
   }
   {
     const g = new Group()
-    cylinder(g, 1.95, 2.05, 0.18, 0, 0.09, 0, stone, 24)
-    cylinder(g, 1.75, 1.85, 0.25, 0, 0.28, 0, trim, 24)
-    const rim = mesh(g, new TorusGeometry(1.64, 0.21, 6, 32), stone, 0, 0.54, 0)
-    rim.rotation.x = Math.PI / 2
-    cylinder(g, 1.5, 1.5, 0.04, 0, 0.45, 0, water, 40)
+    const f = FOUNTAIN
+    const profile = [
+      [0, 0], [f.outerRadius, 0], [f.outerRadius, f.outerStepHeight],
+      [f.middleStepRadius, f.outerStepHeight], [f.middleStepRadius, f.middleStepHeight],
+      [f.rimRadius, f.middleStepHeight], [f.rimRadius, f.rimHeight],
+      [f.waterRadius, f.rimHeight], [f.waterRadius, f.innerStepHeight],
+      [f.innerStepRadius, f.innerStepHeight], [f.innerStepRadius, f.floorHeight], [0, f.floorHeight],
+    ].map(([radius, height]) => new Vector2(radius!, height!))
+    mesh(g, new LatheGeometry(profile, 96), stone)
     cylinder(g, 0.3, 0.65, 1.35, 0, 0.97, 0, stone, 12)
     cylinder(g, 0.88, 0.4, 0.3, 0, 1.65, 0, trim, 16)
     cylinder(g, 0.78, 0.78, 0.03, 0, 1.81, 0, water, 24)
@@ -304,6 +324,30 @@ export function createCourtyardAssets(): Map<string, Group> {
     for (const x of [-0.18, 0.18]) for (const z of [-0.18, 0.18]) box(g, 0.04, 0.5, 0.04, 0.72 + x, 2.47, z, darkWood)
     cylinder(g, 0.03, 0.34, 0.22, 0.72, 2.84, 0, darkWood, 4).rotation.y = Math.PI / 4
     box(g, 0.44, 0.07, 0.44, 0.72, 2.18, 0, darkWood)
+    // Narrow pointed banners hang on the opposite arm from the lantern.
+    box(g, 0.76, 0.065, 0.065, -0.34, 2.83, 0, gold)
+    const outline = new Shape()
+    outline.moveTo(-0.28, 0)
+    outline.lineTo(0.28, 0)
+    outline.lineTo(0.28, -1.03)
+    outline.lineTo(0, -1.35)
+    outline.lineTo(-0.28, -1.03)
+    outline.closePath()
+    const bannerGold = mat('#d8bf77', { side: DoubleSide })
+    const bannerBlue = mat('#426c94', { side: DoubleSide })
+    mesh(g, new ShapeGeometry(outline), bannerGold, -0.37, 2.78, 0)
+    for (const side of [-1, 1]) {
+      const inset = mesh(g, new ShapeGeometry(outline), bannerBlue, -0.37, 2.74, side * 0.008)
+      inset.scale.set(0.88, 0.92, 1)
+      // Original compass lozenge emblem, readable at walking distance.
+      const emblem = new Shape()
+      emblem.moveTo(0, 0.2)
+      emblem.lineTo(0.09, 0)
+      emblem.lineTo(0, -0.3)
+      emblem.lineTo(-0.09, 0)
+      emblem.closePath()
+      mesh(g, new ShapeGeometry(emblem), bannerGold, -0.37, 2.17, side * 0.012)
+    }
     assets.set('Courtyard_Lantern', g)
   }
 

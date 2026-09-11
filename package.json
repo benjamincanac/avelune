@@ -1,15 +1,15 @@
 {
-  "name": "tempest",
+  "name": "avelune",
   "private": true,
   "type": "module",
-  "description": "Tempest — a multiplayer colosseum dungeon on Vercel WebSockets. An authoritative Nitro game loop simulating a shared, hand-built dungeon, rendered with TresJS, over one realtime connection per player.",
+  "description": "Avelune, a shared fantasy village on Vercel WebSockets. Built with Nuxt, TresJS, and an authoritative multiplayer game loop.",
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=24"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benjamincanac/tempest.git"
+    "url": "git+https://github.com/benjamincanac/avelune.git"
   },
   "author": {
     "name": "Benjamin Canac",

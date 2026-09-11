@@ -55,14 +55,23 @@ export type ClientMessage
     | { t: 'chat', text: string }
     | { t: 'ping' }
 
+/** Shared weather override; auto follows the synchronized weather cycle. */
+export type WeatherMode = 'auto' | 'clear' | 'overcast' | 'rain'
+
+/** Shared daylight override; auto follows the synchronized day/night cycle. */
+export type TimeOfDayMode = 'auto' | 'dawn' | 'day' | 'sunset' | 'night'
+
 /** Messages the server sends to the client. */
 export type ServerMessage
-  = | { t: 'welcome', self: Player, players: Player[], now: number }
+  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
     | { t: 'state', players: PlayerState[] }
     | { t: 'chat', id: string, text: string }
+    | { t: 'weather', mode: WeatherMode }
+    | { t: 'time', mode: TimeOfDayMode }
+    | { t: 'system', text: string }
     /** This identity connected from another tab/window and that newer socket
      *  took over — only one live session per player is allowed. The client
      *  shows the reason and stops reconnecting (a reconnect would kick the new

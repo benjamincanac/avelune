@@ -1,15 +1,24 @@
 import { AmbientLight, BackSide, BufferAttribute, BufferGeometry, Color, CubeCamera, DirectionalLight, FogExp2, HalfFloatType, HemisphereLight, Mesh, Points, PointsMaterial, Scene, ShaderMaterial, SphereGeometry, Vector3, WebGLCubeRenderTarget } from 'three'
 import type { Camera, WebGLRenderer } from 'three'
+import type { TimeOfDayMode, WeatherMode } from '#shared/types/game'
 
 const DAY_MS = 15 * 60 * 1000
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
 /** The same absolute server clock drives weather, cloud advection and daylight. */
-export function courtyardWeather(now: number) {
+export function courtyardWeather(now: number, mode: WeatherMode = 'auto', timeOfDay: TimeOfDayMode = 'auto') {
   let sunAngle = (now / DAY_MS % 1) * Math.PI * 2 - Math.PI / 2
+  if (timeOfDay !== 'auto') {
+    const angles = { dawn: 0.08, day: Math.PI / 2, sunset: Math.PI - 0.08, night: -Math.PI / 2 }
+    sunAngle = angles[timeOfDay]
+  }
   const seconds = now / 1000
   let overcast = clamp01(0.22 + 0.42 * Math.sin(seconds / 197) + 0.22 * Math.sin(seconds / 71 + 2.1))
   let rain = clamp01((overcast - 0.68) / 0.32)
+  if (mode !== 'auto') {
+    overcast = mode === 'clear' ? 0 : mode === 'overcast' ? 0.85 : 1
+    rain = mode === 'rain' ? 1 : 0
+  }
   if (import.meta.dev) {
     const override = (window as Window & { __envOverride?: { dayness?: number, sunAngle?: number, overcast?: number, rain?: number } }).__envOverride
     if (override) {
@@ -170,9 +179,14 @@ export function createCourtyardSky(scene: Scene) {
   const rain = new Points(rainGeometry, rainMaterial)
   scene.add(rain)
 
+  let previousWeather: WeatherMode = 'auto'
+  let previousTimeOfDay: TimeOfDayMode = 'auto'
   return {
-    update(now: number, delta: number, camera: Camera, renderer: WebGLRenderer, x: number, z: number) {
-      const state = courtyardWeather(now)
+    update(now: number, delta: number, camera: Camera, renderer: WebGLRenderer, x: number, z: number, mode: WeatherMode = 'auto', timeOfDay: TimeOfDayMode = 'auto') {
+      const state = courtyardWeather(now, mode, timeOfDay)
+      if (mode !== previousWeather || timeOfDay !== previousTimeOfDay) nextEnvironmentUpdate = 0
+      previousWeather = mode
+      previousTimeOfDay = timeOfDay
       const seconds = now / 1000
       sunDirection.set(Math.cos(state.sunAngle), state.sunHeight, Math.cos(state.sunAngle) * 0.38).normalize()
       uniforms.dayness.value = state.dayness

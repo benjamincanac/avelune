@@ -56,6 +56,8 @@ const self = a.welcome.self
 check(
   'A welcome',
   !!self && self.z === 0 && typeof a.welcome.now === 'number'
+  && ['auto', 'clear', 'overcast', 'rain'].includes(a.welcome.weather)
+  && ['auto', 'dawn', 'day', 'sunset', 'night'].includes(a.welcome.timeOfDay)
   && a.welcome.seed === undefined && a.welcome.records === undefined,
   `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`,
 )
@@ -105,6 +107,57 @@ await sleep(300)
 const chat = b.frames.find(f => f.t === 'chat' && f.id === self.id)
 check('chat reaches the arena', chat?.text === 'well met' && chat?.f === undefined)
 
+// Weather commands are server-owned, shared, and never enter public chat.
+for (const mode of ['clear', 'overcast', 'rain']) {
+  const aMark = a.frames.length
+  const bMark = b.frames.length
+  send(a, { t: 'chat', text: `/weather ${mode}` })
+  await sleep(150)
+  for (const [client, since] of [[a, aMark], [b, bMark]]) {
+    const frames = client.frames.slice(since)
+    check(`${client.label} receives ${mode} weather`, frames.some(f => f.t === 'weather' && f.mode === mode))
+    check(`${client.label} receives weather confirmation`, frames.some(f => f.t === 'system' && f.text === `Weather changed to ${mode}.`))
+    check(`${client.label} receives no command chat`, !frames.some(f => f.t === 'chat' && f.text.startsWith('/weather')))
+  }
+}
+for (const text of ['/weather', '/weather snow', '/weather clear extra']) {
+  const aMark = a.frames.length
+  const bMark = b.frames.length
+  send(a, { t: 'chat', text })
+  await sleep(150)
+  const ownFrames = a.frames.slice(aMark)
+  const otherFrames = b.frames.slice(bMark)
+  check(`${text} gives private usage`, ownFrames.some(f => f.t === 'system' && f.text.startsWith('Usage: /weather')))
+  check(`${text} does not mutate weather`, ![...ownFrames, ...otherFrames].some(f => f.t === 'weather'))
+  check(`${text} stays private`, !otherFrames.some(f => f.t === 'system' || (f.t === 'chat' && f.text.startsWith('/weather'))))
+}
+
+// Daylight overrides broadcast independently of the weather override.
+for (const mode of ['dawn', 'day', 'sunset', 'night']) {
+  const aMark = a.frames.length
+  const bMark = b.frames.length
+  send(a, { t: 'chat', text: `/time ${mode}` })
+  await sleep(150)
+  for (const [client, since] of [[a, aMark], [b, bMark]]) {
+    const frames = client.frames.slice(since)
+    check(`${client.label} receives ${mode} time`, frames.some(f => f.t === 'time' && f.mode === mode))
+    check(`${client.label} receives time confirmation`, frames.some(f => f.t === 'system' && f.text === `Time of day changed to ${mode}.`))
+    check(`${client.label} receives no time command chat`, !frames.some(f => f.t === 'chat' && f.text.startsWith('/time')))
+    check(`${client.label} time command leaves weather unchanged`, !frames.some(f => f.t === 'weather'))
+  }
+}
+for (const text of ['/time', '/time noon', '/time day extra']) {
+  const aMark = a.frames.length
+  const bMark = b.frames.length
+  send(a, { t: 'chat', text })
+  await sleep(150)
+  const ownFrames = a.frames.slice(aMark)
+  const otherFrames = b.frames.slice(bMark)
+  check(`${text} gives private usage`, ownFrames.some(f => f.t === 'system' && f.text.startsWith('Usage: /time')))
+  check(`${text} does not mutate environment`, ![...ownFrames, ...otherFrames].some(f => f.t === 'time' || f.t === 'weather'))
+  check(`${text} stays private`, !otherFrames.some(f => f.t === 'system' || (f.t === 'chat' && f.text.startsWith('/time'))))
+}
+
 // Heartbeat + garbage tolerance.
 send(b, { t: 'ping' })
 b.ws.send('not json')
@@ -122,6 +175,28 @@ check('A got leave for B', a.frames.some(f => f.t === 'leave' && f.id === b.welc
 const a2 = await connect('A2', a.cookie)
 await sleep(300)
 check('second tab kicks the first', a.frames.some(f => f.t === 'kicked'))
+check('late connection inherits weather after invalid commands', a2.welcome.weather === 'rain')
+check('late connection inherits time after invalid commands', a2.welcome.timeOfDay === 'night')
+send(a2, { t: 'chat', text: '/weather auto' })
+await sleep(150)
+check('auto restores the synchronized cycle', a2.frames.some(f => f.t === 'weather' && f.mode === 'auto'))
+check('auto restoration is confirmed', a2.frames.some(f => f.t === 'system' && f.text === 'Automatic weather restored.'))
+const b2 = await connect('B2', b.cookie)
+check('late connection inherits auto', b2.welcome.weather === 'auto')
+check('weather reset preserves night', b2.welcome.timeOfDay === 'night')
+const timeResetMark = b2.frames.length
+send(a2, { t: 'chat', text: '/time auto' })
+await sleep(150)
+for (const client of [a2, b2]) {
+  check(`${client.label} receives time cycle restoration`, client.frames.some(f => f.t === 'time' && f.mode === 'auto'))
+  check(`${client.label} receives time restoration confirmation`, client.frames.some(f => f.t === 'system' && f.text === 'Automatic day/night cycle restored.'))
+}
+check('time reset does not broadcast weather', !b2.frames.slice(timeResetMark).some(f => f.t === 'weather'))
+const a3 = await connect('A3', a.cookie)
+check('late connection inherits automatic time', a3.welcome.timeOfDay === 'auto')
+check('time reset preserves automatic weather', a3.welcome.weather === 'auto')
+a3.ws.close()
+b2.ws.close()
 
 a2.ws.close()
 a.ws.close()

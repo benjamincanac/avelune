@@ -2,14 +2,14 @@
 // useSiteSeo(), but every value here is static, so it lives in the build-time
 // head config instead of a runtime composable.
 const site = {
-  name: 'Tempest',
-  title: 'Tempest — a multiplayer colosseum dungeon on Vercel WebSockets',
+  name: 'Avelune',
+  title: 'Avelune, a shared fantasy village on Vercel WebSockets',
   description:
-    'A multiplayer dungeon crawl on the Vercel Functions WebSocket beta. Spawn in a colosseum arena, step through the great door, and descend the hand-built dungeon — stone, sunken, verdant, magma — dodging hazards for depth on the leaderboard. Authoritative Nitro game loop, TresJS rendering, one WebSocket per runner.',
+    'Explore a shared fantasy village, meet other travellers, and talk to the Oracle. Built with Nuxt, TresJS, and an authoritative multiplayer game loop over Vercel WebSockets.',
   tagline: 'Nuxt × Vercel WebSockets',
-  repo: 'https://github.com/benjamincanac/tempest',
+  repo: 'https://github.com/benjamincanac/avelune',
   deployUrl:
-    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Ftempest&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=tempest&repository-name=tempest',
+    'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Favelune&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=avelune&repository-name=avelune',
   ogImage: '/og.png',
   twitter: '@vercel',
 }

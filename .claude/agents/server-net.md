@@ -97,3 +97,15 @@ and honest.
 models fall back to `DEFAULT_CHARACTER` with outfit color zero while preserving
 id, name and accent. It returns only supported identity fields. Both HTTP
 restoration and WebSocket upgrades use this normalization.
+
+## Shared weather commands
+
+`/weather clear|overcast|rain|auto` changes the shared server weather mode.
+The server includes `welcome.weather` and broadcasts `{ t: "weather", mode }`.
+`{ t: "system", text }` carries command feedback, with usage errors sent only to
+the caller. The client stores `game.weather` and passes it to the sky renderer;
+`auto` uses the existing server clock cycle. Commands skip chat bubbles and the Oracle.
+
+`/time dawn|day|sunset|night|auto` independently controls the shared sun phase.
+`welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases
+leave the server clock, weather and animations running; `auto` restores the cycle.

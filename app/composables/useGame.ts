@@ -1,5 +1,5 @@
 import type { Ref } from 'vue'
-import type { ClientMessage, MoveInput, Player, ServerMessage } from '#shared/types/game'
+import type { ClientMessage, MoveInput, Player, ServerMessage, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 
 export interface GamePlayer extends Player {
@@ -39,6 +39,8 @@ export interface UseGame {
   kicked: Ref<string | null>
   /** Estimated server clock, driving the day/night cycle and weather. */
   serverNow: () => number
+  weather: Ref<WeatherMode>
+  timeOfDay: Ref<TimeOfDayMode>
   /** Chat history for the arena. */
   chatLog: Ref<ChatMessage[]>
   /** Open the socket. Called once the identity cookie exists. */
@@ -82,6 +84,8 @@ export function useGame(): UseGame {
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
   const count = ref(0)
+  const weather = ref<WeatherMode>('auto')
+  const timeOfDay = ref<TimeOfDayMode>('auto')
   const kicked = ref<string | null>(null)
   const chatLog = ref<ChatMessage[]>([])
 
@@ -139,6 +143,8 @@ export function useGame(): UseGame {
         addPlayer(msg.self)
         for (const player of msg.players) addPlayer(player)
         clockOffset = msg.now - Date.now()
+        weather.value = msg.weather
+        timeOfDay.value = msg.timeOfDay
         // Adopt the spawn heading so the first move doesn't overwrite it,
         // then resume held keys across a reconnect.
         lookAngle = msg.self.angle
@@ -146,8 +152,17 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Tempest, ${msg.self.name}. Meet the Oracle by the northern garden, explore the courtyard, or just say hello. Press Esc for the menu.`)
+          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle by the northern garden, explore the courtyard, or just say hello. Press Esc for the menu. Type /weather or /time for environment commands.`)
         }
+        break
+      case 'time':
+        timeOfDay.value = msg.mode
+        break
+      case 'weather':
+        weather.value = msg.mode
+        break
+      case 'system':
+        announce(msg.text)
         break
       case 'join':
         addPlayer(msg.player)
@@ -321,6 +336,7 @@ export function useGame(): UseGame {
     const trimmed = text.trim().slice(0, MAX_CHAT_LENGTH)
     if (!trimmed) return
     send({ t: 'chat', text: trimmed })
+    if (/^\/(?:weather|time)(?:\s|$)/i.test(trimmed)) return
     // Show our own bubble and log entry immediately (the server doesn't echo).
     const self = selfId.value ? players.get(selfId.value) : undefined
     if (self) {
@@ -345,6 +361,8 @@ export function useGame(): UseGame {
     count,
     kicked,
     serverNow,
+    weather,
+    timeOfDay,
     chatLog,
     connect,
     disconnect,

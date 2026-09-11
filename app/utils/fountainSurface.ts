@@ -1,6 +1,7 @@
-import { BufferAttribute, BufferGeometry, Color, DataTexture, DynamicDrawUsage, LinearFilter, RepeatWrapping, RGBAFormat, Sprite, UniformsLib, UniformsUtils, Vector3 } from 'three'
-import type { Object3D, Scene, ShaderMaterial } from 'three'
+import { BufferAttribute, BufferGeometry, Color, DataTexture, DynamicDrawUsage, LinearFilter, RepeatWrapping, RGBAFormat, HalfFloatType, WebGLRenderTarget, Mesh, ShaderMaterial, AdditiveBlending, Sprite, UniformsLib, UniformsUtils, Vector3 } from 'three'
+import type { Object3D, Scene } from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
+import { FOUNTAIN } from '../../shared/utils/courtyard'
 import type { createFountainSimulation } from './fountainSimulation'
 
 const reflecting = new WeakSet<Scene>()
@@ -35,6 +36,8 @@ const shader = {
   uniforms: UniformsUtils.merge([UniformsLib.lights!, UniformsLib.fog!, {
     color: { value: new Color('#257780') },
     tDiffuse: { value: null },
+    tRefraction: { value: null },
+    hasRefraction: { value: false },
     textureMatrix: { value: null },
     normalMap: { value: null },
     flow: { value: 0 },
@@ -47,6 +50,7 @@ const shader = {
     attribute float foam;
     varying float vFoam;
     varying vec4 mirrorCoord;
+    varying vec4 screenCoord;
     varying vec3 vWorldPosition;
     varying vec3 vWorldNormal;
     varying vec2 vSurface;
@@ -62,6 +66,7 @@ const shader = {
       vFoam = foam;
       mirrorCoord = textureMatrix * vec4(position, 1.0);
       gl_Position = projectionMatrix * mvPosition;
+      screenCoord = gl_Position;
       #include <beginnormal_vertex>
       #include <defaultnormal_vertex>
       vWorldNormal = inverseTransformDirection(transformedNormal, viewMatrix);
@@ -74,12 +79,15 @@ const shader = {
     uniform vec3 color;
     uniform vec3 eye;
     uniform sampler2D tDiffuse;
+    uniform sampler2D tRefraction;
+    uniform bool hasRefraction;
     uniform sampler2D normalMap;
     uniform float flow;
     uniform float radius;
     uniform float innerRadius;
     varying float vFoam;
     varying vec4 mirrorCoord;
+    varying vec4 screenCoord;
     varying vec3 vWorldPosition;
     varying vec3 vWorldNormal;
     varying vec2 vSurface;
@@ -137,7 +145,14 @@ const shader = {
       float depth = smoothstep(0.0, radius * 0.3, shoreDistance);
       vec3 waterColor = mix(color * 1.1, color * 0.32, depth);
       vec3 scatter = waterColor * diffuse * mix(0.3, 0.72, shadow);
-      vec3 outgoing = mix(scatter, reflection, fresnel) + specular * shadow * (0.18 + fresnel);
+      // The scene capture contains the real basin and submerged legs. Refract
+      // their screen projection, with Beer absorption over the shallow pool.
+      vec2 refractionUv = screenCoord.xy / screenCoord.w * 0.5 + 0.5;
+      refractionUv += normal.xz * 0.014 * (1.0 - fresnel);
+      vec3 transmission = texture2D(tRefraction, clamp(refractionUv, 0.002, 0.998)).rgb;
+      vec3 absorption = exp(-vec3(0.8, 0.22, 0.12) * (0.36 / max(facing, 0.3)));
+      vec3 underwater = hasRefraction ? transmission * absorption + scatter * 0.13 : scatter;
+      vec3 outgoing = mix(underwater, reflection, fresnel) + specular * shadow * (0.18 + fresnel);
       // Sparse bubble rims carry the simulated aeration. Even a saturated
       // impact cell retains clear water between bubbles instead of a white disc.
       vec2 bubblePosition = vSurface * 48.0 + detail * 1.7 + vec2(flow * 1.3, -flow * 0.7);
@@ -152,12 +167,70 @@ const shader = {
       float foam = bubbles * density * 0.68;
       vec3 foamLight = diffuse / (vec3(1.0) + diffuse * 0.55);
       outgoing = mix(outgoing, vec3(0.61, 0.72, 0.69) * foamLight * mix(0.45, 1.0, shadow), foam);
-      gl_FragColor = vec4(outgoing, mix(mix(0.56, 0.87, depth), 0.96, max(fresnel, foam)));
+      gl_FragColor = vec4(outgoing, hasRefraction ? 1.0 : mix(mix(0.40, 0.67, depth), 0.96, max(fresnel, foam)));
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
       #include <fog_fragment>
     }
   `,
+}
+
+/** Project refracted light rays through the simulated normals to the floor.
+ * Their changing area concentrates light into caustics when waves converge. */
+function createCaustics(geometry: BufferGeometry, normalMap: DataTexture, radius: number, innerRadius: number, depth: number) {
+  const material = new ShaderMaterial({
+    transparent: true, depthWrite: false, blending: AdditiveBlending, lights: true,
+    uniforms: UniformsUtils.merge([UniformsLib.lights!, {
+      normalMap: { value: normalMap }, flow: { value: 0 }, radius: { value: radius },
+      innerRadius: { value: innerRadius }, waterDepth: { value: depth },
+    }]),
+    vertexShader: /* glsl */ `
+      uniform sampler2D normalMap;
+      uniform float flow;
+      uniform float waterDepth;
+      varying vec2 source;
+      varying vec2 destination;
+      void main() {
+        source = position.xy;
+        vec2 detail = texture2D(normalMap, position.xy * 0.65 + vec2(flow, -flow * 0.43)).rg * 2.0 - 1.0;
+        vec3 n = normalize(normal + vec3(detail * 0.08, 0.0));
+        vec3 ray = refract(vec3(0.0, 0.0, -1.0), n, 1.0 / 1.333);
+        destination = source + ray.xy * waterDepth / max(-ray.z, 0.1);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(destination, 0.0, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float radius;
+      uniform float innerRadius;
+      varying vec2 source;
+      varying vec2 destination;
+      #include <common>
+      #include <bsdfs>
+      #include <lights_pars_begin>
+      void main() {
+        float r = length(destination);
+        if (r > radius || r < innerRadius) discard;
+        float sourceArea = abs(dFdx(source.x) * dFdy(source.y) - dFdy(source.x) * dFdx(source.y));
+        float projectedArea = abs(dFdx(destination.x) * dFdy(destination.y) - dFdy(destination.x) * dFdx(destination.y));
+        float focus = clamp(sourceArea / max(projectedArea, 0.0000001) - 0.85, 0.0, 2.0);
+        vec3 sun = vec3(0.0);
+        #if NUM_DIR_LIGHTS > 0
+          for (int i = 0; i < NUM_DIR_LIGHTS; i++) sun += directionalLights[i].color;
+        #endif
+        float edge = smoothstep(0.0, 0.08, radius - r) * smoothstep(0.0, 0.08, r - innerRadius);
+        gl_FragColor = vec4(vec3(0.55, 0.87, 0.78) * sun * 0.25, focus * edge);
+      }
+    `,
+  })
+  // UniformsUtils clones textures, so retain the single owned normal field.
+  material.uniforms.normalMap!.value = normalMap
+  const mesh = new Mesh(geometry, material)
+  mesh.name = 'Refracted caustic light on basin floor'
+  mesh.userData.fountainCaustics = true
+  mesh.rotation.x = -Math.PI / 2
+  mesh.position.y = FOUNTAIN.floorHeight + 0.006
+  mesh.renderOrder = 1
+  return mesh
 }
 
 /** A deforming pool over one mean reflection plane. Reflector owns the mirror
@@ -180,7 +253,7 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
   geometry.setAttribute('foam', new BufferAttribute(foam, 1).setUsage(DynamicDrawUsage))
   geometry.setIndex(indices)
   geometry.computeVertexNormals()
-  const mesh = new Reflector(geometry, { textureWidth: 256, textureHeight: 256, multisample: 0, clipBias: 0.003, shader, color: '#23606b' })
+  const mesh = new Reflector(geometry, { textureWidth: sim.radius > 1 ? 512 : 256, textureHeight: sim.radius > 1 ? 512 : 256, multisample: 0, clipBias: 0.003, shader, color: '#23606b' })
   mesh.name = 'Reflective fountain surface'
   mesh.userData.fountainSurface = true
   mesh.rotation.x = -Math.PI / 2
@@ -192,9 +265,13 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
   material.transparent = true
   material.depthWrite = false
   const normalTexture = createNormalTexture()
+  const refractionTarget = sim.radius > 1 ? new WebGLRenderTarget(512, 512, { type: HalfFloatType }) : undefined
+  material.uniforms.hasRefraction!.value = !!refractionTarget
+  material.uniforms.tRefraction!.value = refractionTarget?.texture ?? mesh.getRenderTarget().texture
   material.uniforms.normalMap!.value = normalTexture
   material.uniforms.radius!.value = sim.radius
   material.uniforms.innerRadius!.value = sim.pedestalRadius
+  const caustics = sim.radius > 1 ? createCaustics(geometry, normalTexture, sim.radius, sim.pedestalRadius, height - FOUNTAIN.floorHeight) : undefined
   const reflect = mesh.onBeforeRender.bind(mesh)
   const hidden: Object3D[] = []
   let disposed = false
@@ -206,7 +283,7 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
     const mirrorCamera = mesh.getReflectionCamera(camera)
     mirrorCamera.userData.fountainReflection = true
     scene.traverse((object) => {
-      if (object !== mesh && object.visible && (object instanceof Sprite || object.userData.fountainSurface)) {
+      if (object !== mesh && object.visible && (object instanceof Sprite || object.userData.fountainSurface || object.userData.fountainParticles)) {
         hidden.push(object)
         object.visible = false
       }
@@ -216,6 +293,18 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
     const shadowAutoUpdate = renderer.shadowMap.autoUpdate
     reflecting.add(scene)
     try {
+      if (refractionTarget) {
+        // Render once with all water hidden. The shared guard prevents nested
+        // captures while preserving the real opaque basin and character legs.
+        mesh.visible = false
+        renderer.xr.enabled = false
+        renderer.shadowMap.autoUpdate = false
+        renderer.setRenderTarget(refractionTarget)
+        renderer.clear()
+        renderer.render(scene, camera)
+        renderer.setRenderTarget(renderTarget)
+        mesh.visible = true
+      }
       reflect(renderer, scene, camera, ...args)
     }
     finally {
@@ -230,8 +319,10 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
   }
   return {
     mesh,
+    caustics,
     update(seconds: number) {
       material.uniforms.flow!.value = seconds * 0.037 % 1000
+      if (caustics) caustics.material.uniforms.flow!.value = material.uniforms.flow!.value
       for (let i = 0; i < sim.heights.length; i++) positions[i * 3 + 2] = sim.heights[i]!
       foam.set(sim.foam)
       geometry.attributes.position!.needsUpdate = true
@@ -245,6 +336,9 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
       mesh.dispose()
       geometry.dispose()
       normalTexture.dispose()
+      refractionTarget?.dispose()
+      caustics?.removeFromParent()
+      caustics?.material.dispose()
     },
   }
 }

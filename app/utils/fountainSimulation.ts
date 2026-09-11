@@ -197,3 +197,69 @@ export function createFountainSimulation(resolution = 64, radius = 1.48, pedesta
 
   return { resolution, radius, pedestalRadius, spacing, timestep, heights, velocities, active, foam, flowX, flowZ, impulse, impact, sampleHeight, sampleNormal, step, reset }
 }
+
+/** Positions are in the fountain's local space, including feet elevation. */
+export interface FountainBodySample {
+  id: string
+  x: number
+  z: number
+  feetY: number
+}
+
+/** Cosmetic body wakes use observed motion, never feed back into player physics. */
+export function createFountainInteractions(sim: ReturnType<typeof createFountainSimulation>, waterY: number, floorY: number) {
+  const previous = new Map<string, FountainBodySample & { wet: boolean, distance: number }>()
+  let lastTime: number | undefined
+  return {
+    reset() {
+      previous.clear()
+      lastTime = undefined
+    },
+    update(time: number, bodies: readonly FountainBodySample[], splash: (x: number, z: number, strength: number) => void = () => {}) {
+      if (!Number.isFinite(time)) return
+      const dt = lastTime === undefined ? 0 : time - lastTime
+      if (dt <= 0 || dt > 0.25) previous.clear()
+      lastTime = time
+      const seen = new Set<string>()
+      for (const body of bodies) {
+        if (![body.x, body.z, body.feetY].every(Number.isFinite) || seen.has(body.id)) continue
+        seen.add(body.id)
+        const r = Math.hypot(body.x, body.z)
+        const wet = r < sim.radius - 0.06 && r > sim.pedestalRadius + 0.08
+          && body.feetY < waterY - 0.015 && body.feetY >= floorY - 0.2
+        const old = previous.get(body.id)
+        const distance = old ? Math.hypot(body.x - old.x, body.z - old.z) : 0
+        const continuous = old && dt > 0 && distance < Math.max(1, dt * 12) && Math.abs(body.feetY - old.feetY) < 1.5
+        let travel = old?.distance ?? 0
+        if (continuous && wet) {
+          if (!old.wet) {
+            const speed = Math.max(0.8, Math.min(10, (old.feetY - body.feetY) / dt))
+            sim.impulse(body.x, body.z, -0.12 - speed * 0.025, 0.19)
+            sim.impact(body.x, body.z, speed)
+            splash(body.x, body.z, speed)
+            travel = 0
+          }
+          else if (distance > 0.0001) {
+            // Emit per distance, not frame. Each body pushes a broad bow wave
+            // and leaves two small turbulent wakes behind the legs.
+            const stride = 0.13
+            const dx = (body.x - old.x) / distance
+            const dz = (body.z - old.z) / distance
+            const speed = Math.min(5, distance / dt)
+            for (let along = stride - travel; along <= distance; along += stride) {
+              const x = old.x + dx * along
+              const z = old.z + dz * along
+              sim.impulse(x + dx * 0.15, z + dz * 0.15, 0.04 + speed * 0.022, 0.17)
+              sim.impact(x - dx * 0.13 - dz * 0.09, z - dz * 0.13 + dx * 0.09, 0.7 + speed * 0.3)
+              sim.impact(x - dx * 0.13 + dz * 0.09, z - dz * 0.13 - dx * 0.09, 0.7 + speed * 0.3)
+            }
+            travel = (travel + distance) % stride
+          }
+        }
+        if (!continuous || !wet) travel = 0
+        previous.set(body.id, { ...body, wet, distance: travel })
+      }
+      for (const id of previous.keys()) if (!seen.has(id)) previous.delete(id)
+    },
+  }
+}

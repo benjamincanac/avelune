@@ -1,4 +1,4 @@
-import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage } from '#shared/types/game'
+import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import {
   DASH_COOLDOWN,
@@ -59,6 +59,8 @@ const sessions = new Map<string, Session>()
 
 let loop: ReturnType<typeof setInterval> | undefined
 let tickCount = 0
+let weather: WeatherMode = 'auto'
+let timeOfDay: TimeOfDayMode = 'auto'
 
 /** Spawn position, jittered so simultaneous arrivals don't stack. */
 function spawnAt(): { x: number, y: number, z: number } {
@@ -270,6 +272,8 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     self: player,
     players: others,
     now: Date.now(),
+    weather,
+    timeOfDay,
   } satisfies ServerMessage))
   broadcast({ t: 'join', player }, player.id)
 
@@ -313,6 +317,27 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           if (typeof msg.text !== 'string') return
           const text = msg.text.trim().slice(0, MAX_CHAT_LENGTH)
           if (!text) return
+          const [command, mode, ...extra] = text.toLowerCase().split(/\s+/)
+          if (command === '/weather') {
+            if (extra.length || (mode !== 'auto' && mode !== 'clear' && mode !== 'overcast' && mode !== 'rain')) {
+              send(JSON.stringify({ t: 'system', text: 'Usage: /weather clear | overcast | rain | auto' } satisfies ServerMessage))
+              return
+            }
+            weather = mode
+            broadcast({ t: 'weather', mode })
+            broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic weather restored.' : `Weather changed to ${mode}.` })
+            return
+          }
+          if (command === '/time') {
+            if (extra.length || (mode !== 'auto' && mode !== 'dawn' && mode !== 'day' && mode !== 'sunset' && mode !== 'night')) {
+              send(JSON.stringify({ t: 'system', text: 'Usage: /time dawn | day | sunset | night | auto' } satisfies ServerMessage))
+              return
+            }
+            timeOfDay = mode
+            broadcast({ t: 'time', mode })
+            broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic day/night cycle restored.' : `Time of day changed to ${mode}.` })
+            return
+          }
           broadcast({ t: 'chat', id: player.id, text }, player.id)
           // The Oracle overhears the arena and answers only when addressed.
           considerOracle(player.name, text)

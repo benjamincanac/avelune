@@ -47,9 +47,14 @@ you never receive geometry over the wire.
   Its full grid is clipped to each circular bowl in the shader. Exclude surfaces
   from GTAO overrides, hide other pools and sprites during reflection, and guard
   against recursive reflection renders. Keep normals correct under nonuniform scale.
-  Shared player collision continues to use the solid fountain
-  footprint. Dispose each water effect separately before generic scenery disposal. `courtyardLandscape.ts` owns sculpted
-  terrain, original botanical model instances and GPU grass wind. `courtyardTextures.ts` owns the
+  Shared player collision uses the stepped basin and central pedestal from
+  `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
+  remote feet through each fountain inverse transform for cosmetic wakes; water
+  must never move players. Dispose each water effect separately before generic scenery disposal. `courtyardLandscape.ts` owns sculpted
+  terrain, original botanical model instances and GPU grass wind. Detailed tree templates
+  are about 38k triangles, so distant woodland uses owned lightweight crown geometry
+  instead of more full tree instances. All decorative trunks stay outside the playable square. Pass authored placements
+  into the landscape so garden plants are excluded beneath rotated building footprints. `courtyardTextures.ts` owns the
   runtime pigment maps. Dispose this scenery when rebuilding the floor.
 - `app/utils/composeColosseum.ts` is the retained legacy composition. The current
   map does not use it or the old `hub-*.json` layouts.
@@ -156,3 +161,15 @@ you never receive geometry over the wire.
 Prefer instancing for repeated architecture. Keep per-frame work lean. When you
 change a visual driven by shared state, confirm the data actually arrives in the
 frame you expect (`state` only includes players that moved).
+
+## Shared weather commands
+
+`/weather clear|overcast|rain|auto` changes the shared server weather mode.
+The server includes `welcome.weather` and broadcasts `{ t: "weather", mode }`.
+`{ t: "system", text }` carries command feedback, with usage errors sent only to
+the caller. The client stores `game.weather` and passes it to the sky renderer;
+`auto` uses the existing server clock cycle. Commands skip chat bubbles and the Oracle.
+
+`/time dawn|day|sunset|night|auto` independently controls the shared sun phase.
+`welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases
+leave the server clock, weather and animations running; `auto` restores the cycle.
