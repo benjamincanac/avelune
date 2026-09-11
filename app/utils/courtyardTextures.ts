@@ -42,3 +42,34 @@ export function makeCourtyardSurface(kind: 'plaster' | 'stone' | 'sand') {
   map.anisotropy = 4
   return map
 }
+
+/** Radial cut limestone for the fountain square, with restrained mortar seams. */
+export function makePlazaSurface() {
+  const map = makeCourtyardSurface('stone')
+  const canvas = map.image as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')!
+  const rng = createRng(813)
+  const center = canvas.width / 2
+  const rings = 9
+  ctx.lineWidth = 1.1
+  ctx.strokeStyle = 'rgba(82,91,85,0.24)'
+  for (let ring = 1; ring <= rings; ring++) {
+    const inner = (ring - 1) * center / rings
+    const outer = ring * center / rings
+    const segments = Math.max(8, ring * 7)
+    const offset = ring % 2 * Math.PI / segments
+    for (let i = 0; i < segments; i++) {
+      const start = offset + i * Math.PI * 2 / segments
+      const end = offset + (i + 1) * Math.PI * 2 / segments
+      ctx.beginPath()
+      ctx.arc(center, center, outer, start, end)
+      ctx.arc(center, center, inner, end, start, true)
+      ctx.closePath()
+      ctx.fillStyle = `rgba(125,139,121,${0.025 + rng() * 0.085})`
+      ctx.fill()
+      ctx.stroke()
+    }
+  }
+  map.needsUpdate = true
+  return map
+}

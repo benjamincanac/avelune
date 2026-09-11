@@ -1,5 +1,5 @@
 import { HalfFloatType, Sprite, Vector2, WebGLRenderTarget } from 'three'
-import type { Camera, Scene, WebGLRenderer } from 'three'
+import type { Camera, Object3D, Scene, WebGLRenderer } from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
@@ -15,12 +15,14 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
   const occlusion = new GTAOPass(scene, camera, 1, 1)
   // GTAO replaces materials with an opaque normal material. Sprite alpha maps
   // are lost in that pass, so nameplates would occlude as solid rectangles.
+  // The atmosphere has no surface depth. Water has a fragment-clipped circular
+  // footprint that the opaque normal override cannot reproduce.
   const renderOcclusion = occlusion.render.bind(occlusion)
-  const hiddenSprites: Sprite[] = []
+  const hiddenObjects: Object3D[] = []
   occlusion.render = (...args) => {
     scene.traverse((object) => {
-      if (object instanceof Sprite && object.visible) {
-        hiddenSprites.push(object)
+      if ((object instanceof Sprite || object.name === 'courtyard-atmosphere' || object.userData.fountainSurface) && object.visible) {
+        hiddenObjects.push(object)
         object.visible = false
       }
     })
@@ -28,8 +30,8 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
       renderOcclusion(...args)
     }
     finally {
-      for (const sprite of hiddenSprites) sprite.visible = true
-      hiddenSprites.length = 0
+      for (const object of hiddenObjects) object.visible = true
+      hiddenObjects.length = 0
     }
   }
   occlusion.blendIntensity = 0.42

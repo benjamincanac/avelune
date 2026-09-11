@@ -91,3 +91,9 @@ and honest.
 - Test the wire protocol with `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
   (two clients: it mints each a character over `POST /api/auth`, carries the
   cookie into the upgrade, then asserts welcome/state/chat/pong/leave/kicked).
+
+## Retired character identities
+`verifyToken` validates the stored character against the active roster. Unknown
+models fall back to `DEFAULT_CHARACTER` with outfit color zero while preserving
+id, name and accent. It returns only supported identity fields. Both HTTP
+restoration and WebSocket upgrades use this normalization.

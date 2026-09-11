@@ -8,8 +8,8 @@
  *   - hair     (per gender)         → baked into the GLB (Ranger is hooded → none)
  *   - color    (outfit colorway)    → runtime texture swap on the cloth material
  *
- * gender + outfit + hair resolve to a GLB basename under /models/characters
- * (built by scripts/convert_universal_characters.py); all share one universal
+ * Gender + outfit + hair combinations resolve to a GLB basename under /models/characters
+ * (built by scripts/convert_universal_characters.py); those share one universal
  * skeleton, so the shared `animations.glb` drives every one. The colorways come
  * from the texture pack (not arbitrary dye). The separate accent `color` is a
  * chat/nameplate identity only.

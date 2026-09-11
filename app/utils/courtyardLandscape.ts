@@ -53,8 +53,8 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
   const positions: number[] = []
   const colors: number[] = []
   const indices: number[] = []
-  const meadow = new Color('#648345')
-  const highland = new Color('#547778')
+  const meadow = new Color('#71944f')
+  const highland = new Color('#637f91')
   const rock = new Color('#9c9c85')
   const color = new Color()
   for (let z = 0; z <= resolution; z++) {
@@ -127,15 +127,25 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
 
   const grassPlacements: Placement[] = []
   for (const garden of gardens) {
-    for (let i = 0; i < 340; i++) {
+    for (let i = 0; i < 900; i++) {
       const angle = random() * Math.PI * 2
       const radius = Math.sqrt(random())
       const x = garden.x + Math.cos(angle) * garden.rx * radius
       const z = garden.z + Math.sin(angle) * garden.rz * radius
       grassPlacements.push({ x, z, y: 0.025, size: 0.7 + random() * 0.8, angle: random() * Math.PI * 2 })
-      if (i % 85 === 0) place('flowers', x, z, 0.015, 0.30 + random() * 0.16)
-      else if (i % 113 === 0) place('bush', x, z, 0.01, 0.26 + random() * 0.1)
+      if (i % 90 === 0) place('flowers', x, z, 0.015, 0.30 + random() * 0.16)
+      else if (i % 137 === 0) place('bush', x, z, 0.01, 0.26 + random() * 0.1)
     }
+  }
+
+  // Meadow islands continue the gardens beyond the wall without placing any
+  // decorative relief or solid trunks in the playable square.
+  for (let i = 0; i < 2200; i++) {
+    const x = -16 + random() * 88
+    const z = -16 + random() * 88
+    if (x > 6 && x < 50 && z > 6 && z < 50) continue
+    if (Math.sin(x * 0.23) + Math.cos(z * 0.31) < -0.15) continue
+    grassPlacements.push({ x, z, y: height(x, z), size: 0.8 + random() * 0.9, angle: random() * Math.PI * 2 })
   }
 
   // Curved, tapered blades with several segments, a soft base-to-tip gradient,
@@ -143,11 +153,11 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
   const bladePositions: number[] = []
   const bladeColors: number[] = []
   const bladeIndices: number[] = []
-  for (let blade = 0; blade < 3; blade++) {
+  for (let blade = 0; blade < 5; blade++) {
     const angle = blade * 2.4
     const lean = 0.15 + random() * 0.16
-    const length = 0.20 + random() * 0.16
-    const width = 0.018 + random() * 0.012
+    const length = 0.24 + random() * 0.24
+    const width = 0.025 + random() * 0.018
     const base = bladePositions.length / 3
     for (let segment = 0; segment <= 4; segment++) {
       const t = segment / 4
@@ -155,7 +165,7 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
         const across = side * width * (1 - t * 0.97)
         const bend = lean * t * t
         bladePositions.push(Math.cos(angle) * bend + Math.sin(angle) * across, t * length, Math.sin(angle) * bend - Math.cos(angle) * across)
-        color.set('#466c3c').lerp(new Color('#a3ba6a'), t)
+        color.set('#3e703e').lerp(new Color('#b6ce70'), t * t)
         bladeColors.push(color.r, color.g, color.b)
       }
       if (segment < 4) {
@@ -168,19 +178,24 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
   grassGeometry.setAttribute('position', new BufferAttribute(new Float32Array(bladePositions), 3))
   grassGeometry.setAttribute('color', new BufferAttribute(new Float32Array(bladeColors), 3))
   grassGeometry.setIndex(bladeIndices)
-  grassGeometry.computeVertexNormals()
+  // Broad upward normals give the blades a continuous meadow response to
+  // sunlight, avoiding alternating dark paper faces as the camera rotates.
+  const grassNormals = new Float32Array(bladePositions.length)
+  for (let i = 0; i < grassNormals.length; i += 3) grassNormals[i + 1] = 1
+  grassGeometry.setAttribute('normal', new BufferAttribute(grassNormals, 3))
   const grassMaterial = new MeshStandardMaterial({ vertexColors: true, side: DoubleSide, roughness: 1 })
   grassMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.landscapeTime = time
     shader.vertexShader = `uniform float landscapeTime;\n${shader.vertexShader}`
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vec3 grassOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        float breeze = sin(landscapeTime * 1.4 + grassOrigin.x * 0.65 + grassOrigin.z * 0.43);
+        float gust = sin(landscapeTime * 0.65 - grassOrigin.x * 0.13 - grassOrigin.z * 0.09);
+        float breeze = sin(landscapeTime * 1.8 + grassOrigin.x * 0.65 + grassOrigin.z * 0.43) * 0.35 + gust * 0.65;
         transformed.x += breeze * position.y * position.y * 0.8;
         transformed.z += cos(landscapeTime + grassOrigin.z * 0.7) * position.y * position.y * 0.35;
       `)
   }
-  grassMaterial.customProgramCacheKey = () => 'courtyard-curved-grass-v1'
+  grassMaterial.customProgramCacheKey = () => 'courtyard-meadow-grass-v2'
   const grass = new InstancedMesh(grassGeometry, grassMaterial, grassPlacements.length)
   grassPlacements.forEach((p, i) => {
     dummy.position.set(p.x, p.y, p.z)
@@ -188,6 +203,8 @@ export function createCourtyardLandscape(templates: ReadonlyMap<string, Group>) 
     dummy.scale.setScalar(p.size)
     dummy.updateMatrix()
     grass.setMatrixAt(i, dummy.matrix)
+    const patch = 0.5 + 0.5 * Math.sin(p.x * 0.61 + Math.cos(p.z * 0.49))
+    grass.setColorAt(i, color.setRGB(0.78 + patch * 0.22, 0.88 + patch * 0.12, 0.72 + patch * 0.18))
   })
   grass.receiveShadow = true
   grass.computeBoundingSphere()

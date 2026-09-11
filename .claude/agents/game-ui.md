@@ -17,6 +17,11 @@ isn't the 3D world.
 - `app/components/ChatPanel.vue` — bottom-left chat: one arena-wide history for
   everyone, Enter to focus, Escape back to the game.
 - `app/components/BrandMark.vue` — the top-left identity/status chip.
+- The character creator exposes the downloaded pack's gender, outfit, hair
+  and texture color controls, validated by `shared/utils/characters.ts`.
+  Escape menu → Customize character opens the gate with a cloned initial look.
+  Save updates the signed cookie under the same identity; Cancel reconnects
+  without saving. Ignore stale socket events after the creator reconnects.
 - `app/components/CharacterGate.vue` + the character preview wrappers
   (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
 - `app/composables/useGame.ts` — the client-side game/socket state composable the

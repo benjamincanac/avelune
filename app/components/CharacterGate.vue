@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { GENDERS, HAIRSTYLES, OUTFITS, OUTFIT_COLORS, characterName, randomAppearance, randomColorIndex } from '#shared/utils/characters'
+import { GENDERS, HAIRSTYLES, OUTFITS, OUTFIT_COLORS, PLAYER_COLORS, characterName, isAllowedColorIndex, isOutfitColor, randomAppearance, randomColorIndex } from '#shared/utils/characters'
 import type { Gender } from '#shared/utils/characters'
 import type { Player } from '#shared/types/game'
 
 /**
- * The onboarding gate — a World of Warcraft-style character creation screen,
- * simplified. Pick gender + outfit, then customize the look: hairstyle (for
- * non-hooded outfits) and an outfit colorway from the texture pack. Each outfit
- * has its own atmospheric backdrop.
+ * The onboarding gate previews appearance changes before creating an identity.
+ * Characters offer gender, outfit, hairstyle and texture colorway choices.
  *
  * The accent color is NOT chosen here — it's rolled randomly at login (never
  * green/teal, reserved for system UI) and used only as a chat/nameplate
@@ -16,18 +14,22 @@ import type { Player } from '#shared/types/game'
  * Submitting POSTs to /api/auth (which sets the signed identity cookie); on
  * success the page opens the socket and drops into the hub.
  */
-const emit = defineEmits<{ done: [identity: Player] }>()
+const props = defineProps<{ initial?: Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> }>()
+const emit = defineEmits<{ done: [identity: Player], cancel: [] }>()
 
 const toast = useToast()
 
-const gender = ref<Gender>('Male')
-const outfitIndex = ref(0)
-const hairIndex = ref(0)
-const outfitColor = ref(0)
-const colorIndex = ref(randomColorIndex()) // accent, hidden (chat only)
-const username = ref('')
+const initialParts = props.initial?.character?.split('_') ?? []
+const initialGender = GENDERS.find(g => g === initialParts[1]) ?? 'Male'
+const initialOutfitIndex = Math.max(0, OUTFITS.findIndex(o => o.id === initialParts[0]))
+const initialColorIndex = PLAYER_COLORS.indexOf(props.initial?.color ?? '')
+const gender = ref<Gender>(initialGender)
+const outfitIndex = ref(initialOutfitIndex)
+const hairIndex = ref(Math.max(0, HAIRSTYLES[initialGender].findIndex(h => h.id === initialParts[2])))
+const outfitColor = ref(isOutfitColor(OUTFITS[initialOutfitIndex]!.id, props.initial?.outfitColor) ? props.initial!.outfitColor : 0)
+const colorIndex = ref(isAllowedColorIndex(initialColorIndex) ? initialColorIndex : randomColorIndex()) // accent, hidden (chat only)
+const username = ref(props.initial?.name ?? '')
 const submitting = ref(false)
-
 const input = useTemplateRef('input')
 
 const currentOutfit = computed(() => OUTFITS[outfitIndex.value]!)
@@ -50,7 +52,7 @@ function randomize() {
   outfitIndex.value = Math.max(0, OUTFITS.findIndex(o => o.id === a.outfit))
   hairIndex.value = Math.max(0, HAIRSTYLES[a.gender].findIndex(h => h.id === a.hairId))
   outfitColor.value = a.outfitColor
-  colorIndex.value = randomColorIndex()
+  if (!props.initial) colorIndex.value = randomColorIndex()
 }
 
 async function submit() {
@@ -59,12 +61,17 @@ async function submit() {
   try {
     const identity = await $fetch<Player & { authenticated: boolean }>('/api/auth', {
       method: 'POST',
-      body: { username: username.value, character: character.value, colorIndex: colorIndex.value, outfitColor: outfitColor.value },
+      body: {
+        username: username.value,
+        character: character.value,
+        colorIndex: colorIndex.value,
+        outfitColor: outfitColor.value,
+      },
     })
     emit('done', identity)
   }
   catch {
-    toast.add({ title: 'Could not enter the arena', description: 'Please try again.', color: 'error', icon: 'i-lucide-triangle-alert' })
+    toast.add({ title: props.initial ? 'Could not save your character' : 'Could not enter the arena', description: 'Please try again.', color: 'error', icon: 'i-lucide-triangle-alert' })
     submitting.value = false
   }
 }
@@ -106,7 +113,7 @@ onMounted(() => input.value?.inputRef?.focus())
       >
       <div class="flex flex-col leading-tight">
         <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">TEMPEST</span>
-        <span class="text-[11px] text-muted">Create your character</span>
+        <span class="text-[11px] text-muted">{{ initial ? 'Customize your character' : 'Create your character' }}</span>
       </div>
     </div>
 
@@ -180,7 +187,7 @@ onMounted(() => input.value?.inputRef?.focus())
       </div>
 
       <!-- Outfit color (texture-pack colorways) -->
-      <div>
+      <div v-if="colorways.length > 1">
         <p class="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted">
           Outfit color
         </p>
@@ -245,15 +252,27 @@ onMounted(() => input.value?.inputRef?.focus())
           autofocus
           @keydown.enter.prevent="submit"
         />
-        <UButton
-          label="Enter"
-          color="neutral"
-          size="lg"
-          :loading="submitting"
-          :disabled="!canSubmit"
-          block
-          @click="submit"
-        />
+        <div class="flex w-full gap-2">
+          <UButton
+            v-if="initial"
+            label="Cancel"
+            color="neutral"
+            variant="soft"
+            size="lg"
+            :disabled="submitting"
+            class="flex-1 justify-center"
+            @click="emit('cancel')"
+          />
+          <UButton
+            :label="initial ? 'Save' : 'Enter'"
+            color="neutral"
+            size="lg"
+            :loading="submitting"
+            :disabled="!canSubmit"
+            class="flex-1 justify-center"
+            @click="submit"
+          />
+        </div>
       </div>
     </div>
   </div>

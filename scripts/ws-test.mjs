@@ -4,6 +4,7 @@
 // a character over `POST /api/auth` and carries the cookie into the upgrade.
 const WS_URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
 const BASE = WS_URL.replace(/^ws/, 'http').replace(/\/api\/ws.*$/, '')
+const characters = { A: 'Peasant_Male_SimpleParted', B: 'Ranger_Female_Long' }
 
 /** Create a character and return its `tempest_id` cookie. The route validates
  *  and falls back to the default character, so a bare name is enough here. */
@@ -11,12 +12,14 @@ async function auth(label) {
   const res = await fetch(`${BASE}/api/auth`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: `Test${label}` }),
+    body: JSON.stringify({ username: `Test${label}`, character: characters[label] }),
   })
   if (!res.ok) throw new Error(`${label}: auth ${res.status}`)
   const jar = res.headers.getSetCookie?.() ?? []
   const cookie = jar.map(c => c.split(';')[0]).find(c => c.startsWith('tempest_id='))
   if (!cookie) throw new Error(`${label}: no tempest_id cookie`)
+  const restored = await fetch(`${BASE}/api/auth`, { headers: { cookie } }).then(r => r.json())
+  check(`${label} character survives cookie restore`, restored.character === characters[label])
   return cookie
 }
 
@@ -57,7 +60,11 @@ check(
   `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`,
 )
 
+check('self receives saved character', self.character === characters.A)
 const b = await connect('B', await auth('B'))
+check('welcome includes other player character', b.welcome.players.find(p => p.id === self.id)?.character === characters.A)
+await sleep(100)
+check('join includes new player character', a.frames.find(f => f.t === 'join' && f.player.id === b.welcome.self.id)?.player.character === characters.B)
 const statesOf = (client, id, since = 0) =>
   client.frames.slice(since).filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === id)
 const lastState = () => statesOf(b, self.id).at(-1) ?? self

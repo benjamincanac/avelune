@@ -33,7 +33,7 @@ files the game loads, and the scripts that do it.
 - `scripts/build_courtyard_nature.py` authors the original `tree.glb`, `bush.glb`,
   `flowers.glb` and `rock.glb` under `public/models/courtyard/`. It uses smooth
   geometry and painted vertex colors without textures. Run headless; `--render`
-  writes `/tmp/tempest-nature.png`. Preserve `COLOR_0` and vertex-color materials
+  writes `/tmp/tempest-nature.png`; `--compress` applies Meshopt encoding. Preserve `COLOR_0` and vertex-color materials
   when optimizing or assembling these models. Their exported bases sit at Y=0.
 - `scripts/build_courtyard_fountain.py` builds the original courtyard fountain
   at `public/models/courtyard/fountain.glb`. Run it headless without arguments;
@@ -56,7 +56,9 @@ files the game loads, and the scripts that do it.
   rather than retained as dead weight.
 
 ## Invariants
-1. **Characters share one animation set.** `scene-3d` drives clips by exact
+1. **Characters share one animation set.** All roster models use the universal
+   skeleton and shared animation library.
+   `scene-3d` drives clips by exact
    name — today `Idle_Loop`, `Jog_Fwd_Loop`, `Jump_Loop`, `Sprint_Loop` — so keep
    `rebuild_animations.py` output stable; renaming a clip silently breaks
    playback.
@@ -104,7 +106,10 @@ files the game loads, and the scripts that do it.
    `tower.glb` under `public/models/courtyard`. Ground is Y=0, front is +Z.
    Roof overhangs and carved trim are decorative. Material groups retain smooth
    normals; these models use no downloaded textures. Run Blender headlessly with
-   `--python scripts/build_courtyard_architecture.py -- --render` for previews.
+   `--python scripts/build_courtyard_architecture.py -- --render --compress`
+   for previews and shipped Meshopt output. Preserve `COLOR_0`: the plaster and
+   stone carry painted footing gradients. Leaf sprays use actual geometry, not
+   opaque spherical canopy cores.
 
 ## Ruins pack (convert_props.py) specifics
 - Source: `/Users/benjamincanac/GitHub/quaternius/ultimate-modular-ruins-pack/Blends` (91 `.blend`).

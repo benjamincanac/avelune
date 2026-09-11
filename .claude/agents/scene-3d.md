@@ -29,13 +29,25 @@ you never receive geometry over the wire.
   terrain and architecture surrounding the playable space, the
   instanced batches built from `plan.props`, the Oracle rig, and the
   sky/day-night + weather clock.
+- `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
+  outdoor lights, fog, rain and sky environment. All animation follows the
+  server clock. A sky-only 64px cube refreshes every eight seconds for material
+  reflections for physical materials. The water surface uses a separate guarded
+  planar reflection pass.
 - `app/utils/courtyardAssets.ts` creates the custom town templates, merges geometry
   by material and registers them for both instancing and editor selection. Shared
   dimensions come from `shared/utils/courtyard.ts`.
 - `app/utils/courtyardScene.ts` owns paving, gardens, the sparring circle, distant
   animated pennants and fountain placement. `fountainWater.ts` owns gravity driven
-  droplets, impact splashes and the basin surface. Its fixed timestep wave solver
-  is visual only; shared player collision continues to use the solid fountain
+  continuous ballistic jets, droplets, impact splashes and the basin surface.
+  Jet cross sections shrink with speed to preserve discharge. Its fixed timestep wave solver
+  is visual only. Impacts sample the moving surface, transfer vertical momentum
+  and generate foam transported by the surface flow. `fountainSurface.ts` uses
+  disposable 256px Reflector targets, water Fresnel and animated fine normals.
+  Its full grid is clipped to each circular bowl in the shader. Exclude surfaces
+  from GTAO overrides, hide other pools and sprites during reflection, and guard
+  against recursive reflection renders. Keep normals correct under nonuniform scale.
+  Shared player collision continues to use the solid fountain
   footprint. Dispose each water effect separately before generic scenery disposal. `courtyardLandscape.ts` owns sculpted
   terrain, original botanical model instances and GPU grass wind. `courtyardTextures.ts` owns the
   runtime pigment maps. Dispose this scenery when rebuilding the floor.
@@ -54,12 +66,13 @@ you never receive geometry over the wire.
   space.
 - `CharacterPreview*.client.vue` — model preview rendering for onboarding
   (coordinate visuals with `game-ui`, which owns the surrounding UI).
-- `app/utils/characterModels.ts` — the shared GLB loader + scene/clip cache for
-  the onboarding character models, plus `preloadCharacterAssets()` (idempotent,
-  sequential — see the WebP gotcha below), which `CharacterPreviewModel` kicks
-  off after its first rebuild so switching outfits in the gate never waits on a
-  fetch/parse. Distinct from `MazeScene`'s own in-world character cache (meshopt
-  loader, shared with props).
+- `app/utils/characterModels.ts` owns the serialized GLB loader and shared
+  scene/clip cache for both onboarding and the live game. `CharacterAsset`
+  carries a scene template and the universal animation library's clips.
+  `preloadCharacterAssets()` warms the default model first, then the remaining
+  roster and outfit textures. Every rig uses `SkeletonUtils.clone`; dispose its
+  skeleton's GPU bone textures when replacing or removing the rig, but retain
+  the cached template geometry and materials.
 - `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
   `material.map` on the cloth materials only (`MI_Peasant*`/`MI_Ranger*`), with
   materials cloned per rig so a swap never leaks into the shared template.
@@ -100,14 +113,18 @@ you never receive geometry over the wire.
    templates before `buildFloor()` so editor selection and instancing agree.
 7. `courtyardRenderer.ts` owns the render loop's EffectComposer with contact
    occlusion, restrained bloom and one OutputPass. Call Tres's render notification
-   after rendering. Dispose the pipeline on unmount. Landscape instances borrow
+   after rendering. Tres tears down its separate Vue tree after disposing the
+   renderer, so `MazeScene` emits its idempotent cleanup callback to `GameScene`.
+   The host calls it in `onBeforeUnmount`, while GPU resource tables still exist.
+   Child-only cleanup can crash when disposing the sky cube target. Landscape instances borrow
    template geometry/materials, so remove and dispose the landscape separately
    before generic scenery disposal, never dispose those borrowed resources.
 
 ## Known rendering gotchas (from ROADMAP)
 - GTAO's normal override ignores sprite alpha maps. Hide sprites only during
   the occlusion pass and restore their visibility afterward, or nameplates cast
-  rectangular panels as the camera turns. Text sprites also disable depth writes
+  rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
+  dome too, since it has no world surface for the normal pass. Text sprites also disable depth writes
   while retaining depth testing against the world.
 - **Arena props render instanced, not cloned.** `renderPlanProps` batches
   `plan.props` into one `InstancedMesh` per kind via `instantiateModule`. The
@@ -132,9 +149,8 @@ you never receive geometry over the wire.
   reading `.uri` of the missing source. Load a multi-character roster
   **sequentially** (the first model warms WebP, the rest decode reliably) — see
   `preloadCharacterAssets()` in `characterModels.ts`, which walks the whole roster
-  one at a time. Single loads (the gate's preview) and real browsers (WebP always
-  supported) don't trip it; `MazeScene` loads concurrently but real users are
-  fine.
+  one at a time. Both the live scene and preview use the same serialized loader,
+  including requests that arrive while background preloading is running.
 
 ## Working style
 Prefer instancing for repeated architecture. Keep per-frame work lean. When you

@@ -26,6 +26,9 @@ const props = defineProps<{ game: UseGame, editor?: boolean }>()
  */
 const emit = defineEmits<{ unlock: [] }>()
 
+// GPU targets must be released before Tres disposes its WebGLRenderer.
+let disposeScene: (() => void) | undefined
+
 const held: MoveInput = { forward: false, back: false, left: false, right: false }
 
 /**
@@ -253,6 +256,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  disposeScene?.()
+  disposeScene = undefined
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('mousemove', onMouseMove)
@@ -287,6 +292,7 @@ defineExpose({ pointerLocked, requestLock })
         :held="held"
         :view="view"
         :editor="editor"
+        @ready="disposeScene = $event"
       />
     </TresCanvas>
   </div>

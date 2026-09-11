@@ -112,6 +112,15 @@ function resume() {
   gameScene.value?.requestLock()
 }
 
+/** Keep the signed identity while editing, so cancel restores the same person. */
+function customize() {
+  game.disconnect()
+  showMenu.value = false
+  document.exitPointerLock?.()
+  keyboard.value?.unlock()
+  view.value = 'creating'
+}
+
 /** Leave the arena and clear the saved identity before showing the gate again. */
 async function logout() {
   try {
@@ -214,7 +223,9 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
     <!-- Character creation, for a visitor with no character cookie yet. -->
     <CharacterGate
       v-if="view === 'creating'"
+      :initial="identity ?? undefined"
       @done="onCreated"
+      @cancel="play"
     />
 
     <template v-else-if="view === 'playing'">
@@ -328,6 +339,14 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
                 variant="soft"
                 block
                 @click="edit"
+              />
+              <UButton
+                label="Customize character"
+                icon="i-lucide-user-round-pen"
+                color="neutral"
+                variant="soft"
+                block
+                @click="customize"
               />
               <UButton
                 label="Return to game"

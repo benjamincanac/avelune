@@ -5,7 +5,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import { outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
-import { loadCharacterScene, loadClips, preloadCharacterAssets } from '~/utils/characterModels'
+import { disposeCharacterSkeleton, loadCharacterAsset, preloadCharacterAssets } from '~/utils/characterModels'
 
 /**
  * The selected character inside the preview canvas. Rendered as a Tres
@@ -18,26 +18,35 @@ const props = defineProps<{ character: string, outfitColor: number }>()
 const model = shallowRef<Group | null>(null)
 let mixer: AnimationMixer | null = null
 let token = 0
+let figureHeight = 1.8
 
 async function rebuild() {
   const mine = ++token
   // Cache lives in ~/utils/characterModels, shared with the menu's preloader —
   // so a warmed asset makes this resolve synchronously with no fetch/parse.
-  const clips = await loadClips()
-  const template = await loadCharacterScene(props.character)
+  const character = props.character
+  const outfitColor = props.outfitColor
+  const { scene: template, clips } = await loadCharacterAsset(character)
   if (mine !== token) return // a newer selection superseded this load
 
   const next = SkeletonUtils.clone(template) as Group
   next.traverse((obj) => {
     if (obj instanceof SkinnedMesh) obj.frustumCulled = false
   })
-  applyOutfitColor(next, outfitColorTexture(outfitOf(props.character), props.outfitColor))
+  applyOutfitColor(next, outfitColorTexture(outfitOf(character), outfitColor))
 
   // Center on the origin so the fixed camera frames the whole figure.
   next.updateMatrixWorld(true)
-  const center = new Box3().setFromObject(next).getCenter(new Vector3())
+  const bounds = new Box3().setFromObject(next)
+  const center = bounds.getCenter(new Vector3())
+  figureHeight = bounds.max.y - bounds.min.y
   next.position.set(-center.x, -center.y, -center.z)
 
+  if (model.value) {
+    mixer?.stopAllAction()
+    mixer?.uncacheRoot(model.value)
+    disposeCharacterSkeleton(model.value)
+  }
   mixer = new AnimationMixer(next)
   const idle = clips.find(c => c.name === 'Idle_Loop')
   if (idle) mixer.clipAction(idle).play()
@@ -53,6 +62,7 @@ let yaw = 0
 let dragging = false
 let lastX = 0
 let autoSpin = true
+let cameraConfigured = false
 
 function onPointerDown(e: PointerEvent) {
   // Only the character stage (the canvas) drags — not the control panels.
@@ -74,12 +84,15 @@ onBeforeRender(({ delta }) => {
   // Frame the (origin-centered) figure from slightly above, looking at its mid.
   const cam = cameraManager.activeCamera.value
   if (cam instanceof PerspectiveCamera) {
-    cam.position.set(0, 0.15, 4.2)
-    cam.fov = 34
+    cam.position.set(0, 0.15, figureHeight * 2.3)
+    if (!cameraConfigured) {
+      cam.fov = 34
+      cam.updateProjectionMatrix()
+      cameraConfigured = true
+    }
     cam.lookAt(0, 0, 0)
-    cam.updateProjectionMatrix()
   }
-  if (autoSpin && !dragging) yaw += delta * 0.6
+  if (autoSpin && !dragging) yaw += delta * 0.35
   if (model.value) model.value.rotation.y = yaw
   mixer?.update(delta)
 })
@@ -90,14 +103,22 @@ onMounted(() => {
   window.addEventListener('pointerup', onPointerUp)
   // Load the current selection first, then warm the rest in the background (a
   // no-op if the menu already warmed the shared cache).
-  rebuild().finally(preloadCharacterAssets)
+  rebuild().then(preloadCharacterAssets).catch(error => console.error('Character preview could not load', error))
 })
 onBeforeUnmount(() => {
+  token++
+  mixer?.stopAllAction()
+  if (model.value) {
+    mixer?.uncacheRoot(model.value)
+    disposeCharacterSkeleton(model.value)
+  }
   window.removeEventListener('pointerdown', onPointerDown)
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
 })
-watch(() => [props.character, props.outfitColor], rebuild)
+watch(() => [props.character, props.outfitColor], () => {
+  rebuild().catch(error => console.error('Character preview could not load', error))
+})
 </script>
 
 <template>

@@ -2,11 +2,13 @@
 
 Exports static GLBs with smooth normals and painted vertex colors, no textures.
 Use --render for a studio preview at /tmp/tempest-nature.png.
+Use --compress for the shipped Meshopt encoding.
 """
 import bpy
 import math
 import random
 import sys
+import subprocess
 from pathlib import Path
 from mathutils import Vector
 
@@ -103,10 +105,10 @@ def crown(name, center, scale, color, phase=0, segments=14, rings=7):
 
 
 def leaf(name, center, length, width, angle, color, mat=foliage, normal=None):
-    # A convex folded almond leaf, eight smooth triangles instead of a plane.
-    local = [(0, 0, .025), (-length*.5, 0, 0), (-length*.2, width*.5, 0),
-             (length*.25, width*.42, 0), (length*.5, 0, .02),
-             (length*.25, -width*.42, 0), (-length*.2, -width*.5, 0), (0, 0, -.02)]
+    # Tapered, gently cupped leaves catch broad highlights along a raised midrib.
+    local = [(0, 0, length*.09), (-length*.5, 0, -.015), (-length*.17, width*.5, 0),
+             (length*.22, width*.34, .012), (length*.5, 0, length*.10),
+             (length*.22, -width*.34, .012), (-length*.17, -width*.5, 0), (0, 0, -.008)]
     rotation = Vector(normal).to_track_quat('Z', 'Y') if normal else None
     verts = []
     for x, y, z in local:
@@ -121,20 +123,26 @@ def leaf(name, center, length, width, angle, color, mat=foliage, normal=None):
     return mesh(name, verts, faces, mat, color)
 
 
-def leafy_crown(name, center, scale, color, phase=0, leaves=24):
-    # The small shadow core is obscured by outward-facing overlapping leaves.
-    core_scale = tuple(v*.54 for v in scale)
-    crown(name + ' shadow core', center, core_scale, tuple(c*.78 for c in color), phase, 10, 5)
+def leafy_crown(name, center, scale, color, phase=0, leaves=44):
+    # A dense volume of small leaf sprays gives broken silhouettes and dappled
+    # shadow. No spherical foliage core is exported: gaps show real branches.
     for i in range(leaves):
         z = 1 - 2*(i+.5)/leaves
         radius = math.sqrt(1-z*z)
         theta = i*2.399963 + phase
         normal = Vector((radius*math.cos(theta),radius*math.sin(theta),z))
-        pos = tuple(center[j] + normal[j]*scale[j]*.76 for j in range(3))
-        tint = tuple(c*(.86+random.random()*.27) for c in color)
-        length = max(scale)*(.77+random.random()*.23)
-        leaf(name + ' almond foliage', pos, length, length*.53,
-             random.random()*math.tau, tint, normal=normal)
+        pos = tuple(center[j] + normal[j]*scale[j]*.57 for j in range(3))
+        light = .84 + .22 * (z+1)*.5 + random.random()*.12
+        tint = tuple(c*light for c in color)
+        length = max(scale)*(.63+random.random()*.20)
+        leaf(name + ' pointed leaf', pos, length, length*.43,
+             theta+random.random()*.5, tint, normal=normal)
+        # Small offset leaves on the upper sprays break the umbrella contour.
+        if i % 4 == 0:
+            tip = (pos[0]+math.cos(theta)*length*.3,
+                   pos[1]+math.sin(theta)*length*.3, pos[2]+length*.12)
+            leaf(name + ' new growth', tip, length*.64, length*.25,
+                 theta+.6, tuple(c*1.08 for c in tint), normal=normal)
 
 
 def export(name, start):
@@ -156,6 +164,9 @@ def export(name, start):
     bpy.ops.export_scene.gltf(filepath=str(OUT / (name+'.glb')), export_format='GLB',
         use_selection=True, export_yup=True, export_animations=False,
         export_cameras=False, export_lights=False, export_texcoords=False)
+    if '--compress' in sys.argv:
+        path=str(OUT/(name+'.glb'))
+        subprocess.run(['npx','--yes','@gltf-transform/cli@4.4.1','meshopt',path,path],check=True)
     for o in joined:
         o.data.calc_loop_triangles()
     print('ASSET', name, 'triangles', sum(len(o.data.loop_triangles) for o in joined), 'bytes', (OUT/(name+'.glb')).stat().st_size)
@@ -177,20 +188,20 @@ for k in range(10):
     for q in range(5):
         theta = a + q*1.256
         center = (end.x+math.cos(theta)*.43, end.y+math.sin(theta)*.43,z+.72+(q%3)*.20)
-        color = (.105+random.random()*.05,.285+random.random()*.075,.07+random.random()*.025)
+        color = (.09+random.random()*.045,.255+random.random()*.075,.075+random.random()*.028)
         leafy_crown('Layered leaf pad',center,(.46+random.random()*.14,.42+random.random()*.13,.36+random.random()*.13),color,k+q)
 
 for k in range(6):
     a=k*2.399
     center=(math.cos(a)*.52,math.sin(a)*.5,5.53+random.random()*.36)
-    leafy_crown('Crown crest',center,(.60,.57,.47),(.16,.37,.10),k)
+    leafy_crown('Crown crest',center,(.60,.57,.47),(.19,.39,.10),k)
 export('tree',start)
 
 start=set(bpy.context.scene.objects)
 for k in range(13):
     a=k*2.399
     center=(math.cos(a)*.40,math.sin(a)*.35,.25+random.random()*.22)
-    leafy_crown('Low shrub rosette',center,(.25,.24,.24),(.10+random.random()*.05,.28+random.random()*.06,.07),k,leaves=18)
+    leafy_crown('Low shrub rosette',center,(.25,.24,.24),(.10+random.random()*.05,.28+random.random()*.06,.07),k,leaves=32)
 export('bush',start)
 
 start=set(bpy.context.scene.objects)

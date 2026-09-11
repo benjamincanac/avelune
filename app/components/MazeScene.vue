@@ -1,41 +1,27 @@
 <script setup lang="ts">
 import {
-  AdditiveBlending,
-  AmbientLight,
   AnimationMixer,
-  BackSide,
   Box3,
-  BufferAttribute,
-  BufferGeometry,
   CanvasTexture,
   Color,
-  DirectionalLight,
-  FogExp2,
   Group,
-  HemisphereLight,
   InstancedMesh,
   LinearFilter,
   Matrix4,
   Mesh,
-  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
-  Points,
-  PointsMaterial,
-  RepeatWrapping,
-  ShaderMaterial,
   SkinnedMesh,
-  SphereGeometry,
   Sprite,
   SpriteMaterial,
   Texture,
   Vector3,
   WebGLRenderer,
 } from 'three'
-import type { AnimationAction, AnimationClip } from 'three'
+import type { AnimationAction, AnimationClip, BufferGeometry } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
@@ -57,12 +43,15 @@ import {
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
 import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
+import { createCourtyardSky } from '~/utils/courtyardSky'
 import { COURTYARD_LANDSCAPE_NAMES } from '~/utils/courtyardLandscape'
 import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
+import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
+import type { CharacterAsset } from '~/utils/characterModels'
 
 /**
  * Tempest's 3D world, built imperatively with three.js inside the Tres context.
@@ -95,6 +84,7 @@ interface ViewState {
 }
 
 const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState, editor?: boolean }>()
+const emit = defineEmits<{ ready: [dispose: () => void] }>()
 
 // Hub Oracle proximity/dialogue state, shared with GameScene and the HUD.
 const oracle = useOracle()
@@ -104,6 +94,7 @@ const camera = cameraManager.activeCamera
 const { onBeforeRender, render } = useLoop()
 let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
 render((notify) => {
+  if (sceneDisposed) return
   const active = camera.value
   const gl = renderer.instance
   if (!active || !(gl instanceof WebGLRenderer)) return
@@ -118,217 +109,10 @@ let editorCtl: HubEditor | null = null
 // The editor's shared state, when editing. Drives the controller's editable bounds.
 let ed: ReturnType<typeof useEditor> | null = null
 
-/** Full day/night cycle length. */
-const DAY_MS = 15 * 60 * 1000
-
-/** The meadow the arena sits on, and the haze around it. */
-const FOG_COLOR = '#b4cbbf'
-const FOG_DENSITY = 0.008
-
-/* -------------------------------------------------------------------------- */
-/* Static scene: lights, sky, rain                                            */
-/* -------------------------------------------------------------------------- */
-
-const fog = new FogExp2(FOG_COLOR, FOG_DENSITY)
-scene.value.fog = fog
-scene.value.background = new Color('#05070d')
-
-const ambient = new AmbientLight('#8899bb', 0.4)
-scene.value.add(ambient)
-
-/** Sky/ground fill for soft outdoor bounce light. */
-const hemi = new HemisphereLight('#d3e9ff', '#b8a278', 1.3)
-scene.value.add(hemi)
-
-/**
- * One directional light serves as sun by day and moon by night. It casts the
- * scene's shadows; the frustum follows the player (via `sun.target`) so a
- * modest map covers everything on screen.
- */
-const sun = new DirectionalLight('#ffffff', 0.6)
-sun.castShadow = true
-sun.shadow.mapSize.set(2048, 2048)
-sun.shadow.camera.near = 1
-sun.shadow.camera.far = 130
-sun.shadow.camera.left = -34
-sun.shadow.camera.right = 34
-sun.shadow.camera.top = 34
-sun.shadow.camera.bottom = -34
-sun.shadow.bias = -0.0004
-sun.shadow.normalBias = 0.03
-scene.value.add(sun, sun.target)
-
-/** Warm torch light that follows your character. */
-const torchLight = new PointLight('#ffc98a', 1.1, 7, 1.7)
+// The sky owns atmosphere, outdoor lighting, weather and water reflections.
+const atmosphere = createCourtyardSky(scene.value)
+const torchLight = new PointLight('#ffc98a', 0.6, 7, 1.7)
 scene.value.add(torchLight)
-
-/** Rain: a box of points recycled around the camera. */
-const RAIN_COUNT = 1000
-const rainGeometry = new BufferGeometry()
-{
-  const positions = new Float32Array(RAIN_COUNT * 3)
-  for (let i = 0; i < RAIN_COUNT; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 24
-    positions[i * 3 + 1] = Math.random() * 14
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 24
-  }
-  rainGeometry.setAttribute('position', new BufferAttribute(positions, 3))
-}
-const rainMaterial = new PointsMaterial({
-  color: '#a8c0dd',
-  size: 0.035,
-  transparent: true,
-  opacity: 0,
-  depthWrite: false,
-})
-const rain = new Points(rainGeometry, rainMaterial)
-rain.visible = false
-scene.value.add(rain)
-
-function clamp01(v: number): number {
-  return Math.min(1, Math.max(0, v))
-}
-
-/** Shared sky state: same clock for every client via the server time offset. */
-function computeSky(now: number) {
-  const t = (now / DAY_MS) % 1
-  const sunAngle = t * Math.PI * 2 - Math.PI / 2
-  const sunHeight = Math.sin(sunAngle)
-  const seconds = now / 1000
-  let overcast = clamp01(0.22 + 0.42 * Math.sin(seconds / 197) + 0.22 * Math.sin(seconds / 71 + 2.1))
-  let rainAmount = clamp01((overcast - 0.68) / 0.32)
-  let dayness = clamp01(sunHeight * 2 + 0.15)
-
-  if (import.meta.dev) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const override = (window as any).__envOverride
-    if (override) {
-      dayness = override.dayness ?? dayness
-      overcast = override.overcast ?? overcast
-      rainAmount = override.rain ?? rainAmount
-    }
-  }
-  return { sunAngle, sunHeight, dayness, overcast, rain: rainAmount }
-}
-
-const skyDay = new Color('#7fbddd')
-const skyDusk = new Color('#d49b85')
-const skyNight = new Color('#253a59')
-const skyColor = new Color()
-const fogColor = new Color()
-
-/* -------------------------------------------------------------------------- */
-/* Sky: gradient dome + drifting clouds + sun glow                            */
-/* -------------------------------------------------------------------------- */
-
-/** Soft cloud puffs on a transparent canvas, wrapped around the cloud dome. */
-function makeCloudCanvas(): CanvasTexture {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1024
-  canvas.height = 512
-  const ctx = canvas.getContext('2d')!
-  // Puffs sit in the lower band of the texture so they map near the horizon —
-  // the only part of the sky this third-person ground camera actually shows.
-  for (let i = 0; i < 30; i++) {
-    const cx = Math.random() * 1024
-    const cy = 250 + Math.random() * 210
-    const puffs = 6 + Math.floor(Math.random() * 7)
-    for (let j = 0; j < puffs; j++) {
-      const x = cx + (Math.random() - 0.5) * 230
-      const y = cy + (Math.random() - 0.5) * 90
-      const r = 55 + Math.random() * 110
-      const a = 0.12 + Math.random() * 0.18
-      const g = ctx.createRadialGradient(x, y, 0, x, y, r)
-      g.addColorStop(0, `rgba(255,255,255,${a})`)
-      g.addColorStop(1, 'rgba(255,255,255,0)')
-      ctx.fillStyle = g
-      ctx.beginPath()
-      ctx.arc(x, y, r, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }
-  const tex = new CanvasTexture(canvas)
-  tex.wrapS = RepeatWrapping
-  return tex
-}
-
-/** Warm radial falloff for the sun glow sprite. */
-function makeGlowCanvas(): CanvasTexture {
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = 128
-  const ctx = canvas.getContext('2d')!
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
-  g.addColorStop(0, 'rgba(255,246,220,0.95)')
-  g.addColorStop(0.3, 'rgba(255,226,170,0.4)')
-  g.addColorStop(1, 'rgba(255,226,170,0)')
-  ctx.fillStyle = g
-  ctx.fillRect(0, 0, 128, 128)
-  return new CanvasTexture(canvas)
-}
-
-// Gradient skydome: a camera-following sphere that ignores fog, so the horizon
-// stays crisp behind the fogged geometry. Colors are set from the clock.
-const skyTop = new Color()
-const skyHorizon = new Color()
-const horizonPale = new Color('#e6eef7')
-const skyUniforms = {
-  topColor: { value: new Color('#3a6ea5') },
-  horizonColor: { value: new Color('#bcd3ee') },
-  offset: { value: 0.04 },
-  exponent: { value: 0.75 },
-}
-const skyDome = new Mesh(
-  new SphereGeometry(80, 32, 16),
-  new ShaderMaterial({
-    side: BackSide,
-    depthWrite: false,
-    depthTest: false,
-    fog: false,
-    uniforms: skyUniforms,
-    vertexShader: `
-      varying vec3 vDir;
-      void main() {
-        vDir = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
-    fragmentShader: `
-      varying vec3 vDir;
-      uniform vec3 topColor; uniform vec3 horizonColor;
-      uniform float offset; uniform float exponent;
-      void main() {
-        float h = max(vDir.y + offset, 0.0);
-        float f = pow(min(h / (1.0 + offset), 1.0), exponent);
-        gl_FragColor = vec4(mix(horizonColor, topColor, f), 1.0);
-      }`,
-  }),
-)
-skyDome.renderOrder = -3
-scene.value.add(skyDome)
-
-const cloudMaterial = new MeshBasicMaterial({
-  map: makeCloudCanvas(),
-  transparent: true,
-  depthWrite: false,
-  depthTest: false,
-  fog: false,
-})
-const cloudDome = new Mesh(new SphereGeometry(78, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.66), cloudMaterial)
-cloudDome.renderOrder = -2
-scene.value.add(cloudDome)
-
-const sunGlowMaterial = new SpriteMaterial({
-  map: makeGlowCanvas(),
-  transparent: true,
-  depthWrite: false,
-  depthTest: false,
-  blending: AdditiveBlending,
-  fog: false,
-})
-const sunGlow = new Sprite(sunGlowMaterial)
-sunGlow.scale.setScalar(30)
-sunGlow.renderOrder = -1
-scene.value.add(sunGlow)
-const sunDir = new Vector3()
 
 /* -------------------------------------------------------------------------- */
 /* Arena geometry                                                             */
@@ -464,34 +248,22 @@ gltfLoader.setMeshoptDecoder(MeshoptDecoder)
  */
 const CHARACTER_SCALE = 0.72
 
-/**
- * Movement states → clip names in the shared library (Quaternius Universal
- * Animation Library 1 & 2). Since every character shares the universal
- * skeleton, one set of clips drives them all with no retargeting.
- */
+/** Movement states map to clips in the shared universal animation library. */
 const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop' } as const
 
-const characterTemplates = new Map<string, Group>()
+const characterAssets = new Map<string, CharacterAsset>()
 const characterLoading = new Set<string>()
-
-/** Clips ship in one shared GLB (skeleton + animations, no mesh), loaded once. */
-let sharedClips: AnimationClip[] = []
-let clipsLoading = false
+const characterRetryAt = new Map<string, number>()
 
 function ensureCharacter(name: string) {
-  if (characterTemplates.has(name) || characterLoading.has(name)) return
+  if (characterAssets.has(name) || characterLoading.has(name) || Date.now() < (characterRetryAt.get(name) ?? 0)) return
   characterLoading.add(name)
-  gltfLoader.loadAsync(`/models/characters/${name}.glb`).then((gltf) => {
-    characterTemplates.set(name, gltf.scene)
-  })
-}
-
-function ensureClips() {
-  if (sharedClips.length || clipsLoading) return
-  clipsLoading = true
-  gltfLoader.loadAsync('/models/characters/animations.glb').then((gltf) => {
-    sharedClips = gltf.animations
-  })
+  loadCharacterAsset(name).then((asset) => {
+    if (!sceneDisposed) characterAssets.set(name, asset)
+  }).catch((error) => {
+    characterRetryAt.set(name, Date.now() + 10000)
+    console.error(`Character ${name} could not load`, error)
+  }).finally(() => characterLoading.delete(name))
 }
 
 const placementDummy = new Object3D()
@@ -632,6 +404,7 @@ loadTemplates('courtyard', ['fountain', 'inn', 'shop', 'tower', ...COURTYARD_LAN
 /* -------------------------------------------------------------------------- */
 
 interface Rig {
+  dispose: () => void
   group: Group
   mixer: AnimationMixer
   actions: Record<string, AnimationAction>
@@ -764,18 +537,17 @@ function createRig(player: GamePlayer): Rig | null {
   // The player's chosen character rides the server snapshot; fall back to a
   // deterministic hash if it's somehow missing or unknown.
   const characterName = isCharacter(player.character) ? player.character : characterFor(player.id)
-  const templateScene = characterTemplates.get(characterName)
-  if (!templateScene || !sharedClips.length) {
-    // Kick off the downloads; the rig appears once model and clips both land.
+  const asset = characterAssets.get(characterName)
+  if (!asset) {
+    // The shared loader resolves only once the compatible model and clips land.
     ensureCharacter(characterName)
-    ensureClips()
     return null
   }
 
   const group = new Group()
 
   // SkeletonUtils.clone keeps the armature bindings intact across copies.
-  const model = SkeletonUtils.clone(templateScene)
+  const model = SkeletonUtils.clone(asset.scene)
   // The GLB faces +z; the rig's forward is +x (the group is rotated by -heading).
   model.rotation.y = Math.PI / 2
   model.scale.setScalar(CHARACTER_SCALE)
@@ -794,11 +566,10 @@ function createRig(player: GamePlayer): Rig | null {
   model.updateMatrixWorld(true)
   const headHeight = new Box3().setFromObject(model).max.y
 
-  // The shared clips bind to the clone by bone name (every character uses the
-  // universal skeleton), so one library animates all of them.
+  // Clip tracks bind only to the skeleton they were authored for.
   const mixer = new AnimationMixer(model)
   const actions: Record<string, AnimationAction> = {}
-  for (const clip of sharedClips) {
+  for (const clip of asset.clips) {
     actions[clip.name] = mixer.clipAction(clip)
   }
   actions[CLIP.idle]?.play()
@@ -817,6 +588,15 @@ function createRig(player: GamePlayer): Rig | null {
 
   playerGroup.add(group)
   return {
+    dispose() {
+      mixer.stopAllAction()
+      mixer.uncacheRoot(model)
+      disposeCharacterSkeleton(model)
+      name.texture.dispose()
+      name.sprite.material.dispose()
+      bubble.texture.dispose()
+      bubble.sprite.material.dispose()
+    },
     group,
     mixer,
     actions,
@@ -1022,7 +802,8 @@ function createOracleRig(): OracleRig | null {
   return { group, mixer, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY }
 }
 
-onBeforeRender(({ delta, elapsed }) => {
+onBeforeRender(({ delta }) => {
+  if (sceneDisposed) return
   configureCamera()
   const dt = Math.min(delta, 0.1)
   const now = Date.now()
@@ -1153,81 +934,15 @@ onBeforeRender(({ delta, elapsed }) => {
     torchLight.position.set(headX, local.z + 1.7, headZ)
   }
 
-  // Sky, weather, fog — the arena is outdoors, so it runs the full shared
-  // day/night + weather cycle off the server clock.
-  {
-    const sky = computeSky(serverNow)
-
-    skyColor.copy(skyNight).lerp(skyDay, sky.dayness)
-    const duskiness = clamp01(1 - Math.abs(sky.sunHeight) * 4) * sky.dayness
-    skyColor.lerp(skyDusk, duskiness * 0.5)
-    skyColor.lerp(new Color('#3f464e'), sky.overcast * 0.55 * sky.dayness)
-    ;(scene.value.background as Color).copy(skyColor)
-
-    // Gradient dome: deeper zenith, paler (and dusk-warm) horizon, from the clock.
-    skyTop.copy(skyColor).multiplyScalar(0.82)
-    skyHorizon.copy(skyColor).lerp(horizonPale, 0.5 * sky.dayness).lerp(skyDusk, duskiness * 0.35)
-    skyUniforms.topColor.value.copy(skyTop)
-    skyUniforms.horizonColor.value.copy(skyHorizon)
-    const cam = camera.value
-    if (cam) {
-      skyDome.position.copy(cam.position)
-      cloudDome.position.copy(cam.position)
-    }
-    // Clouds drift slowly, brighten by day, grey out under overcast, fade at night.
-    cloudDome.rotation.y = elapsed * 0.005
-    cloudMaterial.opacity = clamp01(0.15 + sky.dayness * 0.7) * (1 - sky.overcast * 0.35)
-    cloudMaterial.color.copy(skyColor).lerp(new Color('#ffffff'), 0.65).lerp(new Color('#98a1ac'), sky.overcast * 0.55)
-
-    fogColor.set(FOG_COLOR)
-    fogColor.lerp(skyColor, 0.25)
-    fogColor.lerp(skyNight, (1 - sky.dayness) * 0.72)
-    fog.color.copy(fogColor)
-    fog.density = FOG_DENSITY * (1 + sky.rain * 0.5 + sky.overcast * 0.15)
-
-    const daylight = Math.max(sky.sunHeight, 0)
-    sun.intensity = daylight > 0
-      ? 0.6 + daylight * 2.2 * (1 - sky.overcast * 0.55)
-      : 0.55
-    sun.color.set(daylight > 0 ? (daylight < 0.3 ? '#ffb877' : '#fff2dd') : '#7788bb')
-    sun.position.set(
-      local.x + Math.cos(sky.sunAngle) * 40,
-      Math.max(Math.abs(sky.sunHeight), 0.08) * 40,
-      local.y + 18,
-    )
-    sun.target.position.set(local.x, 0, local.y)
-
-    // Sun glow sprite: sit it on the dome along the sun direction, fade by daylight.
-    if (cam) {
-      sunDir.set(sun.position.x - local.x, sun.position.y, sun.position.z - local.y).normalize()
-      sunGlow.position.copy(cam.position).addScaledVector(sunDir, 72)
-    }
-    sunGlow.visible = daylight > 0.02
-    sunGlowMaterial.opacity = daylight * 0.85 * (1 - sky.overcast * 0.6)
-
-    // Ambient stays low outdoors so the sun's shadows actually read; the
-    // hemisphere fill softens them without flattening.
-    hemi.intensity = 0.75 + sky.dayness * 0.6
-    ambient.intensity = 0.32 + sky.dayness * 0.42 * (1 - sky.overcast * 0.3)
-
-    rainMaterial.opacity = sky.rain * 0.7
-    rain.visible = sky.rain > 0.02
-    if (rain.visible) {
-      rain.position.set(local.x, 0, local.y)
-      const positions = rainGeometry.attributes.position as BufferAttribute
-      for (let i = 0; i < RAIN_COUNT; i++) {
-        let y = positions.getY(i) - 21 * dt
-        if (y < 0) y += 14
-        positions.setY(i, y)
-      }
-      positions.needsUpdate = true
-    }
+  if (camera.value && renderer.instance instanceof WebGLRenderer) {
+    atmosphere.update(serverNow, dt, camera.value, renderer.instance, local.x, local.y)
   }
 
   // Reconcile player rigs with the roster.
   for (const [id, rig] of rigs) {
     if (!props.game.players.has(id)) {
       playerGroup.remove(rig.group)
+      rig.dispose()
       rigs.delete(id)
     }
   }
@@ -1385,17 +1100,26 @@ if (import.meta.dev) {
   })
 }
 
-onUnmounted(() => {
+// Tres unmounts its custom Vue tree after disposing the host WebGLRenderer.
+// Let the host release GPU targets first, while Three's resource tables exist.
+// The fallback handles a scene-only HMR replacement in an otherwise live canvas.
+function disposeScene() {
+  if (sceneDisposed) return
   sceneDisposed = true
   pipeline?.dispose()
+  for (const rig of rigs.values()) rig.dispose()
+  rigs.clear()
   clearFloor()
   editorCtl?.dispose()
   editorCtl = null
   releaseTemplates([...propTemplates.values(), ...retiredTemplates])
   propTemplates.clear()
   retiredTemplates.length = 0
-  scene.value.remove(ambient, hemi, sun, sun.target, torchLight, rain, skyDome, cloudDome, sunGlow, floorGroup, playerGroup)
-})
+  atmosphere.dispose()
+  scene.value.remove(torchLight, floorGroup, playerGroup)
+}
+onMounted(() => emit('ready', disposeScene))
+onBeforeUnmount(disposeScene)
 
 if (import.meta.dev) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

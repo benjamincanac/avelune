@@ -1,10 +1,13 @@
 """Original stylized courtyard architecture, authored from curved mesh profiles.
 Run Blender --background --python scripts/build_courtyard_architecture.py.
+Use -- --render --compress for previews and the shipped Meshopt encoding.
 Front is Blender -Y, exported +Z. Each asset is centered and grounded.
 """
 import bpy
 import math
 import random
+import sys
+import subprocess
 from pathlib import Path
 from mathutils import Vector, Matrix
 
@@ -24,12 +27,12 @@ def mat(name, color, rough=.7, metal=0):
     p.inputs['Metallic'].default_value=metal
     return m
 
-stone=mat('Honey ivory plaster',(.75,.695,.54))
-trim=mat('Carved pale limestone',(.91,.835,.64))
-wood=mat('Walnut beams',(.205,.135,.08))
-roof=mat('Glazed peacock roof',(.07,.29,.32),.42)
-rooflight=mat('Celadon tile variation',(.13,.39,.40),.43)
-glass=mat('Dusky blue window',(.095,.235,.285),.28,.15)
+stone=mat('Sunwashed ivory plaster',(.76,.735,.65))
+trim=mat('Carved pale limestone',(.84,.81,.69))
+wood=mat('Weathered walnut beams',(.15,.115,.087))
+roof=mat('Mineral blue roof slate',(.075,.185,.235),.78)
+rooflight=mat('Sunlit blue slate edges',(.13,.275,.32),.75)
+glass=mat('Dusky blue window',(.06,.145,.18),.22,.12)
 gold=mat('Warm brass accents',(.56,.34,.105),.32,.6)
 leafmat=mat('Garden foliage',(.19,.35,.14))
 materials=[stone,trim,wood,roof,rooflight,glass,gold,leafmat]
@@ -51,7 +54,7 @@ def mesh(name,verts,faces,material,smooth=True):
     return obj
 
 
-def bevel(obj,width=.04):
+def bevel(obj,width=.025):
     bpy.context.view_layer.objects.active=obj
     mod=obj.modifiers.new('Soft crafted edges','BEVEL');mod.width=width;mod.segments=2
     bpy.ops.object.modifier_apply(modifier=mod.name)
@@ -60,7 +63,7 @@ def bevel(obj,width=.04):
     return obj
 
 
-def box(name,loc,scale,material=stone,r=.05):
+def box(name,loc,scale,material=stone,r=.025):
     bpy.ops.mesh.primitive_cube_add(size=1,location=loc)
     obj=bpy.context.object;obj.name=name;obj.dimensions=scale
     bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
@@ -129,8 +132,9 @@ def side_arch(x,y,z,w,h,angle):
 
 
 def roof_shape(t):
-    # Concave lower slope and subtly upturned eave, with rounded ridge.
-    return 1 - .91*math.sin(t*math.pi/2)**.9 + .055*t**12
+    # Steep, almost planar slate pitches with a restrained kicked eave.
+    # Preserve ridge and eave elevations used by the surrounding gable walls.
+    return 1 - .90*t + .045*t**8
 
 
 def gable_roof(cx,cy,z,w,d,rise):
@@ -150,16 +154,16 @@ def gable_roof(cx,cy,z,w,d,rise):
         for i in range(cols):
             x=cx-w/2+(i+.5)*w/cols
             pts=[(x,cy+side*half*j/14,z+rise*roof_shape(j/14)+.015) for j in range(15)]
-            tube('Curved barrel tile',pts,.046,rooflight if i%5==0 else roof,6)
+            tube('Fine slate standing seam',pts,.014,rooflight if i%5==0 else roof,5)
         for j in range(1,7):
             t=j/6
-            tube('Tile course overlap',[(cx-w/2,cy+side*half*t,z+rise*roof_shape(t)+.025),(cx+w/2,cy+side*half*t,z+rise*roof_shape(t)+.025)],.022,rooflight,5)
+            tube('Tile course overlap',[(cx-w/2,cy+side*half*t,z+rise*roof_shape(t)+.025),(cx+w/2,cy+side*half*t,z+rise*roof_shape(t)+.025)],.012,rooflight,5)
     for x in [cx-w/2,cx+w/2]:
         pts=[(x,cy-half*t,z+rise*roof_shape(abs(t))-.045) for t in [i/16 for i in range(-16,17)]]
-        tube('Carved sweeping verge',pts,.095,trim,8)
+        tube('Carved sweeping verge',pts,.055,trim,6)
     for side in [-1,1]:
-        tube('Eave cornice',[(cx-w/2,cy+side*half,z+rise*roof_shape(1)-.06),(cx+w/2,cy+side*half,z+rise*roof_shape(1)-.06)],.085,wood,8)
-    tube('Glazed roof ridge',[(cx-w/2-.1,cy,z+rise+.1),(cx-w/2+.18,cy,z+rise+.065),(cx+w/2-.18,cy,z+rise+.065),(cx+w/2+.1,cy,z+rise+.1)],.105,rooflight,10)
+        tube('Eave cornice',[(cx-w/2,cy+side*half,z+rise*roof_shape(1)-.06),(cx+w/2,cy+side*half,z+rise*roof_shape(1)-.06)],.055,wood,6)
+    tube('Glazed roof ridge',[(cx-w/2-.1,cy,z+rise+.1),(cx-w/2+.18,cy,z+rise+.065),(cx+w/2-.18,cy,z+rise+.065),(cx+w/2+.1,cy,z+rise+.1)],.060,rooflight,6)
 
 
 def gable_wall(x,y,z,d,rise):
@@ -170,7 +174,7 @@ def gable_wall(x,y,z,d,rise):
 
 
 def body(w,d,h):
-    box('Soft plaster volume',(0,0,h/2+.12),(w,d,h),stone,.14)
+    box('Crisp plaster volume',(0,0,h/2+.12),(w,d,h),stone,.035)
     box('Masonry footing',(0,0,.18),(w+.14,d+.14,.36),trim,.07)
     for x in [-w/2+.055,w/2-.055]:
         for j in range(3):
@@ -188,10 +192,38 @@ def body(w,d,h):
 def planter(x,y,z,w=1.1):
     box('Window garden',(x,y,z),(w,.36,.25),wood,.045)
     for dx in [-w*.35,w*.35]:box('Planter band',(x+dx,y-.19,z),(.06,.035,.28),gold,.01)
-    for i in range(7):
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=8,ring_count=4,radius=.18,location=(x-w*.4+w*.8*i/6,y,z+.18+random.random()*.07))
-        o=bpy.context.object;o.scale=(1,1,.7);o.data.materials.append(leafmat)
-        for p in o.data.polygons:p.use_smooth=True
+    for i in range(22):
+        cx=x-w*.44+w*.88*i/21
+        cy=y+random.uniform(-.12,.12)
+        height=.15+random.random()*.18
+        for side in [-1,1]:
+            mesh('Trailing garden leaf',[(cx,cy,z+.11),(cx+side*.11,cy-.10,z+height),
+                 (cx+side*.23,cy-.22,z+height-.07),(cx+side*.09,cy-.16,z+height-.02)],
+                 [(0,1,3),(1,2,3)],leafmat,False)
+
+
+def dormer(cx):
+    # Small perpendicular gables add a lived-in roof silhouette without changing
+    # the building's authored ground footprint or main ridge height.
+    y=-1.35; base=4.08; height=.33; rise=.60
+    box('Dormer plaster',(cx,y,base+height/2),(1.12,.90,height),stone,.025)
+    mesh('Dormer front gable',[(cx-.56,y-.46,base+height),
+         (cx+.56,y-.46,base+height),(cx,y-.46,base+height+rise)],[(0,1,2)],stone,False)
+    arch(cx,y-.475,base+.035,.37,.53)
+    before=set(bpy.context.scene.objects)
+    gable_roof(0,0,base+height,1.10,1.35,rise)
+    transform=Matrix.Translation((cx,y,0)) @ Matrix.Rotation(math.pi/2,4,'Z')
+    for obj in set(bpy.context.scene.objects)-before:obj.matrix_world=transform @ obj.matrix_world
+    for side in [-1,1]:
+        beam('Dormer bargeboard',(cx+side*.60,y-.51,base+height+.05),
+             (cx,y-.51,base+height+rise+.035),.065,wood)
+
+
+def gable_truss(x,z,depth,rise):
+    for side in [-1,1]:
+        beam('Gable diagonal framing',(x,side*depth*.44,z+.18),
+             (x,0,z+rise*.89),.085,wood)
+    beam('Gable tie beam',(x,-depth*.44,z+.18),(x,depth*.44,z+.18),.095,wood)
 
 
 def inn():
@@ -212,7 +244,10 @@ def inn():
         box('End story belt',(side*3.815,0,2.12),(.18,4.6,.2),wood,.035)
         beam('Gable timber',(side*3.805,0,3.7),(side*3.805,0,4.87),.13)
     gable_roof(0,0,3.7,8.2,5.25,1.35)
-    for x in [-3.78,3.78]:gable_wall(x,0,3.7,4.58,1.29)
+    for x in [-3.78,3.78]:
+        gable_wall(x,0,3.7,4.58,1.29)
+        gable_truss(x+math.copysign(.03,x),3.7,4.58,1.29)
+    for x in [-2.20,2.20]:dormer(x)
     # Modest carved entrance canopy and footstones.
     gable_roof(0,-2.45,1.91,1.9,1.5,.43)
     for x in [-.79,.79]:beam('Canopy brace',(x,-2.38,1.51),(x,-2.9,1.98),.11)
@@ -228,7 +263,9 @@ def shop():
         side_arch(0,-2.84,.72,.97,1.25,side*math.pi/2)
         beam('Gable timber',(side*2.83,0,2.47),(side*2.83,0,3.6),.12)
     gable_roof(0,0,2.47,6.25,4.2,1.25)
-    for x in [-2.81,2.81]:gable_wall(x,0,2.47,3.6,1.18)
+    for x in [-2.81,2.81]:
+        gable_wall(x,0,2.47,3.6,1.18)
+        gable_truss(x+math.copysign(.03,x),2.47,3.6,1.18)
     arch(-1.61,-1.85,.18,1.05,1.8,True)
     for x in [.2,1.65]:arch(x,-1.85,.62,1.02,1.13)
     planter(.85,-2.10,.57,2.6)
@@ -258,13 +295,13 @@ def tower_roof(z,w,rise):
         for i in range(15):
             f=-1+2*(i+.5)/15
             pts=[transform(f*half*t,half*t,z+rise*roof_shape(t)+.02) for t in [.09+j*.91/15 for j in range(16)]]
-            tube('Tower barrel tile',pts,.033,rooflight if i%4==0 else roof,6)
+            tube('Tower slate seam',pts,.012,rooflight if i%4==0 else roof,5)
         for j in range(2,9):
             t=j/8
-            tube('Tower tile course',[transform(-half*t,half*t,z+rise*roof_shape(t)+.02),transform(half*t,half*t,z+rise*roof_shape(t)+.02)],.022,rooflight,5)
+            tube('Tower tile course',[transform(-half*t,half*t,z+rise*roof_shape(t)+.02),transform(half*t,half*t,z+rise*roof_shape(t)+.02)],.012,rooflight,5)
         pts=[transform(half*t,half*t,z+rise*roof_shape(t)) for t in [j/16 for j in range(17)]]
-        tube('Raised hip ridge',pts,.075,rooflight,8)
-        tube('Tower eave carving',[transform(-half,half,z+rise*roof_shape(1)-.06),transform(half,half,z+rise*roof_shape(1)-.06)],.09,trim,8)
+        tube('Raised hip ridge',pts,.045,rooflight,6)
+        tube('Tower eave carving',[transform(-half,half,z+rise*roof_shape(1)-.06),transform(half,half,z+rise*roof_shape(1)-.06)],.055,trim,6)
 
 
 def tower():
@@ -287,6 +324,26 @@ def tower():
     bpy.context.object.data.materials.append(gold)
 
 
+def paint_surfaces():
+    # COLOR_0 bakes the material base plus restrained cool shade at the
+    # footing and sun-bleached variation above, without runtime texture requests.
+    for obj in bpy.context.scene.objects:
+        if obj.type != 'MESH' or not obj.data.materials:continue
+        material=obj.data.materials[0]
+        if material not in [stone,trim,wood,roof,rooflight]:continue
+        colors=obj.data.color_attributes.new(name='Color',type='FLOAT_COLOR',domain='POINT')
+        for vertex,attr in zip(obj.data.vertices,colors.data):
+            world=obj.matrix_world @ vertex.co
+            low=max(0,1-world.z/1.4)
+            variation=.015*math.sin(world.x*3.7+world.z*4.1)*math.cos(world.y*3.1)
+            gains=(.98-low*.10+variation,.99-low*.07+variation,1-low*.015+variation)
+            attr.color=tuple(material.diffuse_color[i]*gains[i] for i in range(3))+(1,)
+    for material in [stone,trim,wood,roof,rooflight]:
+        nodes=material.node_tree.nodes; links=material.node_tree.links
+        vertex=nodes.new('ShaderNodeVertexColor');vertex.layer_name='Color'
+        links.new(vertex.outputs['Color'],nodes.get('Principled BSDF').inputs['Base Color'])
+
+
 def export(name):
     for material in materials:
         obs=[o for o in bpy.context.scene.objects if o.type=='MESH' and o.data.materials and o.data.materials[0]==material]
@@ -297,6 +354,9 @@ def export(name):
         if len(obs)>1:bpy.ops.object.join()
         obs[0].name=material.name
     bpy.ops.export_scene.gltf(filepath=str(OUT/(name+'.glb')),export_format='GLB',export_yup=True,export_animations=False,export_cameras=False,export_lights=False,export_texcoords=False)
+    if '--compress' in sys.argv:
+        path=str(OUT/(name+'.glb'))
+        subprocess.run(['npx','--yes','@gltf-transform/cli@4.4.1','meshopt',path,path],check=True)
     verts=[o.matrix_world@v.co for o in bpy.context.scene.objects if o.type=='MESH' for v in o.data.vertices]
     print('ASSET',name,'bytes',(OUT/(name+'.glb')).stat().st_size,'vertices',len(verts),'bounds',[(round(min(v[i] for v in verts),3),round(max(v[i] for v in verts),3)) for i in range(3)])
 
@@ -317,4 +377,5 @@ def render(name):
     bpy.ops.render.render(write_still=True)
 
 for name,build in [('inn',inn),('shop',shop),('tower',tower)]:
-    reset();build();export(name);render(name)
+    reset();build();paint_surfaces();export(name)
+    if '--render' in sys.argv:render(name)

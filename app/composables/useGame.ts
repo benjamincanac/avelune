@@ -241,15 +241,18 @@ export function useGame(): UseGame {
     status.value = 'connecting'
 
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    socket = new WebSocket(`${protocol}://${location.host}/api/ws`)
+    const connection = new WebSocket(`${protocol}://${location.host}/api/ws`)
+    socket = connection
 
-    socket.addEventListener('open', () => {
+    connection.addEventListener('open', () => {
+      if (socket !== connection) return
       reconnectDelay = 1000
       status.value = 'connected'
       startHeartbeat()
     })
 
-    socket.addEventListener('message', (event) => {
+    connection.addEventListener('message', (event) => {
+      if (socket !== connection) return
       try {
         handle(JSON.parse(event.data) as ServerMessage)
       }
@@ -258,7 +261,9 @@ export function useGame(): UseGame {
       }
     })
 
-    socket.addEventListener('close', () => {
+    connection.addEventListener('close', () => {
+      // A creator save/cancel can reconnect before the previous close arrives.
+      if (socket !== connection) return
       status.value = 'disconnected'
       selfId.value = null
       players.clear()
@@ -269,7 +274,7 @@ export function useGame(): UseGame {
       reconnectDelay = Math.min(reconnectDelay * 2, 30000)
     })
 
-    socket.addEventListener('error', () => socket?.close())
+    connection.addEventListener('error', () => connection.close())
   }
 
   function connect() {

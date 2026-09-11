@@ -10,7 +10,7 @@ import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/maze'
 import { createCourtyardLandscape } from './courtyardLandscape'
 import { createFountainWater } from './fountainWater'
-import { makeCourtyardSurface } from './courtyardTextures'
+import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
 
 /** Ground and distant scenery. All walkable elevations stay at ground level;
  * buildings, furniture and tree trunks are authored props in the shared plan. */
@@ -19,11 +19,12 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   const rng = createRng(1709)
   const dummy = new Object3D()
   const stoneMap = makeCourtyardSurface('stone')
+  const plazaMap = makePlazaSurface()
   const stone = new MeshStandardMaterial({ color: '#c8c4b3', map: stoneMap, roughness: 0.95 })
   const paleStone = new MeshStandardMaterial({ color: '#e5dcc4', map: stoneMap, roughness: 0.95 })
   const grass = new MeshStandardMaterial({ color: '#7a9d58', roughness: 1 })
   const soil = new MeshStandardMaterial({ color: '#7f745b', roughness: 1 })
-  const arenaMaterial = new MeshStandardMaterial({ color: '#c9cbbd', map: stoneMap, roughness: 1 })
+  const arenaMaterial = new MeshStandardMaterial({ color: '#d9d5c4', map: plazaMap, roughness: 1 })
   const shadow = new MeshBasicMaterial({ color: '#453c2b', transparent: true, opacity: 0.07, depthWrite: false })
 
   function flat(geometry: BufferGeometry, material: MeshStandardMaterial | MeshBasicMaterial, x: number, z: number, y = 0.025) {
@@ -194,6 +195,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       group.remove(landscape.group)
       landscape.dispose()
       stoneMap.dispose()
+      plazaMap.dispose()
       const geometries = new Set<BufferGeometry>()
       const materials = new Set<MeshStandardMaterial | MeshBasicMaterial>()
       group.traverse((o) => {

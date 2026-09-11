@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { DEFAULT_CHARACTER, isCharacter, isOutfitColor, outfitOf } from '#shared/utils/characters'
 import type { Player } from '#shared/types/game'
 
 /**
@@ -58,7 +59,15 @@ export function verifyToken(token: string | undefined | null): Identity | null {
     if (obj && typeof obj.id === 'string' && typeof obj.name === 'string'
       && typeof obj.color === 'string' && typeof obj.character === 'string'
       && typeof obj.outfitColor === 'number') {
-      return obj
+      // Keep old signed identities usable when a model leaves the roster.
+      const character = isCharacter(obj.character) ? obj.character : DEFAULT_CHARACTER
+      return {
+        id: obj.id,
+        name: obj.name,
+        color: obj.color,
+        character,
+        outfitColor: character === obj.character && isOutfitColor(outfitOf(character), obj.outfitColor) ? obj.outfitColor : 0,
+      }
     }
   }
   catch {
