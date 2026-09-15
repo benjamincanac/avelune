@@ -172,10 +172,18 @@ export function createCityMoat(stoneMap: Texture, materials: TownMaterials) {
   const dummy = new Object3D()
   let cursor = 0
   let disposed = false
+  let previousSeconds = 0
   return {
     group,
+    /** `seconds` is the wrapped shader clock (see `courtyardScene.update`), so
+     *  the wake timestamps have to survive it running backwards. */
     update(seconds: number, players: readonly FountainInteractor[] = []) {
       time.value = seconds
+      if (seconds < previousSeconds) {
+        waves.length = 0
+        swimmers.clear()
+      }
+      previousSeconds = seconds
       const active = new Set<string>()
       for (const player of players) {
         if (!isInMoat(player.x, player.z) || player.feetY >= MOAT.waterHeight - 0.15) continue

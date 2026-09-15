@@ -1,21 +1,8 @@
-import {
-  Box3,
-  BoxHelper,
-  Color,
-  DoubleSide,
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  Plane,
-  Raycaster,
-  RingGeometry,
-  Vector2,
-  Vector3,
-} from 'three'
+import { Box3, BoxHelper, Group, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import type { Object3D, PerspectiveCamera, Scene } from 'three'
 import { watch } from 'vue'
 import type { Ref, WatchStopHandle } from 'vue'
-import type { EditorPlacement, EditorSelection, EditorTool, MarkerKind } from '~/composables/useEditor'
+import type { EditorPlacement, EditorSelection, OraclePose } from '~/composables/useEditor'
 import { PALETTE_HEX } from '~/utils/palette'
 
 /**
@@ -26,11 +13,11 @@ interface EditorState {
   placements: Ref<EditorPlacement[]>
   selected: Ref<number | null>
   selection: Ref<EditorSelection>
-  tool: Ref<EditorTool>
+  /** The Oracle's pose (reactive; the scene reads it every frame, so drags and
+   *  rotations show live without any clone of our own). */
+  oracle: Ref<OraclePose>
   paletteKind: Ref<string | null>
   dirty: Ref<boolean>
-  /** The draggable markers (reactive; mutated in the 'marker' tool). */
-  getMarkers: () => Partial<Record<MarkerKind, { x: number, y: number }>>
   /** Snapshot the doc as an undo step (also marks dirty). */
   commit: () => void
   undo: () => void
@@ -42,6 +29,9 @@ interface HubEditorOptions {
   getCamera: () => PerspectiveCamera | undefined
   canvas: HTMLCanvasElement
   getTemplate: (kind: string) => Group | undefined
+  /** The Oracle rig's root in the scene, once its model has loaded. Picked by
+   *  bounding box like a placement; the scene owns and positions it. */
+  getOracle: () => Object3D | undefined
   editor: EditorState
   /** The arena's grid extent (tiles) — bounds placement + seeds the camera. */
   getSize: () => number
@@ -97,7 +87,7 @@ function isTyping(): boolean {
  * `floorGroup.clear()` never wipes them.
  */
 export function createHubEditor(opts: HubEditorOptions): HubEditor {
-  const { scene, getCamera, canvas, getTemplate, editor, getSize } = opts
+  const { scene, getCamera, canvas, getTemplate, getOracle, editor, getSize } = opts
 
   const editorGroup = new Group()
   editorGroup.name = 'hubEditor'
@@ -106,13 +96,6 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   const box = new BoxHelper(editorGroup, PALETTE_HEX.slime)
   box.visible = false
   scene.add(box)
-
-  // Flat ring gizmos for the point markers — the non-prop editable bits. Kept in
-  // their own group so a placement rebuild or a scene `floorGroup.clear()` never
-  // wipes them.
-  const gizmoGroup = new Group()
-  gizmoGroup.name = 'editorGizmos'
-  scene.add(gizmoGroup)
 
   // One clone per placement, index-aligned with editor.placements (null when a
   // template hasn't loaded yet — keeps indices stable).
@@ -125,7 +108,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   // elevated pieces (roofs, upper walls) slide at their level instead of dropping.
   const dragPlane = new Plane(new Vector3(0, 1, 0), 0)
   const hit = new Vector3()
-  // Scratch objects for bounding-box picking (see pickIndex).
+  // Scratch objects for bounding-box picking (see pick).
   const pickBox = new Box3()
   const pickPoint = new Vector3()
 
@@ -143,10 +126,10 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   // moves past a threshold, so a plain click selects without moving anything. On
   // activation we record a grab offset (target pos − ground hit) so it tracks the
   // cursor by delta instead of teleporting its origin onto the ray. The target is
-  // a placement or a point marker, depending on the active tool.
+  // a placement clone or the Oracle rig, whichever the click landed on.
   type DragTarget
     = { kind: 'placement', index: number }
-      | { kind: 'marker', which: MarkerKind }
+      | { kind: 'oracle' }
   let dragTarget: DragTarget | null = null
   let dragging = false
   let dragStartX = 0
@@ -168,9 +151,16 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     else obj.scale.setScalar(p.scale)
   }
 
+  /** The scene object behind the current selection (a clone, or the Oracle rig). */
+  function selectedObject(): Object3D | null {
+    const sel = editor.selection.value
+    if (sel?.type === 'placement') return clones[sel.index] ?? null
+    if (sel?.type === 'oracle') return getOracle() ?? null
+    return null
+  }
+
   function refreshHighlight() {
-    const i = editor.selected.value
-    const obj = i != null ? clones[i] : null
+    const obj = selectedObject()
     if (obj) {
       box.setFromObject(obj)
       box.visible = true
@@ -180,40 +170,13 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     }
   }
 
-  const flat = (mesh: Mesh) => {
-    mesh.rotation.x = -Math.PI / 2
-    return mesh
-  }
-
-  /** Redraw the point-marker rings. Cheap (a handful of meshes), so just rebuilt
-   *  whenever a marker moves or the selection changes. */
-  function renderGizmos() {
-    gizmoGroup.clear()
+  /** The transform the rotate/nudge keys act on: a placement or the Oracle.
+   *  Both carry `x`/`y`/`rot`; only placements also scale, elevate and delete. */
+  function selectedXform(): { x: number, y: number, rot: number } | null {
     const sel = editor.selection.value
-    const hex: Record<MarkerKind, string> = { oracle: '#7fd0ff' }
-    for (const [which, pos] of Object.entries(editor.getMarkers()) as [MarkerKind, { x: number, y: number }][]) {
-      const on = sel?.type === 'marker' && sel.which === which
-      const ring = flat(new Mesh(
-        new RingGeometry(0.4, 0.62, 28),
-        new MeshBasicMaterial({ color: new Color(hex[which]), transparent: true, opacity: on ? 1 : 0.7, side: DoubleSide }),
-      ))
-      ring.position.set(pos.x, 0.07, pos.y)
-      gizmoGroup.add(ring)
-    }
-  }
-
-  /** The marker within `r` tiles of a ground point, or null (nearest wins). */
-  function nearestMarker(g: { x: number, y: number }, r = 1.2): MarkerKind | null {
-    let best: MarkerKind | null = null
-    let bestD = r * r
-    for (const [which, pos] of Object.entries(editor.getMarkers()) as [MarkerKind, { x: number, y: number }][]) {
-      const d = (pos.x - g.x) ** 2 + (pos.y - g.y) ** 2
-      if (d < bestD) {
-        bestD = d
-        best = which
-      }
-    }
-    return best
+    if (sel?.type === 'placement') return editor.placements.value[sel.index] ?? null
+    if (sel?.type === 'oracle') return editor.oracle.value
+    return null
   }
 
   function rebuild() {
@@ -235,7 +198,6 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       clones.push(obj)
     }
     refreshHighlight()
-    renderGizmos()
   }
 
   /** Sync clones to placements: transform-only when the structure matches, else
@@ -273,28 +235,31 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
   }
 
   /**
-   * The placement index under the cursor, or null. Picks by each clone's world
-   * bounding box (nearest box the ray enters) rather than triangle intersection:
-   * many kit props (trees, wagons, columns, thin decor) have sparse geometry a
-   * precise ray slips between, so only dense solids like barrels were selectable.
-   * A box covers the whole silhouette, so every prop is clickable.
+   * What's under the cursor, or null: a placement clone or the Oracle rig. Picks
+   * by each object's world bounding box (nearest box the ray enters) rather than
+   * triangle intersection: many kit props (trees, wagons, columns, thin decor)
+   * have sparse geometry a precise ray slips between, so only dense solids like
+   * barrels were selectable. A box covers the whole silhouette, so every prop is
+   * clickable.
    */
-  function pickIndex(): number | null {
-    let best: number | null = null
+  function pick(): DragTarget | null {
+    let best: DragTarget | null = null
     let bestDist = Infinity
-    for (let i = 0; i < clones.length; i++) {
-      const obj = clones[i]
-      if (!obj) continue
+    const test = (obj: Object3D, target: DragTarget) => {
       pickBox.setFromObject(obj)
-      if (pickBox.isEmpty()) continue
-      if (raycaster.ray.intersectBox(pickBox, pickPoint)) {
-        const d = raycaster.ray.origin.distanceToSquared(pickPoint)
-        if (d < bestDist) {
-          bestDist = d
-          best = i
-        }
+      if (pickBox.isEmpty() || !raycaster.ray.intersectBox(pickBox, pickPoint)) return
+      const d = raycaster.ray.origin.distanceToSquared(pickPoint)
+      if (d < bestDist) {
+        bestDist = d
+        best = target
       }
     }
+    for (let i = 0; i < clones.length; i++) {
+      const obj = clones[i]
+      if (obj) test(obj, { kind: 'placement', index: i })
+    }
+    const oracle = getOracle()
+    if (oracle) test(oracle, { kind: 'oracle' })
     return best
   }
 
@@ -308,30 +273,22 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       return
     }
     if (e.button !== 0 || !setRay(e)) return
-    const tool = editor.tool.value
-    const g = groundHit()
 
-    // Marker tool: grab the nearest marker ring.
-    if (tool === 'marker') {
-      if (!g) return
-      const which = nearestMarker(g)
-      editor.selection.value = which ? { type: 'marker', which } : null
-      if (which) armDrag({ kind: 'marker', which }, e)
-      return
-    }
-
-    // Select tool: stamp an armed palette kind, else pick a placement.
+    // Stamp an armed palette kind, else pick whatever the click landed on.
     const kind = editor.paletteKind.value
     if (kind) {
+      const g = groundHit()
       if (!g) return
       editor.placements.value.push({ kind, x: g.x, y: g.y, rot: 0, scale: 1 })
       editor.selection.value = { type: 'placement', index: editor.placements.value.length - 1 }
       editor.commit()
       return
     }
-    const pi = pickIndex()
-    editor.selection.value = pi != null ? { type: 'placement', index: pi } : null
-    if (pi != null) armDrag({ kind: 'placement', index: pi }, e)
+    const target = pick()
+    editor.selection.value = target?.kind === 'placement'
+      ? { type: 'placement', index: target.index }
+      : target?.kind === 'oracle' ? { type: 'oracle' } : null
+    if (target) armDrag(target, e)
   }
 
   function onMouseMove(e: MouseEvent) {
@@ -365,11 +322,11 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       return
     }
 
-    // Marker: drag on the ground plane, updating the data live.
+    // Oracle: drag on the ground plane, writing the pose live (the scene moves
+    // the rig off it every frame; the undo step lands on mouseup).
     dragPlane.constant = 0
     if (!raycaster.ray.intersectPlane(dragPlane, hit)) return
-    const cur = editor.getMarkers()[dragTarget.which]
-    if (!cur) return
+    const cur = editor.oracle.value
     if (!dragging) {
       const dx = e.clientX - dragStartX
       const dy = e.clientY - dragStartY
@@ -380,7 +337,6 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     }
     cur.x = clamp(hit.x + grabX, lo, hi)
     cur.y = clamp(hit.z + grabY, lo, hi)
-    renderGizmos()
   }
 
   function onMouseUp(e: MouseEvent) {
@@ -403,24 +359,25 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       }
       return
     }
-    const cur = editor.getMarkers()[target.which]
-    if (cur) {
-      cur.x = round3(cur.x)
-      cur.y = round3(cur.y)
-      editor.commit()
-    }
+    const cur = editor.oracle.value
+    cur.x = round3(cur.x)
+    cur.y = round3(cur.y)
+    editor.commit()
   }
 
   function onWheel(e: WheelEvent) {
-    const i = editor.selected.value
-    if (i == null) return
+    const xf = selectedXform()
+    if (!xf) return
     e.preventDefault()
-    const p = editor.placements.value[i]!
+    const i = editor.selected.value
+    const p = i != null ? editor.placements.value[i] : null
     if (e.shiftKey) {
+      // Scale is a placement-only affordance; the Oracle keeps its fixed height.
+      if (!p) return
       p.scale = clamp(e.deltaY < 0 ? p.scale * SCALE_STEP : p.scale / SCALE_STEP, SCALE_MIN, SCALE_MAX)
     }
     else {
-      p.rot += (e.deltaY < 0 ? 1 : -1) * ROTATE_STEP * 0.5
+      xf.rot += (e.deltaY < 0 ? 1 : -1) * ROTATE_STEP * 0.5
     }
     editor.commit()
   }
@@ -448,6 +405,8 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       return
     }
 
+    // `xf` is anything with a pose (placement or Oracle); `p` only a placement.
+    const xf = selectedXform()
     const i = editor.selected.value
     const p = i != null ? editor.placements.value[i] : null
 
@@ -456,7 +415,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       else editor.paletteKind.value = null
     }
     else if (e.code === 'Delete' || e.code === 'Backspace') {
-      // Delete the selected placement (markers can't be removed).
+      // Delete the selected placement (the Oracle can't be removed).
       const sel = editor.selection.value
       if (sel?.type === 'placement') {
         editor.placements.value.splice(sel.index, 1)
@@ -464,8 +423,8 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
         editor.commit()
       }
     }
-    else if (e.code === 'KeyR' && p) {
-      p.rot += e.shiftKey ? -ROTATE_STEP : ROTATE_STEP
+    else if (e.code === 'KeyR' && xf) {
+      xf.rot += e.shiftKey ? -ROTATE_STEP : ROTATE_STEP
       editor.commit()
     }
     else if (e.code === 'BracketLeft' && p) {
@@ -489,8 +448,8 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       p.z = Math.max(0, (p.z ?? 0) + (e.code === 'PageUp' ? step : -step))
       editor.commit()
     }
-    else if (p && ARROWS.has(e.code)) {
-      // Nudge the selected piece on the ground plane, camera-relative (matches
+    else if (xf && ARROWS.has(e.code)) {
+      // Nudge the selection on the ground plane, camera-relative (matches
       // WASD fly — Up = away from the view). Shift for a coarser step.
       e.preventDefault()
       const step = e.shiftKey ? NUDGE_COARSE : NUDGE
@@ -500,8 +459,8 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       const dz = -Math.cos(yaw) * fwd - Math.sin(yaw) * side
       const lo = 0.5
       const hi = getSize() - 0.5
-      p.x = clamp(p.x + dx * step, lo, hi)
-      p.y = clamp(p.y + dz * step, lo, hi)
+      xf.x = clamp(xf.x + dx * step, lo, hi)
+      xf.y = clamp(xf.y + dz * step, lo, hi)
       editor.commit()
     }
   }
@@ -534,9 +493,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
 
   const stops: WatchStopHandle[] = [
     watch(editor.placements, reconcile, { deep: true }),
-    watch(editor.selected, refreshHighlight),
-    // Marker rings redraw on a selection change (a drag calls renderGizmos itself).
-    watch(editor.selection, renderGizmos),
+    watch(editor.selection, refreshHighlight),
   ]
 
   function update(dt: number) {
@@ -585,9 +542,7 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     for (const stop of stops) stop()
     scene.remove(editorGroup)
     scene.remove(box)
-    scene.remove(gizmoGroup)
     editorGroup.clear()
-    gizmoGroup.clear()
   }
 
   return { update, rebuild, dispose }

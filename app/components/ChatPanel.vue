@@ -3,8 +3,8 @@ import type { ChatMessage, UseGame } from '~/composables/useGame'
 
 /**
  * Bottom-left chat, MMO style: a scrollback of recent messages from everyone in
- * the arena, with the input underneath. Enter focuses it from anywhere; Escape
- * hands control back to the game.
+ * the arena, with the input underneath. Enter or `/` focuses it from anywhere;
+ * Escape hands control back to the game.
  */
 
 const props = defineProps<{ game: UseGame }>()
@@ -33,8 +33,11 @@ function submit() {
 
 function onKeyDown(event: KeyboardEvent) {
   const typing = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA'
-  if (event.key === 'Enter' && !typing) {
+  if ((event.key === 'Enter' || event.key === '/') && !typing) {
+    // preventDefault keeps the keystroke out of the freshly focused input; the
+    // slash is re-added through the model so it starts a command like Discord.
     event.preventDefault()
+    if (event.key === '/') text.value = '/'
     input.value?.inputRef?.focus()
   }
   else if (event.key === 'Escape' && typing) {
@@ -92,7 +95,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       size="sm"
       variant="none"
       class="w-full"
-      :ui="{ base: 'backdrop-blur-sm' }"
+      :ui="{ base: 'backdrop-blur-sm placeholder:text-default/90' }"
       @focus="focused = true"
       @blur="focused = false"
       @keydown.enter.prevent="submit"

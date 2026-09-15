@@ -11,7 +11,7 @@ description: >
 model: inherit
 ---
 
-You own everything Tempest draws in 3D. The courtyard is built locally from the
+You own everything Avelune draws in 3D. The town is built locally from the
 shared module and the committed layout JSON — you render it and predict motion;
 you never receive geometry over the wire.
 
@@ -25,8 +25,8 @@ you never receive geometry over the wire.
   keydown entirely while locked; `index.vue` opens the game menu on it. Gotcha:
   Chrome refuses re-lock for ~1.25s after an Escape-exit, so a failed
   `requestLock()` is normal — clicking the world recovers.
-- `app/components/MazeScene.vue` — the arena: the sand disc + rune circle, the
-  terrain and architecture surrounding the playable space, the
+- `app/components/MazeScene.vue` — the town: the walled streets, moat and
+  terrain surrounding the playable space, the
   instanced batches built from `plan.props`, the Oracle rig, and the
   sky/day-night + weather clock.
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
@@ -54,18 +54,26 @@ you never receive geometry over the wire.
   `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
   remote feet through each fountain inverse transform for cosmetic wakes; water
   must never move players. Dispose each water effect separately before generic scenery disposal. `courtyardLandscape.ts` owns sculpted
-  terrain, original botanical model instances and GPU grass wind. Detailed tree templates
-  are about 38k triangles, so distant woodland uses owned lightweight crown geometry
-  instead of more full tree instances. All decorative trunks stay outside the playable square. Pass authored placements
-  into the landscape so garden plants are excluded beneath rotated building footprints. `courtyardTextures.ts` owns the
-  runtime pigment maps. Dispose this scenery when rebuilding the floor.
+  terrain, the nature-kit instances and GPU grass wind. Botanicals are the Quaternius
+  Stylized Nature MegaKit under `public/models/nature/` (`NATURE_NAMES`: `tree1..5`,
+  `bush1..2`, `fern`, `clover`, `plant`, `flowers1..2`, `rock1..3`), picked per placement
+  by family prefix. Their leaves are alpha-cut cards (`alphaMode MASK`): the landscape
+  tags those batches `userData.foliage` and `courtyardRenderer` hides them during the
+  GTAO normal pass, otherwise every card occludes as a solid quad. `townMaterials.decorate`
+  skips any material that already has a `map`, so the kit's bark keeps its texture.
+  Distant woodland still uses the owned lightweight crown geometry. All decorative
+  trunks stay outside the playable square. Pass authored placements into the landscape
+  so garden plants are excluded beneath rotated building footprints. `courtyardTextures.ts`
+  owns the runtime pigment maps. Dispose this scenery when rebuilding the floor.
 - `app/utils/composeColosseum.ts` is the retained legacy composition. The current
   map does not use it or the old `hub-*.json` layouts.
 - `app/utils/hubEditor.ts` — the dev-only world editor's 3D controller (fly
-  camera, ground raycast, click-to-place / select / drag, keyboard nudges, the
-  draggable Oracle marker ring). Owns its own `editorGroup` on the scene root and
-  renders selectable per-prop clones; driven by `useEditor` state and mounted by
-  `MazeScene` when its `editor` prop is set (dev-only, tree-shaken from prod).
+  camera, ground raycast, click-to-place / select / drag, keyboard nudges). Owns
+  its own `editorGroup` on the scene root and renders selectable per-prop clones;
+  the Oracle rig itself (via a `getOracle` getter, since the scene builds it
+  lazily) is picked, dragged and rotated the same way, writing `doc.oracle`
+  `{x, y, rot}` live. Driven by `useEditor` state and mounted by `MazeScene`
+  when its `editor` prop is set (dev-only, tree-shaken from prod).
   The 2D palette/inspector is `game-ui`'s `EditorPanel.vue`.
 - `app/components/MiniMap.vue` — round WoW-style minimap (top-right), north-up
   and centred on you. The arena is one small known map, so nothing is fogged; it
@@ -192,10 +200,16 @@ The outer-bank stair is the route back to ground level. Narrow bridge rails
 use shared prop collision and movement substeps. Rendering must cut the terrain at the exact moat bounds
 and keep decorative trunks and relief outside the exterior bounds.
 
-`rampartWalkways.ts` renders gallery decks, rails and stair treads from
-`shared/utils/ramparts.ts`. Elevated galleries preserve ground underpasses;
-shared movement selects surfaces by foot height. Render rail openings from
-`RAMPART_RAILS`, and keep every stair tread aligned with the shared step count.
+The patrol gallery is authored, not generated. `Courtyard_Gallery`,
+`Courtyard_Stairs` and `Courtyard_Rail` are world-sized templates built in
+`app/utils/fortifications.ts` beside `Courtyard_Rampart`, so they instance
+through the normal prop path in play and become selectable clones the editor
+moves like any other prop. Their local frames follow the shared dimensions: the
+gallery slab hangs below its origin so the placement `z` is the walking surface,
+the rail box rises from its origin so the placement `z` is its bottom, and the
+stairs are centred on their ground footprint and climb toward local +z. Elevated
+galleries preserve ground underpasses; shared movement selects surfaces by foot
+height, and every stair tread must match the shared step count.
 
 `townMaterials.ts` owns a texture bank per mounted world and projects the maps
 from `materialTextures.ts` in world space, including instanced GLBs without UVs.
@@ -203,8 +217,25 @@ Apply it to environment materials only. Do not replace foliage, glass, water or
 character shaders. The bank survives floor rebuilds and is disposed after scene
 and template cleanup. Shader color samples use sRGB textures; normals and
 roughness remain linear.
-Instance tint material clones must preserve `onBeforeCompile` and
-`customProgramCacheKey`; Three material cloning omits these shader hooks.
+Three material cloning copies `userData` and `defines` but drops
+`onBeforeCompile` / `customProgramCacheKey`. Never copy the source's hooks onto
+an instance tint clone: a CSM-patched hook re-registers the clone's shader under
+the source material in `csm.shaders` and the source stops getting cascade
+updates. Re-install instead — `townMaterials.reapply` reads the
+`userData.townMaterial` recipe `apply` leaves behind, `applyFoliage` re-runs, and
+the CSM sweep (`sky.setupShadows()`, called after every build and rig) patches
+the clone as a material of its own. Clear the `userData.foliageShader` /
+`userData.characterRim` guards on any clone, or the hooks they mark never
+reinstall. Every town material hook chains the previous one.
+
+Shader clocks are `uniform float`: epoch seconds quantise to 128 s steps, so
+`MazeScene` wraps the server clock before it reaches a uniform (grass, foliage,
+moat) and passes absolute seconds only to the fountain's particle simulation.
+
+`MazeScene.tagShadows` skips `userData.shadowTagged`, which the landscape sets
+wherever its own cast/receive flags are deliberate. `scene.userData.version` is
+bumped on every floor rebuild and rig change; `courtyardRenderer` caches its
+GTAO exclusion list against it instead of traversing each frame.
 
 Swimming clips are authored by `scripts/build_swim_animations.py` into
 `public/models/characters/swimming.glb`, using the existing universal skeleton.

@@ -9,12 +9,14 @@ import {
   LinearFilter,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
   SkinnedMesh,
+  SRGBColorSpace,
   Sprite,
   SpriteMaterial,
   Texture,
@@ -33,7 +35,6 @@ import {
   DASH_COOLDOWN,
   DASH_DURATION,
   DASH_MULTIPLIER,
-  HUB_LAYOUT,
   JUMP_VELOCITY,
   PLAYER_SPEED,
   isWalkable,
@@ -48,13 +49,15 @@ import { createTownMaterials } from '~/utils/townMaterials'
 import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
-import { createCourtyardSky } from '~/utils/courtyardSky'
-import { COURTYARD_LANDSCAPE_NAMES } from '~/utils/courtyardLandscape'
+import { courtyardWeather, createCourtyardSky } from '~/utils/courtyardSky'
+import { NATURE_NAMES } from '~/utils/courtyardLandscape'
+import { applyFoliage } from '~/utils/foliage'
 import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
+import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
 import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
 import type { CharacterAsset } from '~/utils/characterModels'
 import { animationBlendDuration, locomotionTransitionTime, updateDashAnimation } from '~/utils/characterAnimation'
@@ -138,17 +141,17 @@ scene.value.add(floorGroup)
 // The Oracle NPC — a monster (Quaternius Ultimate Monsters) as the arena's
 // ancient seer. Declared here (before the synchronous initial buildFloor) so
 // buildFloor can reset it on a rebuild.
-/** Where the Oracle stands, in tiles. Editable via the hub 'Oracle' marker: in
- *  the editor it follows the live (draggable) marker; in play it's the saved
- *  position from courtyard-oracle.json. */
-function oraclePos(): { x: number, y: number } {
+/** Where the Oracle stands (tiles) and faces (yaw). In the editor it follows the
+ *  working doc live (the rig is selectable/draggable there like a prop); in play
+ *  it's the saved pose from courtyard-oracle.json. */
+function oraclePos(): { x: number, y: number, rot: number } {
   if (props.editor && ed?.current.value.oracle) return ed.current.value.oracle
-  const [x, y] = HUB_ORACLE as [number, number]
-  return { x, y }
+  return { x: HUB_ORACLE[0]!, y: HUB_ORACLE[1]!, rot: HUB_ORACLE[2]! }
 }
-/** Within this many tiles the runner may consult it (drives the HUD prompt). */
+/** Within this many tiles the player may consult it (drives the HUD prompt). */
 const ORACLE_NEAR = 7
 interface OracleRig {
+  dispose: () => void
   group: Group
   mixer: AnimationMixer
   /** Speech bubble mirroring the players' — shows the Oracle's latest chat line. */
@@ -165,10 +168,14 @@ let oracleRig: OracleRig | null = null
  * Tag the freshly built world for shadows: opaque standard-material meshes cast
  * and receive; the flat ground plane only receives; glowing/transparent bits
  * (rift, beams, runes) do neither. Instanced meshes cast shadows too.
+ *
+ * `userData.shadowTagged` opts a batch out: the landscape sets its own flags
+ * (the ~200-instance distant treeline and the meadow grass deliberately cast
+ * nothing) and a blanket pass would push all of that back into every cascade.
  */
 function tagShadows(root: Group) {
   root.traverse((o) => {
-    if (!(o instanceof Mesh)) return
+    if (!(o instanceof Mesh) || o.userData.shadowTagged) return
     const mat = o.material
     const opaqueStd = mat instanceof MeshStandardMaterial && !mat.transparent
     o.castShadow = opaqueStd && !(o.geometry instanceof PlaneGeometry)
@@ -176,7 +183,18 @@ function tagShadows(root: Group) {
   })
 }
 
+/** GTAO's exclusion list is cached by the renderer; bump this whenever the
+ *  scene gains or loses objects so it rescans. */
+function bumpSceneVersion() {
+  scene.value.userData.version = (scene.value.userData.version ?? 0) + 1
+}
+
 function clearFloor() {
+  if (oracleRig) {
+    floorGroup.remove(oracleRig.group)
+    oracleRig.dispose()
+    oracleRig = null
+  }
   if (courtyard) {
     floorGroup.remove(courtyard.group)
     courtyard.dispose()
@@ -195,8 +213,6 @@ function clearFloor() {
 
 function buildFloor() {
   clearFloor()
-  // floorGroup.clear() detached the Oracle; drop the ref so it gets rebuilt.
-  oracleRig = null
 
   const plan = hubPlan
 
@@ -204,6 +220,10 @@ function buildFloor() {
   floorGroup.add(courtyard.group)
   renderPlanProps(plan)
   tagShadows(floorGroup)
+  // Materials that miss the CSM injection read the three cascade lights as
+  // three separate suns until the periodic sweep catches them.
+  atmosphere.setupShadows()
+  bumpSceneVersion()
   // Re-sync the editor's own selectable clones (templates may have just
   // finished loading, so this runs after each build phase).
   editorCtl?.rebuild()
@@ -295,6 +315,11 @@ function placementMatrixScaled(x: number, y: number, z: number, rotY: number, sx
   return placementDummy.matrix.clone()
 }
 
+/** Drives the wind sway on every alpha-cut prop batch (see utils/foliage). */
+const foliageTime = { value: 0 }
+/** Shader clocks wrap here (seconds) to stay inside float32's useful range. */
+const SHADER_CLOCK_WRAP = 3600
+
 /**
  * Instance a GLB module at many placements: one InstancedMesh per mesh part,
  * with the part's own transform baked into every instance matrix.
@@ -309,10 +334,23 @@ function instantiateModule(name: string, placements: Matrix4[], tint = '#ffffff'
     if (!(obj instanceof Mesh)) return
     const sourceMaterial = obj.material as MeshStandardMaterial
     const material = sourceMaterial.clone()
-    // Three does not copy shader hooks when cloning a material for instance tinting.
-    material.onBeforeCompile = sourceMaterial.onBeforeCompile
-    material.customProgramCacheKey = sourceMaterial.customProgramCacheKey
+    // Three copies `userData` and `defines` when cloning but not the shader
+    // hooks they stand for. Copying the source's hooks instead is worse than
+    // useless: a CSM-patched hook re-registers this clone's shader under the
+    // *source* material in `csm.shaders`, so the source stops getting cascade
+    // uniform updates. Re-install the town's own hooks and let the CSM sweep
+    // (and `setupShadows` above) patch the clone as a material of its own.
+    delete material.userData.foliageShader
+    delete material.userData.characterRim
+    if (material.defines) {
+      delete material.defines.USE_CSM
+      delete material.defines.CSM_CASCADES
+      delete material.defines.CSM_FADE
+    }
+    townMaterials.reapply(material)
     material.color.multiply(new Color(tint))
+    // Alpha-cut cards (kit leaves, flowers, bark) sway and catch backlight.
+    if (material.alphaTest > 0) applyFoliage(material, foliageTime)
     const instanced = new InstancedMesh(obj.geometry, material, placements.length)
     placements.forEach((placement, index) => {
       composed.multiplyMatrices(placement, obj.matrixWorld)
@@ -382,9 +420,12 @@ function fitTemplate(source: Group, width: number | null, height: number, depth:
   return fitted
 }
 
-loadTemplates('courtyard', ['fountain', 'inn', 'shop', 'tower', ...COURTYARD_LANDSCAPE_NAMES]).then(() => {
+Promise.all([
+  loadTemplates('courtyard', ['fountain', 'inn', 'shop', 'tower']),
+  loadTemplates('nature', NATURE_NAMES),
+]).then(() => {
   if (sceneDisposed) return
-  for (const [kind, file] of [['Courtyard_Inn', 'inn'], ['Courtyard_Shop', 'shop'], ['Courtyard_Tower', 'tower'], ['Courtyard_Fountain', 'fountain'], ['Courtyard_Tree', 'tree']] as const) {
+  for (const [kind, file] of [['Courtyard_Inn', 'inn'], ['Courtyard_Shop', 'shop'], ['Courtyard_Tower', 'tower'], ['Courtyard_Fountain', 'fountain'], ['Courtyard_Tree', 'tree1']] as const) {
     const template = propTemplates.get(file)
     if (template) {
       const previous = propTemplates.get(kind)
@@ -395,14 +436,14 @@ loadTemplates('courtyard', ['fountain', 'inn', 'shop', 'tower', ...COURTYARD_LAN
   const planter = propTemplates.get('Courtyard_Planter')
   if (planter) {
     for (const x of [-0.9, 0, 0.9]) {
-      const source = propTemplates.get('bush')
+      const source = propTemplates.get('bush1')
       if (!source) continue
       const bush = fitTemplate(source, 1, 0.55, 0.95)
       bush.position.set(x, 0.64, 0)
       planter.add(bush)
     }
     for (const x of [-1.1, -0.4, 0.4, 1.1]) {
-      const source = propTemplates.get('flowers')
+      const source = propTemplates.get('flowers1')
       if (!source) continue
       const flowers = fitTemplate(source, null, 0.55, null)
       flowers.position.set(x, 0.68, 0.2)
@@ -431,39 +472,103 @@ interface Rig {
   bubbleText: string
   /** World-space bottom edge of the bubble; it grows upward from here. */
   bubbleBaseY: number
+  /** Ground decal under the feet; fades out as the character leaves the floor. */
+  blob: Mesh<PlaneGeometry, MeshBasicMaterial>
 }
 
 const playerGroup = new Group()
 scene.value.add(playerGroup)
 const rigs = new Map<string, Rig>()
 
-function makeTextSprite(draw: (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void) {
+/* Blob contact shadow. The sun's cascade is soft enough that feet can read as
+ * hovering, especially under the trees where the cast shadow washes out. A tiny
+ * ground-hugging gradient quad puts them back on the floor. Geometry and
+ * texture are shared; only the material is per-rig, so each can fade on its own
+ * as the character leaves the ground. */
+const BLOB_RADIUS = 0.34
+const BLOB_OPACITY = 0.35
+const blobGeometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+let blobTexture: CanvasTexture | null = null
+
+function blobShadowTexture() {
+  if (blobTexture) return blobTexture
   const canvas = document.createElement('canvas')
-  canvas.width = 512
-  canvas.height = 128
+  canvas.width = canvas.height = 128
+  const ctx = canvas.getContext('2d')!
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 1)')
+  gradient.addColorStop(0.45, 'rgba(0, 0, 0, 0.72)')
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 128, 128)
+  blobTexture = new CanvasTexture(canvas)
+  blobTexture.colorSpace = SRGBColorSpace
+  return blobTexture
+}
+
+function makeBlobShadow() {
+  const material = new MeshBasicMaterial({
+    map: blobShadowTexture(),
+    color: '#1b1a16',
+    transparent: true,
+    opacity: BLOB_OPACITY,
+    depthWrite: false,
+    toneMapped: false,
+    fog: true,
+  })
+  const mesh = new Mesh(blobGeometry, material)
+  mesh.scale.set(BLOB_RADIUS * 2, 1, BLOB_RADIUS * 2)
+  mesh.renderOrder = 1
+  // GTAO's normal override draws every mesh opaque. This decal has no surface
+  // of its own and would occlude as a solid disc, so the renderer skips it.
+  mesh.userData.gtaoExclude = true
+  return mesh
+}
+
+/** Nameplate sprite: a 4:1 canvas at 2× the old resolution, drawn into a world
+ *  box ~30% smaller. Crispness comes from the texel density, not from the size. */
+const NAME_SPRITE = { width: 1024, height: 256, scaleX: 1.12, scaleY: 0.28 }
+/** Gap between the top of the head and the bottom of the nameplate. */
+const NAME_GAP = 0.06
+
+function makeTextSprite(
+  draw: (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void,
+  options: { width: number, height: number, scaleX: number, scaleY: number } = { width: 512, height: 128, scaleX: 1.6, scaleY: 0.4 },
+) {
+  const canvas = document.createElement('canvas')
+  canvas.width = options.width
+  canvas.height = options.height
   const ctx = canvas.getContext('2d')!
   draw(ctx, canvas)
   const texture = new CanvasTexture(canvas)
   // Text stays crisp without mipmap blur, and the bubble canvas grows to a
   // non-power-of-two height, so skip mipmaps entirely.
   texture.minFilter = LinearFilter
-  const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false }))
-  // Nameplate size (512×128 canvas at 4:1). Bubbles keep this only until their
-  // first message, then rescale themselves to fit their wrapped text.
-  sprite.scale.set(1.6, 0.4, 1)
+  // The canvas holds sRGB pixels. Left unmarked they are read as linear and
+  // re-encoded on output, which lifts the near-black bubble fill to grey.
+  texture.colorSpace = SRGBColorSpace
+  // Names and bubbles are UI, not lit geometry: keep them out of the ACES
+  // curve and the fog so they read the same at noon and at midnight.
+  const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false, fog: false }))
+  // Bubbles keep the default box only until their first message, then rescale
+  // themselves to fit their wrapped text.
+  sprite.scale.set(options.scaleX, options.scaleY, 1)
   return { sprite, canvas, texture }
 }
 
 function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name: string, color: string) {
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.font = '600 44px Geist, ui-sans-serif, sans-serif'
+  // Metrics ride the canvas height so the plate looks identical at any
+  // resolution. The stroke stays thin enough not to fatten the letterforms.
+  ctx.font = `600 ${Math.round(canvas.height * 0.34)}px Geist, ui-sans-serif, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.lineWidth = 10
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)'
-  ctx.strokeText(name, 256, 64)
+  ctx.lineWidth = Math.max(2, Math.round(canvas.height * 0.055))
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.62)'
+  ctx.strokeText(name, canvas.width / 2, canvas.height / 2)
   ctx.fillStyle = color
-  ctx.fillText(name, 256, 64)
+  ctx.fillText(name, canvas.width / 2, canvas.height / 2)
 }
 
 /* Chat-bubble geometry. The canvas stays a fixed 512px wide; its height grows
@@ -471,16 +576,20 @@ function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name
  * BUBBLE_TEXELS_PER_UNIT), so text keeps a constant, crisp size instead of
  * being squished onto a single line. */
 const BUBBLE_CANVAS_WIDTH = 512
-const BUBBLE_FONT = '40px Geist, ui-sans-serif, sans-serif'
-const BUBBLE_LINE_HEIGHT = 52
-const BUBBLE_PAD_X = 28
-const BUBBLE_PAD_Y = 22
+const BUBBLE_FONT = '500 36px Geist, ui-sans-serif, sans-serif'
+const BUBBLE_LINE_HEIGHT = 46
+const BUBBLE_PAD_X = 26
+const BUBBLE_PAD_Y = 18
+const BUBBLE_RADIUS = 22
+/** The little pointer under the box, aimed at the speaker. */
+const BUBBLE_TAIL_W = 26
+const BUBBLE_TAIL_H = 14
 const BUBBLE_MAX_TEXT_WIDTH = BUBBLE_CANVAS_WIDTH - BUBBLE_PAD_X * 2
 const BUBBLE_MAX_LINES = 6
 /** Canvas px per world unit — keeps texel density constant as the box grows.
  *  Higher = smaller bubble in the world (text stays crisp, just physically
  *  smaller than the nameplate). */
-const BUBBLE_TEXELS_PER_UNIT = 460
+const BUBBLE_TEXELS_PER_UNIT = 500
 const BUBBLE_WIDTH_UNITS = BUBBLE_CANVAS_WIDTH / BUBBLE_TEXELS_PER_UNIT
 
 /** Greedily wrap `text` into lines no wider than `maxWidth`, hard-breaking any
@@ -525,26 +634,47 @@ function drawBubble(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, te
   let textWidth = 0
   for (const line of lines) textWidth = Math.max(textWidth, ctx.measureText(line).width)
 
-  const boxWidth = Math.min(textWidth + BUBBLE_PAD_X * 2, BUBBLE_CANVAS_WIDTH)
+  // Leave a 2px gutter so the ring stroke isn't clipped at the canvas edge.
+  const boxWidth = Math.min(textWidth + BUBBLE_PAD_X * 2, BUBBLE_CANVAS_WIDTH - 4)
   const boxHeight = Math.max(lines.length, 1) * BUBBLE_LINE_HEIGHT + BUBBLE_PAD_Y * 2
+  const totalHeight = boxHeight + BUBBLE_TAIL_H + 2
 
   // Resizing the canvas clears it and resets the 2D context, so re-set state.
-  canvas.height = boxHeight
+  canvas.height = totalHeight
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.font = BUBBLE_FONT
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'
+  // One path for the rounded box plus its tail, so the ring outlines both. The
+  // look mirrors the HUD's glass panels (black/35 + a faint white ring).
+  const cx = canvas.width / 2
+  const left = cx - boxWidth / 2
+  const right = cx + boxWidth / 2
+  const top = 2
+  const bottom = top + boxHeight
+  const r = BUBBLE_RADIUS
   ctx.beginPath()
-  ctx.roundRect((canvas.width - boxWidth) / 2, 0, boxWidth, boxHeight, 24)
+  ctx.moveTo(left + r, top)
+  ctx.arcTo(right, top, right, bottom, r)
+  ctx.arcTo(right, bottom, left, bottom, r)
+  ctx.lineTo(cx + BUBBLE_TAIL_W / 2, bottom)
+  ctx.lineTo(cx, bottom + BUBBLE_TAIL_H)
+  ctx.lineTo(cx - BUBBLE_TAIL_W / 2, bottom)
+  ctx.arcTo(left, bottom, left, top, r)
+  ctx.arcTo(left, top, right, top, r)
+  ctx.closePath()
+  ctx.fillStyle = 'rgba(10, 12, 18, 0.9)'
   ctx.fill()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
+  ctx.stroke()
 
-  ctx.fillStyle = '#111827'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
   lines.forEach((line, i) => {
-    ctx.fillText(line, canvas.width / 2, BUBBLE_PAD_Y + BUBBLE_LINE_HEIGHT * (i + 0.5))
+    ctx.fillText(line, cx, top + BUBBLE_PAD_Y + BUBBLE_LINE_HEIGHT * (i + 0.5))
   })
-  return boxHeight
+  return totalHeight
 }
 
 function createRig(player: GamePlayer): Rig | null {
@@ -567,7 +697,10 @@ function createRig(player: GamePlayer): Rig | null {
   model.scale.setScalar(CHARACTER_SCALE)
   // Swap in the chosen outfit colorway (designed texture variant, not a dye).
   // The accent color is a chat/nameplate identity only.
-  applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
+  const outfitMaterials = applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
+  // After the outfit swap: cloning a material drops its shader hooks, so the
+  // rim has to be installed on whatever materials the rig ends up with.
+  applyCharacterRim(model)
   // Skinned meshes must keep rendering when bones move them outside their
   // original bounds.
   model.traverse((obj) => {
@@ -588,19 +721,24 @@ function createRig(player: GamePlayer): Rig | null {
   }
   actions[CLIP.idle]?.play()
 
-  const name = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, player.name, player.color))
-  name.sprite.position.y = headHeight + 0.22
+  const name = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, player.name, player.color), NAME_SPRITE)
+  name.sprite.position.y = headHeight + NAME_GAP + NAME_SPRITE.scaleY / 2
   group.add(name.sprite)
 
-  // The bubble is centered on its sprite, so its default 0.4-tall box sits with
-  // its bottom edge 0.2 below the center — anchor growth from that bottom.
-  const bubbleBaseY = headHeight + 0.32
+  // Bubbles are centered on their sprite and grow upward from this bottom edge,
+  // which sits just clear of the top of the nameplate.
+  const bubbleBaseY = headHeight + NAME_GAP + NAME_SPRITE.scaleY + 0.04
   const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
   bubble.sprite.position.y = bubbleBaseY + bubble.sprite.scale.y / 2
   bubble.sprite.visible = false
   group.add(bubble.sprite)
 
+  const blob = makeBlobShadow()
+  group.add(blob)
+
   playerGroup.add(group)
+  atmosphere.setupShadows()
+  bumpSceneVersion()
   return {
     dispose() {
       mixer.stopAllAction()
@@ -610,6 +748,10 @@ function createRig(player: GamePlayer): Rig | null {
       name.sprite.material.dispose()
       bubble.texture.dispose()
       bubble.sprite.material.dispose()
+      blob.material.dispose()
+      // The outfit swap clones the cloth materials per rig; the shared texture
+      // and the template's own materials stay.
+      for (const material of outfitMaterials) material.dispose()
     },
     group,
     mixer,
@@ -622,6 +764,7 @@ function createRig(player: GamePlayer): Rig | null {
     bubbleTexture: bubble.texture,
     bubbleText: '',
     bubbleBaseY,
+    blob,
   }
 }
 
@@ -704,7 +847,7 @@ function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: n
   const pz = dirX
   const blocked = (x: number, z: number) => !isWalkable(hubPlan, Math.floor(x), Math.floor(z))
     || surfaceHeight(hubPlan, x, z, height - CAM_RADIUS) > height - CAM_RADIUS
-    || isRampartCameraBlocked(x, z, height, CAM_RADIUS)
+    || isRampartCameraBlocked(hubPlan, x, z, height, CAM_RADIUS)
   for (let d = 0.3; d < maxDist; d += 0.08) {
     const sx = hx + dirX * d
     const sz = hy + dirZ * d
@@ -772,7 +915,7 @@ function ensureOracle() {
   })
 }
 
-/** Scaled height — taller than the ~1.3-unit runners, so the Oracle looms. */
+/** Scaled height — taller than the ~1.3-unit players, so the Oracle looms. */
 const ORACLE_HEIGHT = 2.2
 
 function createOracleRig(): OracleRig | null {
@@ -793,34 +936,49 @@ function createOracleRig(): OracleRig | null {
     if (obj instanceof SkinnedMesh) obj.frustumCulled = false
     if (obj instanceof Mesh) obj.castShadow = true
   })
+  applyCharacterRim(model)
   group.add(model)
   const op = oraclePos()
   group.position.set(op.x, -raw.min.y * scale, op.y)
-  // Face toward the arena centre, watching runners. (Flip by Math.PI if the
-  // source model turns out to face the other way.)
-  group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
+  group.rotation.y = op.rot
 
   const mixer = new AnimationMixer(model)
   const idle = oracleClips.find(clip => clip.name === 'Idle') ?? oracleClips[0]
   if (idle) mixer.clipAction(idle).play()
 
   // A floating name and a cool arcane glow so it reads as the Oracle.
-  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#bfe6ff'))
-  label.sprite.position.set(0, ORACLE_HEIGHT + 0.3, 0)
+  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#bfe6ff'), NAME_SPRITE)
+  label.sprite.position.set(0, ORACLE_HEIGHT + NAME_GAP + NAME_SPRITE.scaleY / 2, 0)
   group.add(label.sprite)
   const glow = new PointLight('#7fd0ff', 5, 7, 1.6)
   glow.position.set(0, ORACLE_HEIGHT * 0.6, 0)
   group.add(glow)
 
   // Speech bubble (hidden until the Oracle speaks in chat), like the players'.
-  const bubbleBaseY = ORACLE_HEIGHT + 0.42
+  const bubbleBaseY = ORACLE_HEIGHT + NAME_GAP + NAME_SPRITE.scaleY + 0.04
   const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
   bubble.sprite.position.set(0, bubbleBaseY + bubble.sprite.scale.y / 2, 0)
   bubble.sprite.visible = false
   group.add(bubble.sprite)
 
   floorGroup.add(group)
-  return { group, mixer, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY }
+  atmosphere.setupShadows()
+  bumpSceneVersion()
+  return {
+    dispose() {
+      mixer.stopAllAction()
+      mixer.uncacheRoot(model)
+      // Geometry and materials belong to the shared template; only this clone's
+      // bone texture, its labels and its light are ours to release.
+      disposeCharacterSkeleton(model)
+      label.texture.dispose()
+      label.sprite.material.dispose()
+      bubble.texture.dispose()
+      bubble.sprite.material.dispose()
+      glow.dispose()
+    },
+    group, mixer, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY,
+  }
 }
 
 onBeforeRender(({ delta }) => {
@@ -958,12 +1116,23 @@ onBeforeRender(({ delta }) => {
     atmosphere.update(serverNow, dt, camera.value, renderer.instance, local.x, local.y, props.game.weather.value, props.game.timeOfDay.value)
   }
 
+  // Keep the character rim aligned with the day's key light. `courtyardWeather`
+  // is the same pure clock the sky reads, so the two can never drift apart.
+  const rimSky = courtyardWeather(serverNow, props.game.weather.value, props.game.timeOfDay.value)
+  setCharacterRim(
+    Math.cos(rimSky.sunAngle),
+    rimSky.sunHeight,
+    Math.cos(rimSky.sunAngle) * 0.38,
+    Math.max(0, rimSky.sunHeight) * (1 - rimSky.overcast * 0.5),
+  )
+
   // Reconcile player rigs with the roster.
   for (const [id, rig] of rigs) {
     if (!props.game.players.has(id)) {
       playerGroup.remove(rig.group)
       rig.dispose()
       rigs.delete(id)
+      bumpSceneVersion()
     }
   }
   for (const [id, player] of props.game.players) {
@@ -1023,6 +1192,19 @@ onBeforeRender(({ delta }) => {
     rig.group.position.set(player.rx, player.rz, player.ry)
     rig.group.rotation.y = -player.ra
 
+    // Contact shadow: pin the decal to the support surface under the rendered
+    // feet, then spread and fade it as the character rises off it.
+    const groundY = bodySurfaceHeight(hubPlan, player.rx, player.ry, player.rz)
+    const groundGap = Math.max(0, player.rz - groundY)
+    const blobFade = Math.max(0, 1 - groundGap / 1.6)
+    rig.blob.visible = blobFade > 0.02
+    if (rig.blob.visible) {
+      rig.blob.position.y = groundY - player.rz + 0.02
+      rig.blob.material.opacity = BLOB_OPACITY * blobFade
+      const spread = BLOB_RADIUS * 2 * (1 + groundGap * 0.3)
+      rig.blob.scale.set(spread, 1, spread)
+    }
+
     // The sprint follows the actual burst, with a fast blend that becomes
     // visible before movement ends. A stale remote dash flag cannot relatch it.
     const dashAnimating = updateDashAnimation(rig, dashing, now)
@@ -1062,7 +1244,14 @@ onBeforeRender(({ delta }) => {
     actor.feetY = id === selfId ? local.z : player.rz
     waterActorIndex++
   }
-  courtyard?.update(serverNow / 1000, waterActors)
+  // Shader clocks are `uniform float`: at epoch scale (~1.79e9) a float32's ULP
+  // is 128 s, so wind and ripples would sit perfectly still. Wrap what reaches
+  // a uniform; the fountain keeps absolute seconds because its particle sim
+  // integrates frame deltas and resets when time jumps backwards.
+  const worldSeconds = serverNow / 1000
+  const shaderSeconds = worldSeconds % SHADER_CLOCK_WRAP
+  foliageTime.value = shaderSeconds
+  courtyard?.update(worldSeconds, shaderSeconds, waterActors)
 
   // Hub Oracle: spawn it once its model lands, run its idle animation, float a
   // bubble when it speaks in chat, and track proximity (drives the HUD hint).
@@ -1070,11 +1259,11 @@ onBeforeRender(({ delta }) => {
   const op = oraclePos()
   if (oracleRig) {
     oracleRig.mixer.update(dt)
-    // Follow the editable Oracle marker (live while dragging in the editor;
-    // constant in play). Keep it facing the arena centre.
+    // Follow the authored pose (live while dragging/rotating in the editor;
+    // constant in play).
     oracleRig.group.position.x = op.x
     oracleRig.group.position.z = op.y
-    oracleRig.group.rotation.y = Math.atan2(HUB_LAYOUT.center.x - op.x, HUB_LAYOUT.center.y - op.y)
+    oracleRig.group.rotation.y = op.rot
     const speech = oracle.speech.value
     if (speech && speech.until > now) {
       if (oracleRig.bubbleText !== speech.text) {
@@ -1112,6 +1301,8 @@ if (import.meta.dev) {
       getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
       canvas,
       getTemplate: kind => propTemplates.get(kind),
+      // The rig is (re)built lazily by the render loop, so hand over a getter.
+      getOracle: () => oracleRig?.group,
       editor: ed,
       getSize: () => ed!.current.value.size,
     })
@@ -1136,7 +1327,11 @@ function disposeScene() {
   clearFloor()
   editorCtl?.dispose()
   editorCtl = null
-  releaseTemplates([...propTemplates.values(), ...retiredTemplates])
+  blobGeometry.dispose()
+  blobTexture?.dispose()
+  blobTexture = null
+  releaseTemplates([...propTemplates.values(), ...retiredTemplates, ...(oracleTemplate ? [oracleTemplate] : [])])
+  oracleTemplate = null
   propTemplates.clear()
   townMaterials.dispose()
   retiredTemplates.length = 0

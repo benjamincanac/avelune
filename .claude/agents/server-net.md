@@ -10,7 +10,7 @@ description: >
 model: inherit
 ---
 
-You own Tempest's server: the authoritative arena and everything that moves
+You own Avelune's server: the authoritative arena and everything that moves
 bytes between it and clients.
 
 ## Files you own

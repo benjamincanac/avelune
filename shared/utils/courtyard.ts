@@ -20,6 +20,15 @@ export const COURTYARD_ASSETS = {
   Courtyard_BridgeRail: { width: 0.35, depth: 12, height: 0.65 },
   Courtyard_Rampart: { width: 4, depth: 2, height: 6 },
   Courtyard_Bastion: { width: 6, depth: 6, height: 9 },
+  // Raised rampart pieces. Unlike every other kind their placement `z` is
+  // gameplay elevation, not render-only — see `shared/utils/ramparts.ts`.
+  /** Walkable patrol deck: the surface sits at `z`, the slab hangs `height` below. */
+  Courtyard_Gallery: { width: 4, depth: 4.5, height: 0.5, surface: true },
+  /** Stepped ramp rising along its local +depth axis, from `z` to `z + height`,
+   *  carrying a side rail on each long edge. */
+  Courtyard_Stairs: { width: 3, depth: 16.5, height: 6, steps: 36 },
+  /** Parapet segment: blocks only the band `[z, z + height]`. */
+  Courtyard_Rail: { width: 4, depth: 0.18, height: 1.1, elevated: true },
   Courtyard_Inn: { width: 8, depth: 5, height: 5.2 },
   Courtyard_Shop: { width: 6, depth: 4, height: 3.8 },
   Courtyard_Tower: { width: 4, depth: 4, height: 9 },
@@ -99,7 +108,6 @@ export const FORTIFICATIONS = {
   exteriorMin: 4,
   exteriorMax: 140,
   spawn: { x: 72, y: 129 },
-  oracle: { x: 78, y: 106 },
 } as const
 
 export function isInMoat(x: number, z: number): boolean {

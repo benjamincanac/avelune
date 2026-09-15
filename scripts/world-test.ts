@@ -279,7 +279,10 @@ test('town streets and every building frontage remain connected to spawn', () =>
       queue.push(nodes.get(destination)!)
     }
   }
-  for (const [x, y] of [[72, 84], [64, 72], [80, 72], [72, 62], [46, 72], [89, 72], [72, 56], [72, 100], [72, 109], [12, 12], [132, 12], [12, 132], [132, 132], ...TOWN_DISTRICTS.filter(d => d.name !== 'Fountain Square').map(d => [d.x, d.z]), oraclePosition]) {
+  // The Oracle is authored in the editor at arbitrary coordinates; test the
+  // nearest flood node instead.
+  const oracleNode = [Math.round(oraclePosition[0]! * 2) / 2, Math.round(oraclePosition[1]! * 2) / 2]
+  for (const [x, y] of [[72, 84], [64, 72], [80, 72], [72, 62], [46, 72], [89, 72], [72, 56], [72, 100], [72, 109], [12, 12], [132, 12], [12, 132], [132, 132], ...TOWN_DISTRICTS.filter(d => d.name !== 'Fountain Square').map(d => [d.x, d.z]), oracleNode]) {
     assert.ok(reached.has(key(x!, y!)), `street at ${x},${y} is disconnected from spawn`)
   }
   for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
@@ -298,7 +301,8 @@ test('town streets and every building frontage remain connected to spawn', () =>
 
 test('spawn is outside and Oracle is inside, with a ground-level route through the gate in both directions', () => {
   assert.ok(plan.start.y > FORTIFICATIONS.moatOuterMax)
-  assert.deepEqual(oraclePosition, [FORTIFICATIONS.oracle.x, FORTIFICATIONS.oracle.y])
+  // courtyard-oracle.json is [x, y, rot], authored in the world editor.
+  assert.ok(oraclePosition[0]! > COURTYARD.min && oraclePosition[0]! < COURTYARD.max)
   assert.ok(oraclePosition[1]! > COURTYARD.min && oraclePosition[1]! < COURTYARD.max)
   assert.equal(surfaceHeight(plan, oraclePosition[0]!, oraclePosition[1]!), 0)
   const body = bodyAt(plan.start.x, plan.start.y)

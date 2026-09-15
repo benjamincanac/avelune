@@ -1,6 +1,6 @@
 # Avelune Roadmap
 
-> A 3D MMO on Vercel, starting with a shared fantasy courtyard and an AI Oracle NPC.
+> A 3D MMO on Vercel, starting with a shared fantasy town and an AI Oracle NPC.
 > Nuxt + TresJS + Vercel WebSockets. It exists to demo the Vercel WebSocket upgrade
 > under a real authoritative game loop, plus an AI NPC reading live game state.
 > This file is the source of truth for what's done and what's next — update it as work lands.
@@ -22,8 +22,8 @@
 - [x] Bot load-testing script (`scripts/spawn-bots.mjs`)
 
 ### Identity, onboarding & app shell
-- [x] Avelune branding, village wording in the UI, and metadata matching the current world. Existing deployment URLs and identity cookies are preserved.
-- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `tempest_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
+- [x] Avelune branding, town wording in the UI, and metadata matching the current world. The identity cookie is `avelune_id`, so earlier characters re-onboard once.
+- [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `avelune_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
 - [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
 - [x] **Direct entry**: no landing screen. `index.vue` probes `/api/auth` — a returning player drops straight into the arena, a new visitor lands on character creation
 - [x] **In-game Escape menu** (WoW-style): controls reference + fullscreen + return-to-game (+ a dev-only world editor button). While pointer-locked the Escape keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
@@ -46,6 +46,8 @@
 - [x] Colorful fantasy courtyard: custom buildings, tiled roofs, shuttered windows, fountain, market stalls, gardens, trees and a central sparring circle. Authored `courtyard-*.json` layouts replace the active colosseum layout; the original `hub-*.json` files are retained.
 - [x] Original sculpted environment models generated in Blender, curved roofs, carved fountain, botanical assets, layered terrain, grass wind, contact occlusion and restrained bloom. Unused downloaded environment models and their editor thumbnails have been removed.
 - [x] Village outskirts: irregular woodland clusters, layered shrubs and wildflowers, denser meadow grass, and lightweight trees on distant hills. Decorative vegetation stays outside the playable boundary.
+- [x] Rampart gallery, stairs and rails are authored placements (`Courtyard_Gallery` / `Courtyard_Stairs` / `Courtyard_Rail`, baked by `scripts/bake-ramparts.ts`) with shared elevated collision, so the editor can move them like any prop. The deck sits flush on the curtain wall.
+- [x] Botanicals swapped to the Quaternius Stylized Nature MegaKit (five tree variants, bushes, ferns, clover, flowers, rocks) at roughly 8x fewer triangles per tree; alpha-cut foliage is excluded from GTAO. Meadow grass reworked into shorter, denser, lighter tufts.
 - [x] Anime fantasy art pass: steeper slate roofs, dormers, exposed gable timber, pointed leaf canopies, denser wind-driven meadows and radial limestone paving. Atmospheric sky with volumetric cloud shading, sun/moon/stars and sky reflections follows the shared clock. Rebuilt architecture and nature assets use Meshopt compression.
 - [x] Fountain overflow follows eight scalloped outlets, with gravity-driven narrowing, pressure variation and lower-stream droplet breakup.
 - [x] Enlarged wadeable fountain with shared stepped collision and water drag, player entry splashes and wakes, and refracted basin views.
@@ -78,12 +80,13 @@ both sides share.
 - [ ] Verify the Oracle works deployed: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in chat (needs `AI_GATEWAY_API_KEY`)
 - [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the newer kits are already meshopt+WebP)
 
-### 2. Make the village worth standing in
+### 2. Make the town worth standing in
 - [ ] Audio — nothing is implemented yet: footsteps, jump/land, dash whoosh, ambient wind/crowd, positional audio for other players (three.js `AudioListener`/`PositionalAudio`)
 - [ ] Emotes / a wave or cheer clip, so players can interact without typing
 - [ ] Mobile/touch controls (virtual stick + look drag)
 
 ### 3. Oracle depth
+- [x] **Greets arrivals by name** — the responder composes the welcome on join and the game loop speaks it the tick the player crosses the South Gate line, so the bubble lands as they step through rather than after they've walked past; the newcomer is welcomed with the live roster in view (`oracleGreeting`, no classifier). Once per identity per 30 min, never over a reply in flight, abandoned after 20s of a busy Oracle, fixed in-character line if the model fails
 - [ ] Give the Oracle more to see: time of day and weather in `arena_state`, so it can remark on the sky
 - [ ] AI announcer voice for shared events (joins, milestones) — deferred; see `memory/ai-announcer-tower-voice.md`
 

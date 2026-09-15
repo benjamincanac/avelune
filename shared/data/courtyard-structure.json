@@ -75,7 +75,7 @@
     "kind": "Courtyard_Shop",
     "x": 46.25,
     "y": 55.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1.3,
@@ -87,7 +87,7 @@
     "kind": "Courtyard_Inn",
     "x": 55,
     "y": 56,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -99,7 +99,7 @@
     "kind": "Courtyard_Inn",
     "x": 64,
     "y": 56,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -111,7 +111,7 @@
     "kind": "Courtyard_Shop",
     "x": 80,
     "y": 55.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1.3,
@@ -123,7 +123,7 @@
     "kind": "Courtyard_Inn",
     "x": 89,
     "y": 56,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -135,7 +135,7 @@
     "kind": "Courtyard_Inn",
     "x": 97.75,
     "y": 56,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -195,7 +195,7 @@
     "kind": "Courtyard_Inn",
     "x": 46.25,
     "y": 80,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -207,7 +207,7 @@
     "kind": "Courtyard_Shop",
     "x": 55,
     "y": 79.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1.3,
@@ -219,7 +219,7 @@
     "kind": "Courtyard_Shop",
     "x": 89,
     "y": 79.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1.3,
@@ -231,7 +231,7 @@
     "kind": "Courtyard_Inn",
     "x": 97.75,
     "y": 80,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -315,7 +315,7 @@
     "kind": "Courtyard_Inn",
     "x": 46.25,
     "y": 102,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -327,7 +327,7 @@
     "kind": "Courtyard_Inn",
     "x": 55,
     "y": 102,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -339,7 +339,7 @@
     "kind": "Courtyard_Shop",
     "x": 64,
     "y": 101.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1.3,
@@ -351,7 +351,7 @@
     "kind": "Courtyard_Inn",
     "x": 80,
     "y": 102,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -363,7 +363,7 @@
     "kind": "Courtyard_Inn",
     "x": 89,
     "y": 102,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1,
@@ -375,7 +375,7 @@
     "kind": "Courtyard_Shop",
     "x": 97.75,
     "y": 101.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1,
     "s3": [
       1.3,
@@ -388,7 +388,7 @@
     "x": 72,
     "y": 42,
     "rot": 0,
-    "scale": 1,
+    "scale": 1.611,
     "s3": [
       1.45,
       1.6,
@@ -413,14 +413,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 34,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 34,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -441,14 +441,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 38,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 38,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -469,14 +469,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 42,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 42,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -497,14 +497,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 46,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 46,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -525,14 +525,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 50,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 50,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -553,14 +553,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 54,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 54,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -581,14 +581,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 58,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 58,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -609,14 +609,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 62,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 62,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -637,14 +637,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 66,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 66,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -658,14 +658,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 70,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 70,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -679,14 +679,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 74,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 74,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -707,14 +707,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 78,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 78,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -735,14 +735,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 82,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 82,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -763,14 +763,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 86,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 86,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -791,14 +791,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 90,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 90,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -819,14 +819,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 94,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 94,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -847,14 +847,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 98,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 98,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -875,14 +875,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 102,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 102,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -903,14 +903,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 106,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 106,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -931,14 +931,14 @@
     "kind": "Courtyard_Rampart",
     "x": 32,
     "y": 110,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
     "kind": "Courtyard_Rampart",
     "x": 112,
     "y": 110,
-    "rot": 1.5707963267948966,
+    "rot": 1.571,
     "scale": 1
   },
   {
@@ -1017,5 +1017,201 @@
     "y": 117,
     "rot": 0,
     "scale": 1
+  },
+  {
+    "kind": "Courtyard_Gallery",
+    "x": 72,
+    "y": 35.25,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Gallery",
+    "x": 72,
+    "y": 108.75,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Gallery",
+    "x": 35.25,
+    "y": 72,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Gallery",
+    "x": 108.75,
+    "y": 72,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Stairs",
+    "x": 40,
+    "y": 98.25,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Stairs",
+    "x": 104,
+    "y": 98.25,
+    "rot": 0,
+    "scale": 1
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 72,
+    "y": 33,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 72,
+    "y": 111,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 72,
+    "y": 37.5,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      17.25,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 38,
+    "y": 106.5,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      0.25,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 72,
+    "y": 106.5,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      15.25,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 106,
+    "y": 106.5,
+    "rot": 0,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      0.25,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 33,
+    "y": 72,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 111,
+    "y": 72,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      19.5,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 37.5,
+    "y": 72,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      17.25,
+      1,
+      1
+    ]
+  },
+  {
+    "kind": "Courtyard_Rail",
+    "x": 106.5,
+    "y": 72,
+    "rot": 1.571,
+    "scale": 1,
+    "z": 6,
+    "s3": [
+      17.25,
+      1,
+      1
+    ]
   }
 ]

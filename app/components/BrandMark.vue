@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * The AVELUNE wordmark with the live "N in the village" line and its status dot.
+ * The AVELUNE wordmark with the live "N in town" line and its status dot.
  * Purely presentational: the caller supplies the count and the dot colour
  * (connection status) and frames/positions it via the root `class`.
  */
 withDefaults(defineProps<{
-  /** Players in the village; null hides the line until the first probe resolves. */
+  /** Players in town; null hides the line until the first probe resolves. */
   count: number | null
   /** Tailwind `bg-*` utility for the status dot. */
   dotClass?: string
@@ -35,7 +35,7 @@ withDefaults(defineProps<{
           class="size-1.5 rounded-full"
           :class="dotClass"
         />
-        {{ count }} in the village
+        {{ count }} in town
       </span>
     </div>
   </div>

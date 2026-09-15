@@ -8,8 +8,19 @@ type Surface = 'stone' | 'plaster' | 'timber' | 'terracotta' | 'earth'
 export function createTownMaterials() {
   const textures = createMaterialTextures()
   function apply(material: MeshStandardMaterial, family: Surface, scale = 0.8, strength = 0.4, paving = false) {
+    // The marker is both the idempotence guard and the recipe: `Material.clone`
+    // copies `userData` but drops the hooks, so a clone can be re-decorated
+    // from it (see `reapply`).
+    if (material.userData.townMaterial) return material
+    material.userData.townMaterial = { family, scale, strength, paving }
     const maps = textures[family]
-    material.onBeforeCompile = (shader) => {
+    // Chain rather than replace: three keeps one callback per material and the
+    // caller may already own a hook (or add one on top, like the terrain's
+    // near-field relief).
+    const previousCompile = material.onBeforeCompile
+    const previousKey = material.customProgramCacheKey
+    material.onBeforeCompile = function (shader, renderer) {
+      previousCompile?.call(this, shader, renderer)
       Object.assign(shader.uniforms, {
         townColor: { value: maps.map }, townNormal: { value: maps.normalMap },
         townRoughness: { value: maps.roughnessMap }, townPaving: { value: paving ? 1 : 0 }, townScale: { value: scale }, townRelief: { value: strength },
@@ -70,9 +81,19 @@ export function createTownMaterials() {
           normal = normalize(normal + mat3(viewMatrix) * detail * townRelief);
         `)
     }
-    material.customProgramCacheKey = () => 'avelune-world-material-v1'
+    material.customProgramCacheKey = function () {
+      return `avelune-world-material-v1|${previousKey ? previousKey.call(this) : ''}`
+    }
     material.needsUpdate = true
     return material
+  }
+  /** Re-install the pigment on a material cloned from a decorated one. Cloning
+   *  copies the marker but not the hooks, so `apply` alone would no-op. */
+  function reapply(material: MeshStandardMaterial) {
+    const spec = material.userData.townMaterial as { family: Surface, scale: number, strength: number, paving: boolean } | undefined
+    if (!spec) return material
+    delete material.userData.townMaterial
+    return apply(material, spec.family, spec.scale, spec.strength, spec.paving)
   }
   function decorate(root: Object3D) {
     const visited = new Set<MeshStandardMaterial>()
@@ -81,6 +102,9 @@ export function createTownMaterials() {
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
         if (!(material instanceof MeshStandardMaterial) || visited.has(material)) continue
         visited.add(material)
+        // Textured kit materials (the nature pack's bark/leaves) keep their own
+        // maps; the pigment overlay is for the untextured Blender-built town.
+        if (material.map) continue
         const name = material.name.toLowerCase()
         if (/plaster/.test(name)) apply(material, 'plaster', 0.65, 0.28)
         else if (/walnut|wood|bark|shutter/.test(name)) apply(material, 'timber', 0.85, 0.48)
@@ -90,7 +114,7 @@ export function createTownMaterials() {
     })
   }
   return {
-    apply, decorate,
+    apply, reapply, decorate,
     dispose() {
       for (const maps of Object.values(textures)) {
         maps.map.dispose()

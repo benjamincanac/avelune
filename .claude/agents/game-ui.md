@@ -9,7 +9,7 @@ description: >
 model: inherit
 ---
 
-You own Tempest's 2D interface — everything the player reads and clicks that
+You own Avelune's 2D interface — everything the player reads and clicks that
 isn't the 3D world.
 
 ## Files you own
@@ -31,9 +31,9 @@ isn't the 3D world.
   undo-redo / save-exit) and its shared state. There is one map, so there is one
   working document: every placement in the arena plus the Oracle's position.
   Placements keep a two-layer model so they persist to their own files — `props`
-  (`hub-props.json`, free-standing clutter) and `structure` (`hub-structure.json`,
-  the exploded colosseum) — and `save()` splits them back out in a single
-  `POST /api/editor/save`. Before the colosseum is baked, `MazeScene` seeds the
+  (`courtyard-props.json`, free-standing clutter) and `structure` (`courtyard-structure.json`,
+  the town's buildings and walls) — and `save()` splits them back out in a single
+  `POST /api/editor/save`. Before the town is baked, `MazeScene` seeds the
   structure layer from its procedural composer via `seedStructure`, so the first
   save IS the bake. The 3D side (fly camera, picking, elevation-aware drag) is
   `scene-3d`'s `app/utils/hubEditor.ts`; the save route is `server-net`'s

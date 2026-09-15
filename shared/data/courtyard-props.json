@@ -78,16 +78,16 @@
   },
   {
     "kind": "Courtyard_Bench",
-    "x": 84,
-    "y": 68.5,
-    "rot": 0,
+    "x": 98.704,
+    "y": 68.597,
+    "rot": 6.021,
     "scale": 1
   },
   {
     "kind": "Courtyard_Bench",
     "x": 94,
     "y": 75.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1
   },
   {
@@ -106,14 +106,14 @@
   },
   {
     "kind": "Courtyard_Bench",
-    "x": 67,
+    "x": 66.25,
     "y": 47,
     "rot": 0,
     "scale": 1
   },
   {
     "kind": "Courtyard_Bench",
-    "x": 77,
+    "x": 77.75,
     "y": 47,
     "rot": 0,
     "scale": 1
@@ -171,7 +171,7 @@
     "kind": "Courtyard_Stall",
     "x": 43.5,
     "y": 75.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1
   },
   {
@@ -185,7 +185,7 @@
     "kind": "Courtyard_Stall",
     "x": 51.5,
     "y": 75.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1
   },
   {
@@ -199,7 +199,7 @@
     "kind": "Courtyard_Stall",
     "x": 60.5,
     "y": 75.5,
-    "rot": 3.141592653589793,
+    "rot": 3.142,
     "scale": 1
   },
   {
@@ -232,8 +232,8 @@
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 68.5,
-    "y": 105,
+    "x": 68.526,
+    "y": 108.266,
     "rot": 0,
     "scale": 1
   },
@@ -241,35 +241,35 @@
     "kind": "Courtyard_Lantern",
     "x": 75.5,
     "y": 48,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
     "x": 75.5,
     "y": 59,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
     "x": 75.5,
     "y": 85,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
     "x": 75.5,
     "y": 96,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
-    "x": 75.5,
-    "y": 105,
-    "rot": 0,
+    "x": 75.52,
+    "y": 108.262,
+    "rot": 3.142,
     "scale": 1
   },
   {
@@ -297,21 +297,21 @@
     "kind": "Courtyard_Lantern",
     "x": 104,
     "y": 49,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
     "x": 104,
     "y": 71,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   },
   {
     "kind": "Courtyard_Lantern",
     "x": 104,
     "y": 85,
-    "rot": 0,
+    "rot": 3.142,
     "scale": 1
   }
 ]

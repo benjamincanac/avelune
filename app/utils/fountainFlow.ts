@@ -14,7 +14,9 @@ export function sampleFountainFlow(outlet: number, emittedAt: number, age: numbe
   const angle = Math.PI / 8 + outlet * Math.PI / 4
   const pressure = 1 + 0.13 * Math.sin(emittedAt * 2.1 + outlet * 1.73)
     + 0.045 * Math.sin(emittedAt * 6.7 + outlet * 2.31)
-  const horizontal = 0.34 * Math.sqrt(pressure)
+  // Enough outward momentum to clear the lily's flared rim and land in the
+  // basin rather than run down the bowl.
+  const horizontal = 0.52 * Math.sqrt(pressure)
   const vertical = -0.08
   const initialSpeed = Math.hypot(horizontal, vertical)
   const vy = vertical - FOUNTAIN_FLOW.gravity * age
@@ -36,4 +38,11 @@ export function sampleFountainFlow(outlet: number, emittedAt: number, age: numbe
     aspect: 1 + 1.45 * Math.exp(-age * 14),
     breakupAge: 0.285 + 0.025 * Math.sin(emittedAt * 2.8 + outlet * 1.23),
   }
+}
+
+/** Fall time from the rim to a surface at `surfaceHeight` (ballistic, no drag). */
+export function fountainFallAge(surfaceHeight: number) {
+  const drop = FOUNTAIN_FLOW.lipHeight - surfaceHeight
+  const vertical = -0.08
+  return (vertical + Math.sqrt(vertical * vertical + 2 * FOUNTAIN_FLOW.gravity * drop)) / FOUNTAIN_FLOW.gravity
 }

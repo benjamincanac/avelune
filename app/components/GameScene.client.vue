@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ACESFilmicToneMapping, PCFSoftShadowMap } from 'three'
+import { AgXToneMapping, PCFShadowMap } from 'three'
 import { TresCanvas } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { UseGame } from '~/composables/useGame'
@@ -279,13 +279,19 @@ defineExpose({ pointerLocked, requestLock })
     @mousedown="onMouseDown"
     @contextmenu="onContextMenu"
   >
+    <!--
+      Cascaded shadow maps (app/utils/shadows.ts) own the sun, so the shadow
+      type stays PCF: PCFSoft is downgraded to PCF by three anyway, and CSM
+      blends its own cascade edges. Tone mapping happens once, in the pipeline's
+      OutputPass, which reads these renderer settings.
+    -->
     <TresCanvas
       clear-color="#05070d"
       :dpr="[1, 2]"
       shadows
-      :shadow-map-type="PCFSoftShadowMap"
-      :tone-mapping="ACESFilmicToneMapping"
-      :tone-mapping-exposure="1.05"
+      :shadow-map-type="PCFShadowMap"
+      :tone-mapping="AgXToneMapping"
+      :tone-mapping-exposure="1.25"
     >
       <MazeScene
         :game="game"

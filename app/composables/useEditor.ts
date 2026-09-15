@@ -17,7 +17,7 @@ import oracleSeed from '#shared/data/courtyard-oracle.json'
  * `makeProp`, so server collision and client render stay in lockstep.
  *
  */
-export const EDITOR_REENTER_KEY = 'tempest:editor-reenter'
+export const EDITOR_REENTER_KEY = 'avelune:editor-reenter'
 
 export type EditorLayer = 'props' | 'structure'
 export interface EditorPlacement extends HubPropPlacement {
@@ -25,25 +25,26 @@ export interface EditorPlacement extends HubPropPlacement {
   layer?: EditorLayer
 }
 
-/** Active editor interaction mode. */
-export type EditorTool = 'select' | 'marker'
-
-/** A draggable point marker. The arena spawn is a shared constant, so the
- *  Oracle is the only position the editor owns. */
-export type MarkerKind = 'oracle'
+/** The Oracle NPC's pose. The arena spawn is a shared constant, so this is the
+ *  only non-prop transform the editor owns. Selected, dragged and rotated like
+ *  a placement (its rig is pickable in the scene), but never scaled or removed. */
+export interface OraclePose {
+  x: number
+  y: number
+  rot: number
+}
 
 /** What the inspector is editing. */
 export type EditorSelection
   = { type: 'placement', index: number }
-    | { type: 'marker', which: MarkerKind }
+    | { type: 'oracle' }
     | null
 
 /** The arena's editable working copy. */
 export interface EditorDoc {
   /** Tile extent — bounds placement and seeds the fly camera. */
   size: number
-  /** The Oracle NPC's position (a draggable marker). */
-  oracle: { x: number, y: number }
+  oracle: OraclePose
   placements: EditorPlacement[]
 }
 
@@ -61,7 +62,7 @@ const cloneDoc = (d: EditorDoc): EditorDoc => ({
 function seedDoc(): EditorDoc {
   return {
     size: HUB_LAYOUT.size,
-    oracle: { x: (oracleSeed as [number, number])[0], y: (oracleSeed as [number, number])[1] },
+    oracle: { x: oracleSeed[0]!, y: oracleSeed[1]!, rot: oracleSeed[2]! },
     placements: [
       ...(propsSeed as HubPropPlacement[]).map(p => ({ ...clonePlacement(p), layer: 'props' as const })),
       ...(structureSeed as HubPropPlacement[]).map(p => ({ ...clonePlacement(p), layer: 'structure' as const })),
@@ -91,7 +92,6 @@ export function useEditor() {
     set: (i) => { selection.value = i == null ? null : { type: 'placement', index: i } },
   })
 
-  const tool = useState<EditorTool>('editor:tool', () => 'select')
   const paletteKind = useState<string | null>('editor:paletteKind', () => null)
   const saving = useState('editor:saving', () => false)
   /** True once the structure layer exists (loaded from file, or seeded). */
@@ -155,7 +155,7 @@ export function useEditor() {
       const doc = current.value
       const hubProps = doc.placements.filter(p => (p.layer ?? 'props') === 'props').map(strip)
       const hubStructure = doc.placements.filter(p => p.layer === 'structure').map(strip)
-      const oracle: [number, number] = [doc.oracle.x, doc.oracle.y]
+      const oracle: [number, number, number] = [doc.oracle.x, doc.oracle.y, doc.oracle.rot]
       await $fetch('/api/editor/save', { method: 'POST', body: { hubProps, hubStructure, oracle } })
       // Disk now matches the working copy: the current index is the new baseline.
       history.value.savedIndex = history.value.index
@@ -171,11 +171,10 @@ export function useEditor() {
   return {
     current,
     placements,
-    /** The draggable markers (the reactive doc objects). */
-    getMarkers: (): Partial<Record<MarkerKind, { x: number, y: number }>> => ({ oracle: current.value.oracle }),
+    /** The Oracle's pose (the reactive doc object — edits show live in the scene). */
+    oracle: computed(() => current.value.oracle),
     selection,
     selected,
-    tool,
     paletteKind,
     dirty,
     saving,

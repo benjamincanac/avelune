@@ -30,16 +30,18 @@ const Piece = z.object({
 const Body = z.object({
   hubProps: z.array(Piece).max(2000),
   hubStructure: z.array(Piece).max(4000),
-  /** The Oracle NPC position `[x, y]` (a top-level array — a top-level-object
+  /** The Oracle NPC pose `[x, y, rot]` (a top-level array — a top-level-object
    *  JSON would crash the Nitro-beta dev worker). Optional. */
-  oracle: z.tuple([finite, finite]).optional(),
+  oracle: z.tuple([finite, finite, finite]).optional(),
 })
+
+const normRot = (rot: number) => round3(((rot % TWO_PI) + TWO_PI) % TWO_PI)
 
 const normPiece = (p: z.infer<typeof Piece>) => ({
   kind: p.kind,
   x: round3(p.x),
   y: round3(p.y),
-  rot: round3(((p.rot % TWO_PI) + TWO_PI) % TWO_PI),
+  rot: normRot(p.rot),
   scale: round3(p.scale),
   ...(p.z != null ? { z: round3(p.z) } : {}),
   ...(p.s3 ? { s3: p.s3.map(round3) as [number, number, number] } : {}),
@@ -59,7 +61,7 @@ export default defineEventHandler(async (event) => {
 
   await write('courtyard-props.json', hubProps.map(normPiece))
   await write('courtyard-structure.json', hubStructure.map(normPiece))
-  if (oracle) await write('courtyard-oracle.json', [round3(oracle[0]), round3(oracle[1])])
+  if (oracle) await write('courtyard-oracle.json', [round3(oracle[0]), round3(oracle[1]), normRot(oracle[2])])
 
   return { ok: true as const, hubProps: hubProps.length, hubStructure: hubStructure.length }
 })

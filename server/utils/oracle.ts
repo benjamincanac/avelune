@@ -9,8 +9,10 @@ import { nativeFetch } from './nativeFetch'
  * answer everything. Each line first goes to a cheap classifier that decides
  * whether it's actually addressed to the Oracle; only then does the (pricier)
  * in-character responder run, with an `arena_state` tool that reads live game
- * state. Both calls route through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`
- * locally, OIDC on Vercel).
+ * state. The Oracle also greets arrivals (`oracleGreeting`), which skips the
+ * classifier — the arrival itself is the prompt — and runs the same responder.
+ * All calls route through the Vercel AI Gateway (`AI_GATEWAY_API_KEY` locally,
+ * OIDC on Vercel).
  */
 
 // Both calls run on Claude Haiku 4.5 — Anthropic's low-latency tier — with
@@ -48,7 +50,7 @@ Lore of Avelune:
 - The fountain plaza is a meeting place. Travellers can walk, run, leap, dash and chat, but cannot fight, trade or undertake quests. Never invent these activities or claim they are available.
 - The sky turns through day and night and the rain falls when it will. Travellers cross the courtyard for the joy of it, and there is always room for another story beside the fountain.
 
-When people ask who is here, how many walk the courtyard, or how long someone has lingered, consult the living village with the means available to you and answer from what it shows you as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
+When people ask who is here, how many walk the courtyard, or how long someone has lingered, consult the living town with the means available to you and answer from what it shows you as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
 
 export interface HubMessage {
   name: string
@@ -116,7 +118,7 @@ function describeError(error: unknown): Record<string, unknown> {
 
 /**
  * Cheap gate: is the LAST line of the transcript addressed to the Oracle,
- * versus ordinary runner-to-runner chatter? Fails closed (silent) on error.
+ * versus ordinary player-to-player chatter? Fails closed (silent) on error.
  */
 async function isAddressed(recent: HubMessage[]): Promise<boolean> {
   try {
@@ -145,22 +147,20 @@ Reply with exactly "YES" or "NO" and nothing else.`,
 }
 
 /**
- * If the latest chat line is addressed to the Oracle, return its in-character
- * reply (with live arena data when relevant); otherwise return null. Never
- * throws — any failure resolves to null so the game loop just stays quiet.
+ * The in-character responder: persona + the live-state tool, one chat line out.
+ * Shared by every way the Oracle speaks (answering a question, greeting an
+ * arrival). Never throws — any failure resolves to null.
  */
-export async function oracleReply(recent: HubMessage[], getState: ArenaState): Promise<string | null> {
-  if (recent.length === 0) return null
-  if (!(await isAddressed(recent))) return null
+async function respond(prompt: string, getState: ArenaState): Promise<string | null> {
   try {
     const { text } = await generateText({
       model: gateway(RESPONDER_MODEL),
       reasoning: 'minimal',
       instructions: PERSONA,
-      prompt: `The travellers in the courtyard have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`,
+      prompt,
       tools: {
         arena_state: tool({
-          description: 'Read the living village right now: how many people are gathered, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',
+          description: 'Read the living town right now: how many people are gathered, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',
           inputSchema: z.object({}),
           execute: async () => getState(),
         }),
@@ -173,4 +173,29 @@ export async function oracleReply(recent: HubMessage[], getState: ArenaState): P
     console.log('[oracle] respond error', JSON.stringify(describeError(error)))
     return null
   }
+}
+
+/**
+ * If the latest chat line is addressed to the Oracle, return its in-character
+ * reply (with live arena data when relevant); otherwise return null. Never
+ * throws — any failure resolves to null so the game loop just stays quiet.
+ */
+export async function oracleReply(recent: HubMessage[], getState: ArenaState): Promise<string | null> {
+  if (recent.length === 0) return null
+  if (!(await isAddressed(recent))) return null
+  return respond(`The travellers in the courtyard have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`, getState)
+}
+
+/**
+ * Welcome a traveller who just walked in, by name. Unlike a reply this skips
+ * the classifier (nobody said anything — the arrival itself is the prompt) and
+ * always produces a line: if the model is unreachable the Oracle still speaks,
+ * from a fixed in-character fallback, so an arrival is never met with silence.
+ * The game loop decides *whether* to greet; this only decides what is said.
+ */
+export async function oracleGreeting(name: string, getState: ArenaState): Promise<string> {
+  const line = await respond(`A traveller named ${name} has just crossed the bridge and stepped through South Gate, arriving in Avelune.
+
+Greet ${name} by name, in one or two short sentences. Look at the living town first and let what you find there colour the welcome — whether they arrive alone or into company, and who has been lingering. Do not list names or numbers back to them: speak of it as an omen. Do not ask them a question they must answer, and do not promise them anything the town cannot give.`, getState)
+  return line ?? `Welcome to Avelune, ${name}. The stones have been waiting a long while for your step.`
 }

@@ -1,7 +1,7 @@
 ---
 name: oracle-ai
 description: >
-  The arena's Oracle AI NPC — the conversational AI feature end to end. Use for
+  Avelune's Oracle AI NPC — the conversational AI feature end to end. Use for
   the Oracle's brain (server/utils/oracle.ts: the addressed-classifier and the
   in-character responder, the arena_state tool, model choice, the persona) and
   its client surface (useOracle.ts speech/near state, the chat wiring). Reach
@@ -11,7 +11,7 @@ description: >
 model: inherit
 ---
 
-You own Tempest's Oracle: the AI NPC beside the northern courtyard garden
+You own Avelune's Oracle: the AI NPC just inside South Gate
 that players chat with. This is the project's AI showcase, so it should feel crafted,
 in-character, and reactive to live multiplayer state.
 
@@ -79,11 +79,11 @@ state" hook that makes this feature worth building.
 > ("Maximum call stack size exceeded"). Prod-on-Vercel uses a different mechanism.
 
 ## Persona & correctness rules
-- The Oracle is an ancient seer who has watched over Tempest since before its first
+- The Oracle is an ancient seer who has watched over Avelune since before its first
   stone was laid. Warm, cryptic but genuinely helpful, one or two short sentences
   (it's a live chat line), plain prose (no markdown/lists/emoji). It NEVER breaks
   character or mentions models/tools/prompts/AI.
-- Lore it may draw on: Tempest is one colorful fantasy courtyard everyone shares.
+- Lore it may draw on: Avelune is one colorful walled fantasy town everyone shares.
   A fountain stands at the center of the stone plaza, with gardens,
   market stalls and a bell tower nearby. The inn is The Wayfarer and the shop is
   Moss & Mortar. Buildings are decorative closed exteriors. Combat, trading,
@@ -103,6 +103,20 @@ state" hook that makes this feature worth building.
   details (`server-net` owns frame handling), and never throws into the loop
   (fail closed to silence). Anti-flood gating (one reply in flight, then a
   cooldown) lives in the loop, not here.
+- Arrivals are greeted too, in two steps: the loop calls
+  `oracleGreeting(name, getState)` on join to *compose* the line (outside the
+  busy lock — composing is not talking), and *speaks* it the tick the player
+  crosses the South Gate line (`FORTIFICATIONS.gateZ`). Players spawn outside
+  on the far bank; the walk takes ~5s and the model call takes seconds, so
+  composing at the gate lands the bubble after they've already walked past the
+  Oracle. It skips the classifier and always resolves to a line (fixed
+  in-character fallback if the model fails, so an arrival is never met with
+  silence). Its gating is the loop's: once per *identity* per 30 minutes (a
+  reload or tab take-over must stay silent; leaving without ever crossing the
+  gate releases the slot), and at delivery waiting on a busy
+  Oracle for at most 20s before being abandoned — it never queues indefinitely,
+  and an abandoned greeting releases its 30-minute slot. Greeting and reply
+  share the same `oracleBusy` / cooldown pair, so neither talks over the other.
 
 ## Working style
 Iterate the persona and tool schema together; when you change the model or add a

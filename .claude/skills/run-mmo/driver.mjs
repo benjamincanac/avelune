@@ -1,5 +1,5 @@
-// Tempest run-driver: launch headless Chromium, onboard a runner, drive the 3D game,
-// screenshot, and report console/page errors. Tempest is a Nuxt + TresJS/three.js
+// Avelune run-driver: launch headless Chromium, create a character, drive the 3D game,
+// screenshot, and report console/page errors. Avelune is a Nuxt + TresJS/three.js
 // WebGL game — there is no server-rendered "page" to assert on; you must drive the
 // live canvas. This is the harness the /run-mmo skill points at.
 //
@@ -32,11 +32,11 @@ async function detectUrl() {
     try {
       const res = await fetch(`http://localhost:${p}/`, { signal: AbortSignal.timeout(1500) })
       const html = await res.text()
-      if (res.ok && /Tempest/i.test(html)) return `http://localhost:${p}`
+      if (res.ok && /Avelune/i.test(html)) return `http://localhost:${p}`
     }
     catch { /* port closed — keep probing */ }
   }
-  throw new Error('No Tempest dev server found on :3000-3010. Start one (see SKILL.md) or set MMO_URL.')
+  throw new Error('No Avelune dev server found on :3000-3010. Start one (see SKILL.md) or set MMO_URL.')
 }
 
 const url = await detectUrl()
@@ -76,7 +76,7 @@ if (await nameField.count()) {
 await page.waitForTimeout(8000)
 
 // Health check: confirm we actually reached the playing view (a sized canvas +
-// HUD header). Some stale/other Tempest instances answer 200 but never connect the
+// HUD header). Some stale/other Avelune instances answer 200 but never connect the
 // socket, leaving a 0x0 canvas and a black shot — fail loudly instead.
 let live = false
 for (let i = 0; i < 12; i++) {

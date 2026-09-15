@@ -457,7 +457,7 @@ def render(name):
         bpy.ops.object.light_add(type='AREA',location=loc);o=bpy.context.object;o.data.energy=power;o.data.shape='DISK';o.data.size=size;o.rotation_euler=(-o.location).to_track_quat('-Z','Y').to_euler()
     scene.render.engine='CYCLES';scene.cycles.samples=16
     scene.render.resolution_x=900;scene.render.resolution_y=900;scene.render.resolution_percentage=100
-    scene.world.color=(.3,.3,.3);scene.render.filepath='/tmp/tempest-'+name+'.png'
+    scene.world.color=(.3,.3,.3);scene.render.filepath='/tmp/avelune-'+name+'.png'
     bpy.ops.render.render(write_still=True)
 
 for name,build in [('inn',inn),('shop',shop),('tower',tower)]:

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { PROP_CATALOG } from '#shared/utils/propCatalog'
 import { isSolidProp } from '#shared/utils/maze'
-import type { EditorTool } from '~/composables/useEditor'
 
 /**
  * 2D overlay for the dev world editor. Pure HUD chrome over the live scene — the
@@ -16,13 +15,6 @@ const editor = useEditor()
 const toast = useToast()
 
 const search = ref('')
-
-// Tools: select/place props, or drag the Oracle marker.
-const tool = editor.tool
-const tools: { value: EditorTool, label: string, icon: string }[] = [
-  { value: 'select', label: 'Select', icon: 'i-lucide-mouse-pointer-2' },
-  { value: 'marker', label: 'Oracle', icon: 'i-lucide-sparkles' },
-]
 
 // Palette filtered by the search box; empty categories drop out.
 const categories = computed(() => {
@@ -41,16 +33,23 @@ const sel = computed(() => {
   return i != null ? editor.placements.value[i] ?? null : null
 })
 
+/** The Oracle's pose when it is the selection. It shares the placement inspector's
+ *  position/rotation fields but has no height, scale or delete. */
+const oracleSel = computed(() => (editor.selection.value?.type === 'oracle' ? editor.oracle.value : null))
+
+/** Whatever is selected, as the reactive object the position/rotation fields bind to. */
+const xf = computed(() => sel.value ?? oracleSel.value)
+
 function touch() {
   editor.commit()
 }
 
 // Rotation shown in whole degrees; scale to one decimal.
 const rotDeg = computed({
-  get: () => (sel.value ? Math.round((sel.value.rot * 180 / Math.PI) % 360) : 0),
+  get: () => (xf.value ? Math.round((xf.value.rot * 180 / Math.PI) % 360) : 0),
   set: (deg: number) => {
-    if (sel.value) {
-      sel.value.rot = (deg * Math.PI) / 180
+    if (xf.value) {
+      xf.value.rot = (deg * Math.PI) / 180
       touch()
     }
   },
@@ -156,26 +155,6 @@ function onExit() {
       />
     </div>
 
-    <!-- Tool selector: select/place props, or drag the Oracle marker. -->
-    <div
-      class="pointer-events-auto absolute left-1/2 top-16 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-black/45 px-1.5 py-1 backdrop-blur"
-    >
-      <button
-        v-for="t in tools"
-        :key="t.value"
-        type="button"
-        class="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors"
-        :class="tool === t.value ? 'bg-primary text-inverted' : 'hover:bg-white/10'"
-        @click="tool = t.value"
-      >
-        <UIcon
-          :name="t.icon"
-          class="size-3"
-        />
-        {{ t.label }}
-      </button>
-    </div>
-
     <!-- Left: prop palette. -->
     <div class="pointer-events-auto absolute bottom-4 left-4 top-4 flex w-60 flex-col gap-3 rounded-lg bg-black/45 p-3 backdrop-blur">
       <UInput
@@ -220,19 +199,19 @@ function onExit() {
       </div>
     </div>
 
-    <!-- Right: inspector for the selected prop. -->
+    <!-- Right: inspector for the selection (a prop, or the Oracle). -->
     <div
-      v-if="sel"
+      v-if="xf"
       class="pointer-events-auto absolute right-4 top-4 flex w-52 flex-col gap-3 rounded-lg bg-black/45 p-3 backdrop-blur"
     >
       <div class="flex items-center justify-between gap-2">
-        <span class="truncate text-sm font-semibold">{{ sel.kind }}</span>
+        <span class="truncate text-sm font-semibold">{{ sel ? sel.kind : 'The Oracle' }}</span>
         <UBadge
-          :color="isSolidProp(sel.kind) ? 'primary' : 'neutral'"
+          :color="sel ? (isSolidProp(sel.kind) ? 'primary' : 'neutral') : 'info'"
           variant="subtle"
           size="sm"
         >
-          {{ isSolidProp(sel.kind) ? 'Solid' : 'Decor' }}
+          {{ sel ? (isSolidProp(sel.kind) ? 'Solid' : 'Decor') : 'NPC' }}
         </UBadge>
       </div>
 
@@ -242,7 +221,7 @@ function onExit() {
           size="xs"
         >
           <UInputNumber
-            v-model="sel.x"
+            v-model="xf.x"
             :step="0.5"
             :format-options="{ maximumFractionDigits: 2 }"
             size="xs"
@@ -254,23 +233,11 @@ function onExit() {
           size="xs"
         >
           <UInputNumber
-            v-model="sel.y"
+            v-model="xf.y"
             :step="0.5"
             :format-options="{ maximumFractionDigits: 2 }"
             size="xs"
             @update:model-value="touch"
-          />
-        </UFormField>
-        <UFormField
-          label="Height"
-          size="xs"
-        >
-          <UInputNumber
-            v-model="height"
-            :step="0.25"
-            :min="0"
-            :format-options="{ maximumFractionDigits: 2 }"
-            size="xs"
           />
         </UFormField>
         <UFormField
@@ -284,6 +251,20 @@ function onExit() {
           />
         </UFormField>
         <UFormField
+          v-if="sel"
+          label="Height"
+          size="xs"
+        >
+          <UInputNumber
+            v-model="height"
+            :step="0.25"
+            :min="0"
+            :format-options="{ maximumFractionDigits: 2 }"
+            size="xs"
+          />
+        </UFormField>
+        <UFormField
+          v-if="sel"
           :label="sel.s3 ? 'Scale (fixed)' : 'Scale'"
           size="xs"
         >
@@ -301,6 +282,7 @@ function onExit() {
       </div>
 
       <UButton
+        v-if="sel"
         label="Delete"
         icon="i-lucide-trash-2"
         size="xs"

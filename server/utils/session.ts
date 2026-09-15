@@ -15,9 +15,9 @@ import type { Player } from '#shared/types/game'
  * (HttpOnly) and can't forge a different id/name without the server secret.
  */
 
-// The signed cookie IS each player's identity. Renamed with the Tempest rebrand;
-// existing `mugen_id` cookies no longer match, so players re-onboard once.
-export const COOKIE_NAME = 'tempest_id'
+// The signed cookie IS each player's identity. Renamed with the Avelune rebrand;
+// existing `tempest_id` cookies no longer match, so players re-onboard once.
+export const COOKIE_NAME = 'avelune_id'
 
 export type Identity = Pick<Player, 'id' | 'name' | 'color' | 'character' | 'outfitColor'>
 
@@ -32,7 +32,7 @@ function secret(): string {
     console.warn('[auth] NUXT_SESSION_PASSWORD is unset — using an insecure dev secret')
     warnedNoSecret = true
   }
-  return 'tempest-dev-insecure-secret'
+  return 'avelune-dev-insecure-secret'
 }
 
 function sign(payload: string): string {

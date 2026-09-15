@@ -1,6 +1,22 @@
-import { AmbientLight, BackSide, BufferAttribute, BufferGeometry, Color, CubeCamera, DirectionalLight, FogExp2, HalfFloatType, HemisphereLight, Mesh, Points, PointsMaterial, Scene, ShaderMaterial, SphereGeometry, Vector3, WebGLCubeRenderTarget } from 'three'
-import type { Camera, WebGLRenderer } from 'three'
+import { AmbientLight, BackSide, BufferAttribute, BufferGeometry, Color, CubeCamera, FogExp2, HalfFloatType, HemisphereLight, Mesh, PerspectiveCamera, PMREMGenerator, PointLight, Points, PointsMaterial, Scene, ShaderMaterial, SphereGeometry, Vector3, WebGLCubeRenderTarget } from 'three'
+import type { Camera, WebGLRenderer, WebGLRenderTarget } from 'three'
 import type { TimeOfDayMode, WeatherMode } from '#shared/types/game'
+import { createCascadedShadows } from './shadows'
+import type { CascadedShadows } from './shadows'
+
+/**
+ * Plaza lamp heads, in world space, for the eight lanterns nearest the fountain
+ * at (72, 72). Lanterns render inside an `InstancedMesh` batch, so the sky has
+ * nothing to look up: these are the `Courtyard_Lantern` placements from
+ * `shared/data/courtyard-props.json` (x, y -> world x, z) plus the template's
+ * own +0.72 lamp-arm offset, mirrored by the placement's rotation. Two
+ * symmetric rows of four keep the plaza lit evenly. Keep in sync with the JSON.
+ */
+const PLAZA_LANTERNS: [number, number][] = [
+  [69.22, 59], [74.78, 59], [69.22, 85], [74.78, 85],
+  [69.22, 48], [74.78, 48], [69.22, 96], [74.78, 96],
+]
+const LANTERN_HEIGHT = 2.55
 
 const DAY_MS = 15 * 60 * 1000
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
@@ -9,7 +25,9 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 export function courtyardWeather(now: number, mode: WeatherMode = 'auto', timeOfDay: TimeOfDayMode = 'auto') {
   let sunAngle = (now / DAY_MS % 1) * Math.PI * 2 - Math.PI / 2
   if (timeOfDay !== 'auto') {
-    const angles = { dawn: 0.08, day: Math.PI / 2, sunset: Math.PI - 0.08, night: -Math.PI / 2 }
+    // `day` sits short of the zenith on purpose: a sun straight overhead casts
+    // shadows nobody can see, and the town reads flat without them.
+    const angles = { dawn: 0.08, day: 1.12, sunset: Math.PI - 0.08, night: -Math.PI / 2 }
     sunAngle = angles[timeOfDay]
   }
   const seconds = now / 1000
@@ -122,19 +140,33 @@ const fragmentShader = /* glsl */ `
  * PBR materials. Dispose before the scene disappears. No gameplay physics. */
 export function createCourtyardSky(scene: Scene) {
   const previous = { background: scene.background, fog: scene.fog, environment: scene.environment, environmentIntensity: scene.environmentIntensity }
-  const fog = new FogExp2('#afcbd6', 0.005)
+  const fog = new FogExp2('#b7cfd6', 0.0042)
   scene.fog = fog
   scene.background = new Color('#85b9df')
-  scene.environmentIntensity = 0.32
-  const ambient = new AmbientLight('#bbc9e8', 0.12)
-  const hemi = new HemisphereLight('#badcff', '#a49a67', 0.9)
-  const sun = new DirectionalLight('#fff2d7', 2.7)
-  sun.castShadow = true
-  sun.shadow.mapSize.set(2048, 2048)
-  Object.assign(sun.shadow.camera, { near: 1, far: 140, left: -30, right: 30, top: 30, bottom: -30 })
-  sun.shadow.bias = -0.00025
-  sun.shadow.normalBias = 0.035
-  sun.shadow.radius = 2
+  scene.environmentIntensity = 0.55
+  const ambient = new AmbientLight('#b6c6ea', 0.08)
+  // Cool sky against warm bounce: shading keeps colour contrast, not just value.
+  const hemi = new HemisphereLight('#9ecdff', '#b08e55', 0.6)
+  const sunColor = new Color('#fff2d7')
+  // Cascaded shadow maps own the sun. CSM's shader patch assumes every
+  // directional light in the scene is one of its cascades, so there is
+  // deliberately no separate DirectionalLight here.
+  //
+  // It is built here rather than on the first update because CSM rewrites
+  // three's global light ShaderChunk: every material compiled before that
+  // rewrite has to be recompiled after it, which stalls for as long as the
+  // whole town's material count. The sky is created before the floor is built,
+  // so this gets in first. A stand-in camera carries the game camera's
+  // projection until the real one arrives on the first update.
+  const shadowCamera = new PerspectiveCamera(62, 16 / 9, 0.1, 260)
+  const shadows: CascadedShadows = createCascadedShadows(scene, shadowCamera)
+  // Warm pools on the plaza lamps, so night is lit rather than merely blue.
+  const lanterns = PLAZA_LANTERNS.map(([x, z]) => {
+    const light = new PointLight('#ffbe72', 0, 13, 1.9)
+    light.position.set(x, LANTERN_HEIGHT, z)
+    scene.add(light)
+    return light
+  })
   const uniforms = {
     sunDirection: { value: new Vector3(0, 1, 0) },
     dayness: { value: 1 },
@@ -152,19 +184,31 @@ export function createCourtyardSky(scene: Scene) {
   dome.name = 'courtyard-atmosphere'
   dome.renderOrder = -10
   dome.frustumCulled = false
-  scene.add(dome, ambient, hemi, sun, sun.target)
+  scene.add(dome, ambient, hemi)
 
   // Capture only the sky, never the world or the water that samples this map.
   const environmentScene = new Scene()
   environmentScene.add(new Mesh(geometry, material))
-  const environmentTarget = new WebGLCubeRenderTarget(64, { type: HalfFloatType })
-  const environmentCamera = new CubeCamera(1, 100, environmentTarget)
-  let nextEnvironmentUpdate = -Infinity
+  const environmentTarget = new WebGLCubeRenderTarget(256, { type: HalfFloatType })
+  const environmentCamera = new CubeCamera(1, 120, environmentTarget)
+  // PMREM is explicit rather than left to three's automatic cube conversion:
+  // that cache keys off `texture.version`, which a CubeCamera render never
+  // bumps, so the filtered map would freeze on the first frame's sky.
+  let pmrem: PMREMGenerator | null = null
+  let environmentMap: WebGLRenderTarget | null = null
+  // Regenerate only when the sky has actually moved: the sun crosses this much
+  // arc in roughly four seconds, matching the old fixed cadence without
+  // spending the filter pass on a sky that is standing still.
+  const ENVIRONMENT_ANGLE = 0.03
+  const ENVIRONMENT_INTERVAL = 2500
+  let capturedAngle = Infinity
+  let capturedOvercast = Infinity
+  let capturedAt = -Infinity
   const sunDirection = uniforms.sunDirection.value
   const lightDirection = new Vector3()
-  const nightFog = new Color('#293b56')
-  const dayFog = new Color('#afcbd6')
-  const stormFog = new Color('#758a9e')
+  const nightFog = new Color('#23344d')
+  const dayFog = new Color('#b7cfd6')
+  const stormFog = new Color('#7d92a4')
 
   const rainCount = 800
   const rainGeometry = new BufferGeometry()
@@ -182,9 +226,15 @@ export function createCourtyardSky(scene: Scene) {
   let previousWeather: WeatherMode = 'auto'
   let previousTimeOfDay: TimeOfDayMode = 'auto'
   return {
+    /** Patch freshly built or freshly loaded materials for cascaded shadows.
+     *  The per-frame update rescans on its own, so calling this after a floor
+     *  rebuild is an optimisation, not a requirement. */
+    setupShadows() {
+      shadows.setupScene(scene)
+    },
     update(now: number, delta: number, camera: Camera, renderer: WebGLRenderer, x: number, z: number, mode: WeatherMode = 'auto', timeOfDay: TimeOfDayMode = 'auto') {
       const state = courtyardWeather(now, mode, timeOfDay)
-      if (mode !== previousWeather || timeOfDay !== previousTimeOfDay) nextEnvironmentUpdate = 0
+      if (mode !== previousWeather || timeOfDay !== previousTimeOfDay) capturedAngle = Infinity
       previousWeather = mode
       previousTimeOfDay = timeOfDay
       const seconds = now / 1000
@@ -199,16 +249,21 @@ export function createCourtyardSky(scene: Scene) {
       const daylight = Math.max(state.sunHeight, 0)
       lightDirection.copy(sunDirection).multiplyScalar(state.sunHeight >= 0 ? 1 : -1)
       lightDirection.y = Math.max(lightDirection.y, 0.08)
-      sun.position.set(x, 0, z).addScaledVector(lightDirection, 60)
-      sun.target.position.set(x, 0, z)
-      sun.intensity = state.sunHeight >= 0
-        ? (0.35 + daylight * 2.9) * (1 - state.overcast * 0.7)
-        : 0.38
-      sun.color.set(state.sunHeight < 0 ? '#8baaff' : daylight < 0.3 ? '#ffc390' : '#fff3d7')
-      hemi.intensity = 0.24 + state.dayness * 0.58
-      ambient.intensity = 0.06 + state.dayness * 0.05
+      const intensity = state.sunHeight >= 0
+        ? (0.25 + daylight * 3.9) * (1 - state.overcast * 0.7)
+        : 0.62
+      sunColor.set(state.sunHeight < 0 ? '#93b0ff' : daylight < 0.3 ? '#ffb877' : '#fff0cb')
+      if (camera instanceof PerspectiveCamera) shadows.update(camera, lightDirection, sunColor, intensity, delta)
+      hemi.intensity = 0.2 + state.dayness * 0.4
+      ambient.intensity = 0.04 + state.dayness * 0.03
+      // Lantern pools fade in as the sun goes down, and stay out of daylight.
+      const lamp = (1 - state.dayness) ** 1.5 * 2.6
+      for (const light of lanterns) light.intensity = lamp
       fog.color.copy(nightFog).lerp(dayFog, state.dayness).lerp(stormFog, state.overcast * state.dayness * 0.55)
-      fog.density = 0.0048 * (1 + state.rain * 1.3 + state.overcast * 0.25)
+      fog.density = 0.0036 * (1 + state.rain * 1.3 + state.overcast * 0.25)
+      // The post pipeline reads this to bias bloom toward night highlights;
+      // `courtyardRenderer` has no other view of the clock.
+      scene.userData.dayness = state.dayness
       rain.visible = state.rain > 0.02
       rainMaterial.opacity = state.rain * 0.65
       rain.position.set(x, 0, z)
@@ -217,23 +272,33 @@ export function createCourtyardSky(scene: Scene) {
         for (let i = 0; i < rainCount; i++) attribute.setY(i, (attribute.getY(i) - delta * 21 + 14) % 14)
         attribute.needsUpdate = true
       }
-      // Three prefilters this cube for roughness automatically. Keep rendering
-      // the volume every frame, but amortize reflection updates over 8 seconds.
-      if (now >= nextEnvironmentUpdate || now < nextEnvironmentUpdate - 8000) {
+      // Capture the sky and prefilter it for roughness, so stone, water and the
+      // alpha-cut leaves reflect the actual weather instead of a flat tint.
+      const moved = Math.abs(state.sunAngle - capturedAngle) > ENVIRONMENT_ANGLE
+        || Math.abs(state.overcast - capturedOvercast) > 0.03
+      if (moved && Math.abs(now - capturedAt) >= ENVIRONMENT_INTERVAL) {
         environmentCamera.update(renderer, environmentScene)
-        scene.environment = environmentTarget.texture
-        nextEnvironmentUpdate = now + 8000
+        pmrem ??= new PMREMGenerator(renderer)
+        // Passing the previous target back reuses it instead of allocating one
+        // filtered cube per refresh.
+        environmentMap = pmrem.fromCubemap(environmentTarget.texture, environmentMap)
+        scene.environment = environmentMap.texture
+        capturedAngle = state.sunAngle
+        capturedOvercast = state.overcast
+        capturedAt = now
       }
       return state
     },
     dispose() {
-      scene.remove(dome, ambient, hemi, sun, sun.target, rain)
+      scene.remove(dome, ambient, hemi, rain, ...lanterns)
+      shadows.dispose()
       geometry.dispose()
       material.dispose()
       rainGeometry.dispose()
       rainMaterial.dispose()
-      sun.shadow.dispose()
       environmentTarget.dispose()
+      environmentMap?.dispose()
+      pmrem?.dispose()
       scene.background = previous.background
       scene.fog = previous.fog
       scene.environment = previous.environment

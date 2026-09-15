@@ -10,8 +10,9 @@ import {
   stepBody,
 } from '#shared/utils/maze'
 import type { Identity } from './session'
+import { FORTIFICATIONS } from '#shared/utils/courtyard'
 import type { HubMessage } from './oracle'
-import { oracleReply } from './oracle'
+import { oracleGreeting, oracleReply } from './oracle'
 
 /**
  * The authoritative arena.
@@ -48,6 +49,8 @@ interface Session {
   moved: boolean
   joinedAt: number
   lastSeen: number
+  /** A greeting composed on join, spoken when they step through the gate. */
+  greeting?: Promise<string | null>
   send: (data: string) => void
   close: () => void
 }
@@ -117,6 +120,9 @@ function tick() {
     if (before.x !== player.x || before.y !== player.y || before.z !== player.z) {
       session.moved = true
     }
+    // The Oracle waits just inside South Gate: the greeting is for the moment
+    // a traveller steps through it, not for the spawn bank across the moat.
+    if (before.y >= GATE_LINE && player.y < GATE_LINE) deliverGreeting(session)
   }
 
   if (tickCount % BROADCAST_EVERY === 0) {
@@ -204,6 +210,17 @@ let oracleBusy = false
 let oracleQuietUntil = 0
 const ORACLE_COOLDOWN = 4000
 
+/**
+ * Say an Oracle line: remember it as context for later replies, start the
+ * cooldown, and put it on the wire as an ordinary chat frame from ORACLE_ID.
+ */
+function speak(reply: string) {
+  oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
+  hubChat.push({ name: ORACLE_NAME, text: reply })
+  if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
+  broadcast({ t: 'chat', id: ORACLE_ID, text: reply })
+}
+
 function considerOracle(name: string, text: string) {
   hubChat.push({ name, text })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
@@ -213,16 +230,95 @@ function considerOracle(name: string, text: string) {
   oracleBusy = true
   oracleReply([...hubChat], snapshot)
     .then((reply) => {
-      if (!reply) return
-      oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
-      hubChat.push({ name: ORACLE_NAME, text: reply })
-      if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
-      broadcast({ t: 'chat', id: ORACLE_ID, text: reply })
+      if (reply) speak(reply)
     })
     .catch(() => {})
     .finally(() => {
       oracleBusy = false
     })
+}
+
+/** Greet an identity at most this often, so a reload doesn't re-greet. */
+const GREET_INTERVAL = 30 * 60_000
+/**
+ * The gate threshold in tile space (player `y` is world z). The walls have no
+ * other opening, so crossing this line southward-to-northward is entering town.
+ */
+const GATE_LINE = FORTIFICATIONS.gateZ
+/** A greeting waits this long for a busy Oracle, then gives up rather than queue. */
+const GREET_WINDOW = 20_000
+/** How long to wait before looking again at a busy Oracle. */
+const GREET_RETRY = 1500
+/** When each identity was last greeted (identity id, not socket). */
+const greetedAt = new Map<string, number>()
+
+/**
+ * Start composing a greeting the moment a traveller joins, so the line is
+ * ready by the time they walk the bridge and step through South Gate. The
+ * model call takes seconds; the walk from the spawn bank takes about five, and
+ * a greeting that arrives after they have already passed the Oracle reads as
+ * an afterthought. Nothing is said here: `deliverGreeting` speaks it at the
+ * gate, and a traveller who leaves without crossing is never greeted.
+ *
+ * Gated once per identity per `GREET_INTERVAL`, so a refresh or a tab
+ * take-over stays silent. The slot is claimed here and released again if the
+ * greeting is abandoned, so a traveller who arrived mid-conversation can still
+ * be met later. The call runs outside the `oracleBusy` lock: that lock keeps
+ * the Oracle from talking over itself, and composing is not talking.
+ */
+function prepareGreeting(session: Session) {
+  const { id, name } = session.player
+  const now = Date.now()
+  for (const [key, at] of greetedAt) {
+    if (now - at > GREET_INTERVAL) greetedAt.delete(key)
+  }
+  if (greetedAt.has(id)) return
+  greetedAt.set(id, now)
+  session.greeting = oracleGreeting(name, snapshot).catch(() => null)
+}
+
+/**
+ * Say the prepared greeting as the traveller steps through South Gate.
+ *
+ * Never talks over a reply in flight or a cooldown: it waits, looking again
+ * every `GREET_RETRY`, and gives up once `GREET_WINDOW` has passed — a party
+ * arriving together is worth a short wait, a busy chat is not, and a greeting
+ * never queues indefinitely. Dropped if the traveller is gone again.
+ * Fire-and-forget like `considerOracle`: nothing here can throw into the tick
+ * loop, and if the model was unreachable `oracleGreeting` still resolved to a
+ * fixed in-character line, so an arrival is never met with silence.
+ */
+function deliverGreeting(session: Session) {
+  const pending = session.greeting
+  if (!pending) return
+  session.greeting = undefined
+  const { id } = session.player
+  const deadline = Date.now() + GREET_WINDOW
+
+  const attempt = (delay: number) => {
+    const timer = setTimeout(() => {
+      // Gone again, or the Oracle stayed busy too long: drop it, don't queue.
+      if (sessions.get(id) !== session) return void greetedAt.delete(id)
+      if (oracleBusy || Date.now() < oracleQuietUntil) {
+        if (Date.now() > deadline) return void greetedAt.delete(id)
+        // Wait out whatever the Oracle is saying, then look again.
+        return attempt(Math.max(oracleQuietUntil - Date.now() + 200, GREET_RETRY))
+      }
+      oracleBusy = true
+      pending
+        .then((line) => {
+          if (line) speak(line)
+        })
+        .catch(() => {})
+        .finally(() => {
+          oracleBusy = false
+        })
+    }, delay)
+    // Never hold the process open just for a pending greeting.
+    ;(timer as { unref?: () => void }).unref?.()
+  }
+
+  attempt(0)
 }
 
 /**
@@ -276,6 +372,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     timeOfDay,
   } satisfies ServerMessage))
   broadcast({ t: 'join', player }, player.id)
+  prepareGreeting(session)
 
   return {
     player,
@@ -357,6 +454,9 @@ export function registerConnection(identity: Identity, send: (data: string) => v
         sessions.delete(player.id)
         broadcast({ t: 'leave', id: player.id })
       }
+      // Left without ever stepping through the gate: they were never greeted,
+      // so the next visit should be.
+      if (session.greeting) greetedAt.delete(player.id)
       stopLoop()
     },
   }

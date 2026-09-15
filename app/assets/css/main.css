@@ -17,20 +17,20 @@
   --color-blue-900: #2A4B6C;
   --color-blue-950: #1B2F45;
 
-  --color-tempest-50: #EEF8FF;
-  --color-tempest-100: #D0E1F0;
-  --color-tempest-200: #A3B1C6;
-  --color-tempest-300: #5CC8E4;
-  --color-tempest-400: #00DDEB;
-  --color-tempest-500: #0681B4;
-  --color-tempest-600: #0A5C8A;
-  --color-tempest-700: #112A43;
-  --color-tempest-800: #0C1A2F;
-  --color-tempest-900: #071120;
-  --color-tempest-950: #040A14;
+  --color-avelune-50: #EEF8FF;
+  --color-avelune-100: #D0E1F0;
+  --color-avelune-200: #A3B1C6;
+  --color-avelune-300: #5CC8E4;
+  --color-avelune-400: #00DDEB;
+  --color-avelune-500: #0681B4;
+  --color-avelune-600: #0A5C8A;
+  --color-avelune-700: #112A43;
+  --color-avelune-800: #0C1A2F;
+  --color-avelune-900: #071120;
+  --color-avelune-950: #040A14;
 
   /* Custom Gradient Utility utilizing the scale */
-  --background-image-login-button: linear-gradient(180deg, var(--color-tempest-300) 0%, var(--color-tempest-500) 100%);
+  --background-image-login-button: linear-gradient(180deg, var(--color-avelune-300) 0%, var(--color-avelune-500) 100%);
 }
 
 .dark {

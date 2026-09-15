@@ -71,7 +71,7 @@ async function submit() {
     emit('done', identity)
   }
   catch {
-    toast.add({ title: props.initial ? 'Could not save your character' : 'Could not enter the village', description: 'Please try again.', color: 'error', icon: 'i-lucide-triangle-alert' })
+    toast.add({ title: props.initial ? 'Could not save your character' : 'Could not enter the town', description: 'Please try again.', color: 'error', icon: 'i-lucide-triangle-alert' })
     submitting.value = false
   }
 }

@@ -12,7 +12,6 @@ import type { TownMaterials } from './townMaterials'
 import { createCourtyardLandscape } from './courtyardLandscape'
 import { createFountainWater } from './fountainWater'
 import { createCityMoat } from './cityMoat'
-import { createRampartWalkways } from './rampartWalkways'
 import { createFortifiedGate } from './fortifications'
 import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
@@ -32,7 +31,6 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   materials.apply(stone, 'stone', 1.2, 0.55)
   materials.apply(paleStone, 'stone', 1.2, 0.45, true)
   group.add(createFortifiedGate(stone, paleStone))
-  group.add(createRampartWalkways(stone, paleStone))
   const grass = new MeshStandardMaterial({ color: '#7a9d58', roughness: 1 })
   const soil = new MeshStandardMaterial({ color: '#7f745b', roughness: 1 })
   const arenaMaterial = new MeshStandardMaterial({ color: '#e4cf9f', map: plazaMap, roughness: 1 })
@@ -288,11 +286,17 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   })
   return {
     group,
-    update(time: number, players: readonly FountainInteractor[] = []) {
-      landscape.update(time)
-      moat.update(time, players)
+    /**
+     * `time` is absolute server seconds, `shaderTime` the same clock wrapped to
+     * stay inside float32's useful range. Anything that reaches a `uniform
+     * float` takes the wrapped one; the fountain's particle simulation keeps
+     * the absolute clock, since it integrates deltas across frames.
+     */
+    update(time: number, shaderTime: number, players: readonly FountainInteractor[] = []) {
+      landscape.update(shaderTime)
+      moat.update(shaderTime, players)
       pennants.forEach((flag, i) => {
-        flag.rotation.x = Math.sin(time * 1.5 + i * 0.65) * 0.16
+        flag.rotation.x = Math.sin(shaderTime * 1.5 + i * 0.65) * 0.16
       })
       for (const { effect, timeScale, actors } of fountains) {
         effect.group.updateWorldMatrix(true, false)

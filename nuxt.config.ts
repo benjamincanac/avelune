@@ -3,9 +3,9 @@
 // head config instead of a runtime composable.
 const site = {
   name: 'Avelune',
-  title: 'Avelune, a shared fantasy village on Vercel WebSockets',
+  title: 'Avelune, a shared fantasy town on Vercel WebSockets',
   description:
-    'Explore a shared fantasy village, meet other travellers, and talk to the Oracle. Built with Nuxt, TresJS, and an authoritative multiplayer game loop over Vercel WebSockets.',
+    'Explore a shared fantasy town, meet other travellers, and talk to the Oracle. Built with Nuxt, TresJS, and an authoritative multiplayer game loop over Vercel WebSockets.',
   tagline: 'Nuxt × Vercel WebSockets',
   repo: 'https://github.com/benjamincanac/avelune',
   deployUrl:
@@ -16,7 +16,7 @@ const site = {
 
 // Canonical origin. Set NUXT_PUBLIC_SITE_URL in the deploy environment; the
 // fallback is only used for local/preview builds — change it to the real domain.
-const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://tempest-tower.vercel.app').replace(/\/$/, '')
+const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || 'https://avelune-online.vercel.app').replace(/\/$/, '')
 const canonical = `${siteUrl}/`
 const ogImage = `${siteUrl}${site.ogImage}`
 

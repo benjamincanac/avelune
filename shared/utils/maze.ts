@@ -16,7 +16,8 @@
 import { MOAT, isOnMoatStairs, moatGroundHeight, moatWaterDepth, hitsMoatObstacle } from './moat'
 import hubProps from '../data/courtyard-props.json'
 import hubStructure from '../data/courtyard-structure.json'
-import { isOnRampart, rampartStairHeight, RAMPART_RAILS, RAMPART_STAIRS, RAMPART_WALKWAYS } from './ramparts'
+import { galleryDeckHeight, hitsRampartRail, isRampartKind, nearRamparts, rampartIndex, rampartStairHeight } from './ramparts'
+import type { RampartIndex } from './ramparts'
 import { COURTYARD_ASSETS, FOUNTAIN, FORTIFICATIONS, isInMoat, isOnGateBridge } from './courtyard'
 
 /** How far players move, in tiles per second. */
@@ -63,7 +64,7 @@ export interface PropSpec {
 
 /**
  * A hand-placed prop as stored in `shared/data/courtyard-props.json` (gameplay props)
- * or `shared/data/courtyard-structure.json` (baked village pieces), written by the dev
+ * or `shared/data/courtyard-structure.json` (baked town pieces), written by the dev
  * editor. `top`/`r` are never stored — they're always derived through `makeProp`
  * so server collision and client rendering stay in lockstep. `z` is render-only
  * elevation; `s3` scales both the visible mesh and its collision dimensions.
@@ -87,6 +88,10 @@ export interface FloorPlan {
   /** Spawn point. */
   start: { x: number, y: number }
   props: PropSpec[]
+  /** Rampart placements (gallery decks, stair flights, rails) pre-filtered out
+   *  of `props`, so the 20 Hz step doesn't rescan every prop for them. Rebuild
+   *  with `rampartIndex` whenever `props` changes. */
+  ramparts: RampartIndex
 }
 
 /**
@@ -99,10 +104,13 @@ export interface FloorPlan {
  */
 interface SolidProp { top: number, r: number, box?: [number, number] }
 const SOLID_PROPS: Record<string, SolidProp> = {
+  // Rampart pieces (gallery/stairs/rail) keep a footprint box for the rampart
+  // helpers but a `top` of 0, so the ground-based collision below ignores them:
+  // their surfaces are height-aware and owned by `ramparts.ts`.
   ...Object.fromEntries(Object.entries(COURTYARD_ASSETS).map(([kind, asset]) => [kind,
     'radius' in asset
       ? { top: asset.height, r: asset.radius }
-      : { top: asset.height, r: Math.hypot(asset.width / 2, asset.depth / 2), box: [asset.width / 2, asset.depth / 2] },
+      : { top: isRampartKind(kind) ? 0 : asset.height, r: Math.hypot(asset.width / 2, asset.depth / 2), box: [asset.width / 2, asset.depth / 2] },
   ])),
   // Radii track each model's real footprint (measured), so collision hugs the
   // visible mesh instead of a fat invisible ring around it. `Bricks` is left
@@ -116,7 +124,7 @@ const SOLID_PROPS: Record<string, SolidProp> = {
   // Fantasy-kit furniture that doubles as a low platform to hop onto.
   Crate_Wooden: { top: 1.1, r: 0.45 },
   Chest_Wood: { top: 0.68, r: 0.55 },
-  // Nature/village obstacles: trees and boulders block like walls; the
+  // Nature/town obstacles: trees and boulders block like walls; the
   // crate/wagon are lower so they read as clutter you can vault with a jump.
   CommonTree_1: { top: 3, r: 0.6 },
   CommonTree_2: { top: 3, r: 0.6 },
@@ -128,7 +136,7 @@ const SOLID_PROPS: Record<string, SolidProp> = {
   Rock_Medium_3: { top: 1.8, r: 0.95 },
   Prop_Crate: { top: 0.9, r: 0.55 },
   Prop_Wagon: { top: 1.2, r: 1.05 },
-  // Ground-level village building pieces (baked into courtyard-structure.json). Tall
+  // Ground-level town building pieces (baked into courtyard-structure.json). Tall
   // `top` (unjumpable) so house walls block; ~1-tile radius so a chain of 2-unit
   // wall panels reads as a solid perimeter. The door frame + gate arch are left
   // OUT so their openings stay walkable. Upper-floor/roof kinds are never listed
@@ -242,6 +250,7 @@ export function generateHub(): FloorPlan {
     tiles,
     start: { ...HUB_LAYOUT.start },
     props,
+    ramparts: rampartIndex(props),
   }
 }
 
@@ -326,7 +335,7 @@ export function getFountainWaterContact(prop: PropSpec, body: Pick<KinematicBody
 
 /** Height of the walkable surface at a point (0 = ground, else a prop top). */
 export function surfaceHeight(plan: FloorPlan, x: number, y: number, feet = Infinity): number {
-  let top = rampartStairHeight(x, y) ?? moatGroundHeight(x, y, feet)
+  let top = rampartStairHeight(plan.ramparts, x, y) ?? moatGroundHeight(x, y, feet)
   for (const prop of plan.props) {
     if (prop.top <= 0 || prop.top <= top || (prop.kind === 'Courtyard_BridgeRail' && feet < -0.5)) continue
     const dx = x - prop.x
@@ -427,7 +436,7 @@ export function stepBody(plan: FloorPlan, body: KinematicBody, dx: number, dy: n
   // Other dry ground keeps the same movement integration.
   const nearFineCollision = plan.props.some(prop => (prop.kind === 'Courtyard_Fountain' || prop.kind === 'Courtyard_BridgeRail')
     && Math.hypot(body.x - prop.x, body.y - prop.y) <= prop.r + Math.hypot(dx, dy) + PLAYER_RADIUS)
-  const nearRampart = isOnRampart(body.x, body.y) || RAMPART_STAIRS.some(stair => Math.abs(body.x - stair.x) < stair.width / 2 + Math.hypot(dx, dy) + PLAYER_RADIUS && body.y >= stair.zStart - 1 && body.y <= stair.zEnd + 1)
+  const nearRampart = nearRamparts(plan.ramparts, body.x, body.y, Math.hypot(dx, dy) + PLAYER_RADIUS)
   const nearMoat = isInMoat(body.x, body.y) || isInMoat(body.x + dx, body.y + dy) || isOnMoatStairs(body.x, body.y)
   const steps = nearFineCollision || nearRampart || nearMoat ? Math.max(1, Math.ceil(Math.hypot(dx, dy) / 0.12), nearMoat ? Math.ceil(dt * 60) : 1) : 1
   for (let i = 0; i < steps; i++) stepBodyOnce(plan, body, dx / steps, dy / steps, dt / steps)
@@ -446,8 +455,8 @@ function stepBodyOnce(plan: FloorPlan, body: KinematicBody, dx: number, dy: numb
   // Horizontal, axis-separated so tall props block like walls but slide.
   if (dx !== 0 || dy !== 0) {
     const walled = moveWithCollision(plan, body.x, body.y, dx, dy)
-    if (bodySurfaceHeight(plan, walled.x, body.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(walled.x, body.y, body.z) && !hitsMoatObstacle(walled.x, body.y, body.z, PLAYER_RADIUS)) body.x = walled.x
-    if (bodySurfaceHeight(plan, body.x, walled.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(body.x, walled.y, body.z) && !hitsMoatObstacle(body.x, walled.y, body.z, PLAYER_RADIUS)) body.y = walled.y
+    if (bodySurfaceHeight(plan, walled.x, body.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(plan.ramparts, walled.x, body.y, body.z, PLAYER_RADIUS, STEP_MAX) && !hitsMoatObstacle(walled.x, body.y, body.z, PLAYER_RADIUS)) body.x = walled.x
+    if (bodySurfaceHeight(plan, body.x, walled.y, body.z) - body.z <= STEP_MAX && !hitsRampartRail(plan.ramparts, body.x, walled.y, body.z, PLAYER_RADIUS, STEP_MAX) && !hitsMoatObstacle(body.x, walled.y, body.z, PLAYER_RADIUS)) body.y = walled.y
   }
 
   // Vertical: gravity, then land on (or step up to) whatever is below.
@@ -498,22 +507,6 @@ export function getSwimmingContact(plan: FloorPlan, body: Pick<KinematicBody, 'x
  * it can support a body; ordinary authored prop z remains render-only. */
 export function bodySurfaceHeight(plan: FloorPlan, x: number, y: number, feet: number) {
   const ground = surfaceHeight(plan, x, y, feet)
-  return isOnRampart(x, y) && feet >= RAMPART_WALKWAYS.height - STEP_MAX
-    ? Math.max(ground, RAMPART_WALKWAYS.height)
-    : ground
-}
-
-function hitsRampartRail(x: number, y: number, feet: number) {
-  for (const rail of RAMPART_RAILS) {
-    if (feet < rail.bottom - STEP_MAX || feet >= rail.bottom + rail.height) continue
-    if (Math.abs(x - rail.x) < rail.width / 2 + PLAYER_RADIUS
-      && Math.abs(y - rail.z) < rail.depth / 2 + PLAYER_RADIUS) return true
-  }
-  for (const stair of RAMPART_STAIRS) {
-    if (y < stair.zStart || y > stair.zEnd) continue
-    const top = (y - stair.zStart) / (stair.zEnd - stair.zStart) * stair.height
-    if (feet < top - STEP_MAX || feet >= top + RAMPART_WALKWAYS.railHeight) continue
-    if (Math.abs(Math.abs(x - stair.x) - stair.width / 2) < PLAYER_RADIUS + RAMPART_WALKWAYS.railThickness / 2) return true
-  }
-  return false
+  const deck = galleryDeckHeight(plan.ramparts, x, y, feet, STEP_MAX)
+  return deck === null ? ground : Math.max(ground, deck)
 }

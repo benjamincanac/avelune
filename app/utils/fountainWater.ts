@@ -6,7 +6,7 @@ import { createFountainInteractions, createFountainSimulation } from './fountain
 import { FOUNTAIN } from '../../shared/utils/courtyard'
 import type { FountainBodySample } from './fountainSimulation'
 import { createFountainSurface } from './fountainSurface'
-import { FOUNTAIN_FLOW, sampleFountainFlow } from './fountainFlow'
+import { FOUNTAIN_FLOW, fountainFallAge, sampleFountainFlow } from './fountainFlow'
 
 export type FountainInteractor = FountainBodySample
 
@@ -46,6 +46,10 @@ export function createFountainWater() {
   let tick = 0
   const gravity = FOUNTAIN_FLOW.gravity
   const jetCount = FOUNTAIN_FLOW.outlets
+  // The sheet is drawn continuously from the rim into the basin (a hair past
+  // the surface so it visibly enters the water); the bead particles ride the
+  // same trajectory and carry the impacts that drive the ripples.
+  const streamAge = fountainFallAge(waterY) + 0.02
   const streamSegments = 28
   const streamSides = 7
   const streamPositions = new Float32Array(jetCount * (streamSegments + 1) * streamSides * 3)
@@ -80,13 +84,13 @@ export function createFountainWater() {
       const angle = Math.PI / 8 + jet * Math.PI / 4
       const c = Math.cos(angle)
       const s = Math.sin(angle)
-      let breakup = sampleFountainFlow(jet, simulationTime, 0).breakupAge
-      for (let i = 0; i < 2; i++) breakup = sampleFountainFlow(jet, simulationTime - breakup, 0).breakupAge
       for (let segment = 0; segment <= streamSegments; segment++) {
-        const age = breakup * segment / streamSegments
+        const age = streamAge * segment / streamSegments
         const parcel = sampleFountainFlow(jet, simulationTime - age, age)
         const horizontal = Math.hypot(parcel.vx, parcel.vz)
-        const neck = 1 - 0.9 * Math.max(0, (segment / streamSegments - 0.85) / 0.15)
+        // Past its breakup age the sheet has gathered into a thinner jet with
+        // the beads spraying around it, so taper it rather than cut it off.
+        const neck = age < parcel.breakupAge ? 1 : Math.max(0.55, 1 - (age - parcel.breakupAge) * 1.4)
         const pulse = 1 + 0.09 * Math.sin((simulationTime - age) * 45 + jet)
         for (let side = 0; side < streamSides; side++) {
           const theta = side * Math.PI * 2 / streamSides

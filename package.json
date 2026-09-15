@@ -2,7 +2,7 @@
   "name": "avelune",
   "private": true,
   "type": "module",
-  "description": "Avelune, a shared fantasy village on Vercel WebSockets. Built with Nuxt, TresJS, and an authoritative multiplayer game loop.",
+  "description": "Avelune, a shared fantasy town on Vercel WebSockets. Built with Nuxt, TresJS, and an authoritative multiplayer game loop.",
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=24"

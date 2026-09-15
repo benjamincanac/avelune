@@ -1,11 +1,13 @@
 import { BoxGeometry, CylinderGeometry, ExtrudeGeometry, Group, Mesh, Shape } from 'three'
 import type { BufferGeometry, MeshStandardMaterial } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { FORTIFICATIONS } from '#shared/utils/courtyard'
+import { COURTYARD_ASSETS, FORTIFICATIONS } from '#shared/utils/courtyard'
 
 type StonePalette = { stone: MeshStandardMaterial, trim: MeshStandardMaterial, dark: MeshStandardMaterial, blue: MeshStandardMaterial, gold: MeshStandardMaterial }
 
-/** Templates share the dimensions of the solid rampart and bastion colliders. */
+/** Templates share the dimensions of the shared colliders. The curtain wall and
+ * bastion are solid; the gallery deck, its stairs and its rails are authored
+ * placements too, so the world editor moves them like any other prop. */
 export function createFortificationAssets(palette: StonePalette) {
   const { stone, trim, dark, blue, gold } = palette
   function add(group: Group, geometry: BufferGeometry, material: MeshStandardMaterial, x: number, y: number, z: number) {
@@ -69,7 +71,54 @@ export function createFortificationAssets(palette: StonePalette) {
     const bar = add(face, new CylinderGeometry(0.055, 0.055, 1.3, 8), gold, 0, 7.86, 3.15)
     bar.rotation.z = Math.PI / 2
   }
-  return new Map([['Courtyard_Rampart', wall], ['Courtyard_Bastion', tower]])
+  // The patrol gallery is a plain slab so the bake can stretch it along its
+  // width. The placement's elevation is the walking surface, so it hangs below
+  // the origin and leaves the street underneath open.
+  const gallery = new Group()
+  {
+    const { width, depth, height } = COURTYARD_ASSETS.Courtyard_Gallery
+    box(gallery, width, height, depth, 0, -height / 2, 0, trim)
+  }
+
+  // Parapet segment: the placement's elevation is the rail's bottom edge.
+  const railing = new Group()
+  {
+    const { width, depth, height } = COURTYARD_ASSETS.Courtyard_Rail
+    box(railing, width, height, depth, 0, height / 2, 0)
+    box(railing, width + 0.05, 0.08, depth + 0.05, 0, height, 0, trim)
+  }
+
+  // Access stairs, centred on their ground footprint and climbing toward +z.
+  const stairs = new Group()
+  {
+    const { width, depth: run, height, steps } = COURTYARD_ASSETS.Courtyard_Stairs
+    const { height: railHeight, depth: railThickness } = COURTYARD_ASSETS.Courtyard_Rail
+    const tread = run / steps
+    const rise = height / steps
+    for (let i = 0; i < steps; i++) {
+      const top = (i + 1) * rise
+      const z = -run / 2 + (i + 0.5) * tread
+      box(stairs, width, top, tread, 0, top / 2, z)
+      box(stairs, width + 0.04, 0.05, tread + 0.025, 0, top - 0.025, z - 0.025, trim)
+    }
+    const slope = -Math.atan2(height, run)
+    for (const sign of [-1, 1]) {
+      const x = sign * width / 2
+      box(stairs, railThickness, railHeight, Math.hypot(run, height), x, height / 2 + railHeight / 2, 0).rotation.x = slope
+      for (let i = 0; i <= 6; i++) {
+        const t = i / 6
+        box(stairs, 0.28, railHeight + 0.1, 0.28, x, height * t + railHeight / 2, -run / 2 + run * t, trim)
+      }
+    }
+  }
+
+  return new Map([
+    ['Courtyard_Rampart', wall],
+    ['Courtyard_Bastion', tower],
+    ['Courtyard_Gallery', gallery],
+    ['Courtyard_Stairs', stairs],
+    ['Courtyard_Rail', railing],
+  ])
 }
 
 /** The open arch joins the two gate towers without blocking the bridge below. */

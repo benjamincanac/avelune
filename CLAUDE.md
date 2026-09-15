@@ -1,6 +1,6 @@
-# Tempest
+# Avelune
 
-Multiplayer colosseum. **Nuxt** (nightly) + **TresJS** (three.js) on the client, **Nitro v3 native WebSockets** on the server, deployed to **Vercel**. It exists to demo two things: the Vercel WebSocket upgrade under a real 20 Hz authoritative game loop, and an AI NPC (the Oracle) that reads live game state. Everyone shares one hand-authored arena, walks around, and chats. The arena is bundled data, so no geometry ever travels over the wire — only players.
+Multiplayer fantasy town. **Nuxt** (nightly) + **TresJS** (three.js) on the client, **Nitro v3 native WebSockets** on the server, deployed to **Vercel**. It exists to demo two things: the Vercel WebSocket upgrade under a real 20 Hz authoritative game loop, and an AI NPC (the Oracle) that reads live game state. Everyone shares one hand-authored walled town, walks around, and chats. The town is bundled data, so no geometry ever travels over the wire — only players.
 
 Roadmap / status is [.claude/ROADMAP.md](.claude/ROADMAP.md) — the source of truth for what's done and next. Keep it current as work lands.
 
@@ -18,7 +18,7 @@ Package manager is **pnpm**.
 
 1. **Gameplay-affecting code lives in `shared/utils/maze.ts`.** Anything touching player position, collision, or elevation must go in the shared module so the authoritative server (`server/utils/game.ts`) and client prediction call the *same* functions and never disagree. Never fork physics into a component or the WS handler. This is why a client-side physics engine (`@tresjs/rapier` and friends) does not fit: it could never be the authority.
 2. **The server is authoritative.** It runs a fixed **20 Hz** tick loop and validates every action (grounded jumps, dash cooldowns, chat length). Positions are never accepted from clients. Clients predict; the server decides.
-3. **One arena, bundled.** The colosseum is hand-authored in `shared/data/hub-structure.json` and built by `generateHub()`. Both sides build it from the same data, so the socket only ever carries players. It is a constant: no seeds, no per-floor generation, no reset.
+3. **One town, bundled.** The town is hand-authored in `shared/data/courtyard-*.json` and built by `generateHub()`. Both sides build it from the same data, so the socket only ever carries players. It is a constant: no seeds, no per-floor generation, no reset.
 4. **Wire protocol** is the `t`-keyed discriminated unions in `shared/types/game.ts`. Client→server: `move`/`action`/`chat`/`ping`. Server→client: `welcome`/`join`/`leave`/`state`/`chat`/`kicked`/`pong`. `welcome.now` is the server clock that drives day/night + weather. Changing a frame's shape means updating both consumers.
 5. **Identity** rides a signed cookie on the same-origin WS upgrade; no valid cookie ⇒ socket closed. One live session per identity: a second connection (another tab) takes over and the old socket gets a `kicked` frame.
 6. **Browser-only code** (three.js, pointer lock) must be `.client.vue` / `<ClientOnly>` — never runs during SSR.
@@ -29,14 +29,14 @@ Work is divided into focused subagents in [.claude/agents/](.claude/agents/). Ea
 
 | Agent | Owns |
 | --- | --- |
-| `world-sim` | `shared/**` — arena generation, `stepBody` kinematics, collision, and the protocol types. The server↔client invariant. |
+| `world-sim` | `shared/**` — town generation, `stepBody` kinematics, collision, and the protocol types. The server↔client invariant. |
 | `server-net` | `server/**` — the 20 Hz authoritative sim, crossws WS handler, sessions, and non-AI HTTP routes. |
 | `scene-3d` | TresJS rendering — camera, materials, day/night + weather, instanced architecture, character animation, minimap. |
 | `game-ui` | 2D interface — HUD, chat, Escape menu, character onboarding, `useGame`. |
 | `oracle-ai` | The Oracle AI NPC end to end — `server/utils/oracle.ts` (in-process classifier + responder with the `arena_state` tool), `useOracle`, prompts/model/tools. |
 | `assets` | Blender/glTF pipeline — `scripts/*`, `public/models/**`, compression. |
 
-Ownership seams to respect: physics belongs to `world-sim` (not `server-net`/`scene-3d`); the Oracle's AI is `oracle-ai` (not `server-net`/`game-ui`); the Oracle's 3D placement/proximity is `scene-3d`. The dev world editor (`app/composables/useEditor.ts`, `app/utils/hubEditor.ts`, `EditorPanel.vue`, `server/api/editor/save.post.ts`) authors the arena JSON — `scene-3d` owns it.
+Ownership seams to respect: physics belongs to `world-sim` (not `server-net`/`scene-3d`); the Oracle's AI is `oracle-ai` (not `server-net`/`game-ui`); the Oracle's 3D placement/proximity is `scene-3d`. The dev world editor (`app/composables/useEditor.ts`, `app/utils/hubEditor.ts`, `EditorPanel.vue`, `server/api/editor/save.post.ts`) authors the town JSON — `scene-3d` owns it.
 
 **Keep agent definitions current.** When a change alters a slice's durable contract — an ownership boundary, a load-bearing invariant, or a hard-won gotcha (e.g. the WebP-probe race, the shared-kinematics rule) — amend the matching `.claude/agents/*.md` in the same change so the next run starts from the truth. Keep *status/progress* out of agent files (that's the ROADMAP's job), and amend the specific fact rather than rewriting hand-tuned prose. A change that only adds a feature without shifting a contract needs no agent-file edit.
 

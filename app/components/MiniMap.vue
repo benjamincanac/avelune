@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { generateHub, occupancyGrid } from '#shared/utils/maze'
-import { COURTYARD, isInMoat, isOnGateBridge, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
+import { COURTYARD, COURTYARD_ASSETS, isInMoat, isOnGateBridge, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
 import { MOAT_STAIRS } from '#shared/utils/moat'
-import { RAMPART_STAIRS } from '#shared/utils/ramparts'
 import oracle from '#shared/data/courtyard-oracle.json'
 import type { UseGame } from '~/composables/useGame'
 
@@ -89,13 +88,24 @@ function draw() {
     }
   }
 
-  for (const stair of [...RAMPART_STAIRS, MOAT_STAIRS]) {
-    const start = toScreen(stair.x - stair.width / 2, stair.zStart)
-    const length = (stair.zEnd - stair.zStart) * scale
+  /** Treads drawn in the flight's own frame, so an authored rotation carries. */
+  function drawStairs(cx: number, cy: number, width: number, run: number, rot: number) {
+    const point = toScreen(cx, cy)
+    ctx.save()
+    ctx.translate(point.x, point.y)
+    ctx.rotate(-rot)
+    const length = run * scale
     ctx.fillStyle = '#ded5be'
-    ctx.fillRect(start.x, start.y, stair.width * scale, length)
+    ctx.fillRect(-width * scale / 2, -length / 2, width * scale, length)
     ctx.fillStyle = '#82847e'
-    for (let i = 1; i < 9; i++) ctx.fillRect(start.x, start.y + length * i / 9, stair.width * scale, 1)
+    for (let i = 1; i < 9; i++) ctx.fillRect(-width * scale / 2, -length / 2 + length * i / 9, width * scale, 1)
+    ctx.restore()
+  }
+  drawStairs(MOAT_STAIRS.x, (MOAT_STAIRS.zStart + MOAT_STAIRS.zEnd) / 2, MOAT_STAIRS.width, MOAT_STAIRS.zEnd - MOAT_STAIRS.zStart, 0)
+  const flight = COURTYARD_ASSETS.Courtyard_Stairs
+  for (const prop of plan.props) {
+    if (prop.kind !== 'Courtyard_Stairs') continue
+    drawStairs(prop.x, prop.y, flight.width * (prop.s3?.[0] ?? prop.scale), flight.depth * (prop.s3?.[2] ?? prop.scale), prop.rot)
   }
 
   const arena = toScreen(COURTYARD.arena.x, COURTYARD.arena.y)

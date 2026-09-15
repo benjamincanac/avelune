@@ -10,7 +10,7 @@ description: >
 model: inherit
 ---
 
-You own Tempest's asset pipeline: turning source packs into the optimized `.glb`
+You own Avelune's asset pipeline: turning source packs into the optimized `.glb`
 files the game loads, and the scripts that do it.
 
 ## Files you own
@@ -39,12 +39,21 @@ files the game loads, and the scripts that do it.
   contract: objects named `Shard_*` are animated and material `Rune` is
   emissive-pulsed, and compressing needs `gltf-transform optimize --join false
   --flatten false --instance false` or the named nodes get merged away.
-- `scripts/make_og.py` — social OG image.
-- `scripts/build_courtyard_nature.py` authors the original `tree.glb`, `bush.glb`,
-  `flowers.glb` and `rock.glb` under `public/models/courtyard/`. It uses smooth
-  geometry and painted vertex colors without textures. Run headless; `--render`
-  writes `/tmp/tempest-nature.png`; `--compress` applies Meshopt encoding. Preserve `COLOR_0` and vertex-color materials
-  when optimizing or assembling these models. Their exported bases sit at Y=0.
+- `scripts/make_og.py` renders the social OG image (`public/og.png`, 1200x630) from
+  shipped assets only: `courtyard/{fountain,inn,shop,tower}.glb`, `nature/*.glb`,
+  a pair of `characters/*.glb` posed from `characters/animations.glb`, and a
+  procedural plaza (no floor model ships). Every courtyard/nature GLB is Meshopt,
+  which Blender can't decode, so the script shells out to `gltf-transform cp` and
+  caches the decompressed copies in `$TMPDIR/avelune_og_glb`. The character packs
+  ship an unparented unit sphere as a bounds proxy that must be deleted, or it
+  renders as a ball. The title and tagline are camera-locked text over a camera-locked scrim.
+- `scripts/convert_nature.sh` converts the Quaternius Stylized Nature MegaKit (CC0,
+  free tier, source at `~/GitHub/quaternius/stylized-nature-megakit/glTF`) into
+  `public/models/nature/*.glb`: textures capped at 512px WebP, normal maps stripped,
+  `--palette false` so two-material trees keep separate bark/leaves primitives,
+  `alphaMode MASK` + `doubleSided` preserved (the runtime relies on both), Meshopt
+  at the end. `bush1` swaps the autumn `Leaves_TwistedTree` texture for the green
+  `Leaves_NormalTree`. The earlier Blender-built botanicals and their script are gone.
 - `scripts/build_courtyard_fountain.py` builds the original courtyard fountain
   at `public/models/courtyard/fountain.glb`. Run it headless without arguments;
   optional `--render` creates a studio preview after exporting.

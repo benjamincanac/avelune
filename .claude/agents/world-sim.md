@@ -10,7 +10,7 @@ description: >
 model: inherit
 ---
 
-You own Tempest's shared world layer — the single source of truth that the
+You own Avelune's shared world layer — the single source of truth that the
 authoritative server and the client's prediction/rendering both build from
 independently.
 
@@ -27,7 +27,7 @@ independently.
   GLB basename; its directory is implied by which list it's in.
 - `shared/data/courtyard-props.json` — the courtyard's hand-placed furniture,
   trees, fountain, and lanterns (see invariant 4).
-- `shared/data/courtyard-structure.json` — editable village buildings and
+- `shared/data/courtyard-structure.json` — editable town buildings and
   perimeter walls (see invariant 4). The old `hub-*.json` placements remain
   legacy colosseum data and are not loaded by `generateHub`.
 - `shared/data/courtyard-oracle.json` — the Oracle's stand position as a bare `[x, y]`
@@ -53,10 +53,10 @@ independently.
    ground `[4, 140)`, curtain walls, moat and the south bridge. `TOWN_STREETS`,
    `TOWN_GARDENS` and `TOWN_DISTRICTS` share the authored layout with the scene
    and minimap. Buildings and furniture collide through authored footprints;
-   moat and outer bounds use solid tiles. The raised gallery and stairs use
-   dedicated shared surfaces rather than changing the authored prop z contract.
-   Units are tiles; `PLAYER_RADIUS` and prop radii too. Keep tunables as exported
-   constants so both sides read the same numbers.
+   moat and outer bounds use solid tiles. The raised gallery, stairs and rails
+   are the one exception to the render-only prop `z` contract (see "Raised
+   rampart passages"). Units are tiles; `PLAYER_RADIUS` and prop radii too. Keep
+   tunables as exported constants so both sides read the same numbers.
 4. **The arena loads its props/pieces from two committed JSON files**, both
    written by the dev editor and both appended to `plan.props` (each
    `hand: true`) through `makeProp`. `courtyard-props.json` = furniture and
@@ -123,15 +123,41 @@ and keep decorative trunks and relief outside the exterior bounds.
 
 ## Raised rampart passages
 
-`shared/utils/ramparts.ts` owns the inner gallery footprint, stairs and rail
-segments consumed by both rendering and movement. Stairs are solid stepped
-surfaces. Galleries support feet only once they reach deck height, preserving
-ground passages below them. This is a dedicated height-aware surface in
-`stepBody`; authored prop `z` remains render-only. Rail collision uses each
-segment's bottom and top, and both stairs and galleries substep dash movement.
-Keep visible stair treads and rail segments aligned with these shared constants.
+The gallery, its stairs and its rails are **authored placements, not generated
+geometry**, so the dev editor can move them. Three kinds in `COURTYARD_ASSETS`
+are the exception to the render-only `z` rule — for them the placement `z` is
+gameplay elevation:
+
+- `Courtyard_Gallery` (4 × 4.5 × 0.5, `surface`) — a walkable deck at `z`, slab
+  hanging `height` below, no side collision. Feet are supported only once they
+  reach `z - STEP_MAX`, which is what keeps the ground passages open underneath.
+- `Courtyard_Stairs` (3 × 16.5 × 6, 36 steps) — a solid stepped ramp rising
+  along its local +depth axis, `z` at `-depth/2` to `z + height` at `+depth/2`,
+  carrying a side rail (1.1 high, 0.18 thick) along each long edge.
+- `Courtyard_Rail` (4 × 0.18 × 1.1, `elevated`) — blocks only the band
+  `[z, z + height]`, so it can be jumped.
+
+`shared/utils/ramparts.ts` reads them off `plan.props` through `plan.ramparts`,
+a per-kind index built by `rampartIndex` (rebuild it whenever props change, or
+physics keeps using the old placements). It takes `radius`/`stepMax` as
+parameters instead of importing them, avoiding a runtime cycle with `maze.ts` —
+the same arrangement `moat.ts` uses. All tests are in the piece's rotated frame,
+inverting the Three.js Y rotation like boxed prop collision. These kinds carry a
+`top` of 0 in `SOLID_PROPS`, so ground collision and the minimap ignore them.
+
+The current layout: one gallery per wall side, 78 long (`s3` x 19.5), from the
+curtain wall's inner face (33/111) to an inner edge at 37.5/106.5, so the outer
+rail is the wall parapet; the solid 6×6 corner bastions protrude into the deck's
+outer strip and the loop is walked around them on the inner strip (36/108). The
+inner edge is where the stairs land, so widen only outward. `scripts/bake-ramparts.ts`
+is the run-once migration that generated these placements from the old
+`RAMPART_WALKWAYS`/`RAMPART_STAIRS`/`RAMPART_RAILS` constants; keep it for the
+audit trail, don't re-run it. Its east/west rotations are `round3(π/2)` like the
+editor's save route writes, which tilts those decks by ~0.004 tiles.
+
 `pnpm exec jiti scripts/rampart-test.ts` covers both stairs, the connected loop,
-ground passage, rail containment, landing and deterministic movement.
+ground passage, rail containment, landing, deterministic movement, and that a
+moved gallery placement moves its deck.
 
 `getSwimmingContact(plan, body)` selects deep moat swimming from the shared
 water level and supporting floor. `stepBody` owns damped buoyancy and the swim

@@ -277,5 +277,5 @@ if '--render' in sys.argv:
     scene.render.resolution_y = 900
     scene.render.resolution_percentage = 100
     scene.world.color = (.25,.25,.25)
-    scene.render.filepath = '/tmp/tempest-fountain.png'
+    scene.render.filepath = '/tmp/avelune-fountain.png'
     bpy.ops.render.render(write_still=True)

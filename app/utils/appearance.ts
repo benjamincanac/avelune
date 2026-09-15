@@ -10,6 +10,7 @@ import type { Object3D, Texture } from 'three'
  * The alt texture reuses the same UV atlas as the baked one, so it just
  * replaces `material.map` (glTF convention: flipY = false, sRGB). Materials are
  * cloned per rig so a swap never leaks into the shared template or other players.
+ * The clones are returned so the caller can dispose them with the rig.
  */
 const CLOTH = /^MI_(Peasant|Ranger)/
 
@@ -32,8 +33,8 @@ export function preloadTexture(url: string): void {
   texture(url)
 }
 
-export function applyOutfitColor(root: Object3D, url: string | null): void {
-  if (!url) return
+export function applyOutfitColor(root: Object3D, url: string | null): MeshStandardMaterial[] {
+  if (!url) return []
   const map = texture(url)
   const clones = new Map<string, MeshStandardMaterial>()
 
@@ -42,6 +43,9 @@ export function applyOutfitColor(root: Object3D, url: string | null): void {
     let cloned = clones.get(material.uuid)
     if (!cloned) {
       cloned = material.clone()
+      // Cloning copies `userData` but not the hooks it marks, so the rim's own
+      // guard would report a shader this material does not carry.
+      delete cloned.userData.characterRim
       cloned.map = map
       cloned.needsUpdate = true
       clones.set(material.uuid, cloned)
@@ -58,4 +62,5 @@ export function applyOutfitColor(root: Object3D, url: string | null): void {
       obj.material = swap(obj.material)
     }
   })
+  return [...clones.values()]
 }

@@ -3,9 +3,23 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { generateHub, stepBody, JUMP_VELOCITY, DASH_DURATION, DASH_MULTIPLIER, PLAYER_SPEED } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
-import { isRampartCameraBlocked, RAMPART_STAIRS } from '../shared/utils/ramparts'
+import { isRampartCameraBlocked, rampartIndex } from '../shared/utils/ramparts'
+import { COURTYARD_ASSETS } from '../shared/utils/courtyard'
 
 const plan = generateHub()
+// Deck edges read back off the authored gallery placements: the outer rail sits
+// on the curtain wall's inner face; the inner strip (36/108) clears the bastions.
+const decks = plan.props.filter(p => p.kind === 'Courtyard_Gallery')
+const deckMin = Math.min(...decks.map(p => p.y))
+const deckMax = Math.max(...decks.map(p => p.y))
+const deckWidth = COURTYARD_ASSETS.Courtyard_Gallery.depth
+const outerMin = deckMin - deckWidth / 2
+const innerMin = deckMin + deckWidth / 2
+const railMax = deckMax + deckWidth / 2
+// Stair flights are placements too, so the tests describe them the same way.
+const flight = COURTYARD_ASSETS.Courtyard_Stairs
+const stairs = plan.props.filter(p => p.kind === 'Courtyard_Stairs')
+  .map(p => ({ x: p.x, zStart: p.y - flight.depth / 2, zEnd: p.y + flight.depth / 2, width: flight.width, height: flight.height }))
 function body(x: number, y: number, z = 0): KinematicBody {
   return { x, y, z, vz: 0, grounded: true }
 }
@@ -16,7 +30,7 @@ function travel(b: KinematicBody, x: number, y: number) {
   for (let i = 0; i < steps; i++) stepBody(plan, b, dx, dy, 1 / 32)
   assert.ok(Math.hypot(b.x - x, b.y - y) < 0.02, `Stopped at ${b.x},${b.y},${b.z} before ${x},${y}`)
 }
-for (const stair of RAMPART_STAIRS) {
+for (const stair of stairs) {
   test(`stairs at ${stair.x} ascend and descend without jumping`, () => {
     const b = body(stair.x, stair.zStart - 1)
     travel(b, stair.x, 108)
@@ -29,6 +43,7 @@ for (const stair of RAMPART_STAIRS) {
 }
 test('connected gallery can be walked around all four corners', () => {
   const b = body(40, 89)
+  // The corner turns run along the inner strip, inside the solid bastions.
   for (const [x, y] of [[40, 108], [36, 108], [36, 36], [108, 36], [108, 108], [104, 108], [104, 89]]) travel(b, x!, y!)
   assert.equal(b.z, 0)
 })
@@ -50,7 +65,7 @@ test('gallery rails prevent walking off either edge', () => {
   for (const direction of [-1, 1]) {
     const b = body(72, 36, 6)
     for (let i = 0; i < 100; i++) stepBody(plan, b, 0, direction * 0.16, 0.05)
-    assert.ok(b.y > 34.7 && b.y < 37.3)
+    assert.ok(b.y > outerMin + 0.2 && b.y < innerMin - 0.2)
     assert.equal(b.z, 6)
   }
 })
@@ -70,7 +85,7 @@ test('stair prediction is deterministic and dash sized moves cannot skip rails',
   assert.deepEqual(a, b)
   assert.equal(a.z, 6)
   for (let i = 0; i < 12; i++) stepBody(plan, a, 0, 0.5, 0.05)
-  assert.ok(a.y < 109.2)
+  assert.ok(a.y < railMax - 0.3)
 })
 
 test('jumping on stairs returns to its tread and can clear side rails', () => {
@@ -88,16 +103,16 @@ test('jumping on stairs returns to its tread and can clear side rails', () => {
   assert.equal(b.z, 0)
 })
 test('camera obstruction respects gallery slab and finite rail height', () => {
-  assert.equal(isRampartCameraBlocked(72, 108, 3, 0.2), false)
-  assert.equal(isRampartCameraBlocked(72, 108, 5.8, 0.2), true)
-  assert.equal(isRampartCameraBlocked(72, 108, 7.5, 0.2), false)
-  assert.equal(isRampartCameraBlocked(72, 109.5, 6.5, 0.2), true)
-  assert.equal(isRampartCameraBlocked(41.5, 99, 4, 0.2), true)
+  assert.equal(isRampartCameraBlocked(plan, 72, 108, 3, 0.2), false)
+  assert.equal(isRampartCameraBlocked(plan, 72, 108, 5.8, 0.2), true)
+  assert.equal(isRampartCameraBlocked(plan, 72, 108, 7.5, 0.2), false)
+  assert.equal(isRampartCameraBlocked(plan, 72, railMax, 6.5, 0.2), true)
+  assert.equal(isRampartCameraBlocked(plan, 41.5, 99, 4, 0.2), true)
 })
 
 for (const [name, x, y, dx, dy] of [
-  ['north', 92, 36, 0, -1], ['south', 92, 108, 0, 1],
-  ['west', 36, 92, -1, 0], ['east', 108, 92, 1, 0],
+  ['north', 92, outerMin + 1, 0, -1], ['south', 92, railMax - 1, 0, 1],
+  ['west', outerMin + 1, 92, -1, 0], ['east', railMax - 1, 92, 1, 0],
 ] as const) {
   for (const dash of [false, true]) {
     test(`${name} rail can be jumped outward into the moat${dash ? ' with a dash' : ''}`, () => {
@@ -132,4 +147,22 @@ test('jumping the inner rail lands back on city ground', () => {
   for (let i = 0; i < 120; i++) stepBody(plan, b, 0, PLAYER_SPEED / 60, 1 / 60)
   assert.ok(b.y > 39)
   assert.equal(b.z, 0)
+})
+
+test('moving a gallery placement moves its deck with it', () => {
+  // The deck is data now: shift the southern gallery 10 tiles north in a copy
+  // of the plan and the walkable surface has to follow it there.
+  const shift = 10
+  const props = plan.props.map(p => (p.kind === 'Courtyard_Gallery' && p.y === deckMax ? { ...p, y: p.y - shift } : p))
+  const moved = { ...plan, props, ramparts: rampartIndex(props) }
+  const settle = (world: typeof plan, y: number) => {
+    const b = body(72, y, 6)
+    b.grounded = false
+    for (let i = 0; i < 60; i++) stepBody(world, b, 0, 0, 0.05)
+    return b.z
+  }
+  assert.equal(settle(plan, deckMax), 6)
+  assert.equal(settle(plan, deckMax - shift), 0)
+  assert.equal(settle(moved, deckMax - shift), 6)
+  assert.equal(settle(moved, deckMax), 0)
 })
