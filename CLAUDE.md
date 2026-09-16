@@ -34,7 +34,7 @@ Work is divided into focused subagents in [.claude/agents/](.claude/agents/). Ea
 | `world-sim` | `shared/**` — town generation, `stepBody` kinematics, collision, and the protocol types. The server↔client invariant. |
 | `server-net` | `server/**` — the 20 Hz authoritative sim, crossws WS handler, sessions, and non-AI HTTP routes. |
 | `scene-3d` | TresJS rendering — camera, materials, day/night + weather, instanced architecture, character animation, minimap. |
-| `game-ui` | 2D interface — HUD, chat, Escape menu, character onboarding, `useGame`. |
+| `game-ui` | 2D interface — the landing page (`/`), HUD, chat, Escape menu, character onboarding, `useGame`. |
 | `oracle-ai` | The Oracle AI NPC end to end — `server/utils/oracle.ts` (in-process classifier + responder with the `arena_state` tool), `useOracle`, prompts/model/tools. |
 | `assets` | Blender/glTF pipeline — `scripts/*`, `public/models/**`, compression. |
 

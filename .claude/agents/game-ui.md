@@ -4,7 +4,8 @@ description: >
   2D interface — HUD, chat, menus, and onboarding (Nuxt UI + Vue, not the 3D
   scene). Use for ChatPanel.vue, CharacterGate.vue, the character preview
   wrappers, BrandMark.vue, EditorPanel.vue, useGame.ts / useEditor.ts
-  composables, and app/pages/index.vue. Reach for this for layout, HUD, chat UX,
+  composables, and the two pages — app/pages/index.vue (the landing page) and
+  app/pages/play.vue (the game shell). Reach for this for layout, HUD, chat UX,
   the character onboarding flow, or the Escape menu.
 model: inherit
 ---
@@ -13,17 +14,37 @@ You own Avelune's 2D interface — everything the player reads and clicks that
 isn't the 3D world.
 
 ## Files you own
-- `app/pages/index.vue` — the page shell that composes scene + UI.
+- `app/pages/index.vue` — the landing page, and the only page that renders for
+  a crawler. Static: `routeRules: { '/': { prerender: true } }`, a dimmed still
+  of the town (`public/landing.jpg`, shot with the run-mmo driver) as the
+  backdrop rather than the 3D scene, the wordmark, the pitch, the three feature
+  lines, the controls row, the GitHub link, and a Play button to `/play`. Its
+  two client-side probes are the only moving parts: `GET /api/status` every 10s
+  behind the live `N in town · <realm>` line and the sandbox badge, and
+  `GET /api/auth` once, which turns the button into `Continue as <name>`. The
+  SSR HTML carries neither, so nothing here may touch the browser outside
+  `onMounted`.
+- `app/pages/play.vue` — the game shell that composes scene + UI, `noindex`.
 - `app/components/ChatPanel.vue` — bottom-left chat: one arena-wide history for
   everyone, Enter to focus, Escape back to the game.
 - `app/components/BrandMark.vue` — the top-left identity/status chip.
+- `app/components/CharacterGate.vue` + the character preview wrappers
+  (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
+  It lives inside `/play`, not on the landing page: a full-screen character
+  stage with the controls panel floating left, the outfit blurb right and the
+  name field plus Enter at the bottom. It carries no pitch and no live line —
+  by the time anyone sees it they have already clicked Play. Reopened from the
+  Escape menu to change a look, the same screen reads "Customize your
+  character" and gains a Cancel button.
+  `GET /api/status` (`{ players, realm, persistent }` — `playerCount()` in
+  `server/utils/game.ts`, `REALM` and `chunkStore().kind` in
+  `server/utils/chunkStore.ts`) is the landing page's, not the gate's: it is the
+  cheap half of what `welcome` carries, for the page that has no socket.
 - The character creator exposes the downloaded pack's gender, outfit, hair
   and texture color controls, validated by `shared/utils/characters.ts`.
   Escape menu → Customize character opens the gate with a cloned initial look.
   Save updates the signed cookie under the same identity; Cancel reconnects
   without saving. Ignore stale socket events after the creator reconnects.
-- `app/components/CharacterGate.vue` + the character preview wrappers
-  (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
 - `app/composables/useGame.ts` — the client-side game/socket state composable the
   UI binds to. It also hands every frame to `useWorld` before reading it itself.
 - `app/composables/useWorld.ts` — the streamed world. A non-reactive `World`
@@ -83,18 +104,18 @@ agent — hand oracle work there.
    styled apart (`npc`), and `announce()` pushes local system lines (`system`)
    that never touch the wire.
 5. `.client.vue` / `<ClientOnly>` for anything browser-only.
-6. **Entry flow is a view state machine in `index.vue`**: `checking →
+6. **Entry flow is a view state machine in `play.vue`**: `checking →
    creating | playing | editing` (`editing` is the dev-only world editor: same
    never-connected `game`, `<GameScene editor>` + `LazyEditorPanel`,
    gated behind `import.meta.dev`; a save reloads the dev server, and a
    `sessionStorage` flag drops straight back into the editor on the way up).
-   There is **no landing screen**: `checking` covers the `/api/auth` probe, then
-   an identity drops straight into the arena and a visitor lands on
-   `CharacterGate` — on `done` the page enters the arena directly. The socket
-   opens only for `playing`. There is **no logout** — the character is permanent,
+   `checking` covers the `/api/auth` probe, then an identity drops straight into
+   the arena and a visitor lands on `CharacterGate` — on `done` the page enters
+   the arena directly. The socket opens only for `playing`. The `sessionStorage`
+   editor re-entry key and the editor's exit both target `/play`, never `/`. There is **no logout** — the character is permanent,
    so a returning cookie always resumes the same person.
 7. **In-game session actions live in the Escape menu** (WoW-style overlay in
-   `index.vue`: controls reference, fullscreen, a dev-only "World editor" entry,
+   `play.vue`: controls reference, fullscreen, a dev-only "World editor" entry,
    return-to-game) — not in HUD buttons. Two open paths, both needed: a bare
    Escape keydown covers every unlocked state (and keyboard-locked fullscreen),
    and `GameScene`'s `unlock` emit covers pointer-locked play, where the browser
@@ -132,7 +153,8 @@ exactly as the server fills it from its own.
 ## Working style
 - Keep gameplay logic out of components — position/collision/elevation logic
   lives in `shared/utils/maze.ts` (ask `world-sim`); the UI only presents state.
-- Match the existing compact-HUD aesthetic (no GitHub/Deploy buttons).
+- Match the existing compact-HUD aesthetic. The in-game HUD carries no repo or
+  deploy buttons; the landing page's footer is the one place a GitHub link belongs.
 - When a change needs a new field from the server, name it and hand the protocol
   change to `world-sim` + `server-net` rather than stuffing data somewhere.
 

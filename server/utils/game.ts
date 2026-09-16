@@ -470,6 +470,12 @@ export interface ArenaState {
  * few times a minute at most, so paying once per tool call is far cheaper than
  * keeping counters warm 20 times a second.
  */
+/** How many players are connected right now. The cheap half of `snapshot()`,
+ *  for the landing gate's live line — no chunk scan, no per-player payload. */
+export function playerCount(): number {
+  return sessions.size
+}
+
 export function snapshot(): ArenaState {
   const now = Date.now()
 

@@ -102,6 +102,12 @@ export default defineNuxtConfig({
     upstashRedisRestToken: '',
   },
 
+  // The landing page is static: its live line and the returning-player button
+  // both hydrate from client-side probes, so the HTML never needs the server.
+  routeRules: {
+    '/': { prerender: true },
+  },
+
   experimental: {
     // Nuxt 5 turns off Nitro's v2-style auto-imports by default, which drops the
     // `#imports` virtual that prebuilt server code in node_modules (e.g.
@@ -119,6 +125,11 @@ export default defineNuxtConfig({
   nitro: {
     features: {
       websocket: true,
+    },
+    // Only `/` is prerendered; the crawler must not follow its Play link into
+    // `/play`, which is a WebGL canvas behind a cookie.
+    prerender: {
+      crawlLinks: false,
     },
   },
 

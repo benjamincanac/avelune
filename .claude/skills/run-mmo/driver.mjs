@@ -3,12 +3,17 @@
 // WebGL game — there is no server-rendered "page" to assert on; you must drive the
 // live canvas. This is the harness the /run-mmo skill points at.
 //
-// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk|meadow|build|map]
+// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk|meadow|build|map|gate|landing]
 //   arena  (default) enter the arena and screenshot it
 //   walk   arena, then hold forward for a few seconds before shooting
 //   meadow walk out of the south gate, turn back toward the hills, shoot
 //   build  walk out of the gate, arm a kit wall, click to place it, shoot
 //   map    enter the arena, press M, shoot the full-screen world map
+//   gate   stop on /play's character-creation gate and shoot it at 1280x800 and 400x800
+//   landing shoot the `/` landing page at 1280x800 and 400x800 (no game loaded)
+//
+// Every mode but `landing` drives `/play` — `/` is the landing page and has no
+// canvas on it.
 //
 // Env:
 //   MMO_URL      explicit base url, skips port autodetect    (e.g. http://localhost:3001)
@@ -23,6 +28,7 @@
 //   MMO_HOLD     keep W held through the shot                 (swim)
 //   MMO_PITCH    px of pitch per step, 8 steps (positive looks down)
 //   MMO_STATS    non-empty: also report fps / mesh / triangle counts
+//   MMO_HUD      "0": hide every 2D overlay before the shot (clean scenery stills)
 //
 // Note: the page has TWO canvases (the world and the minimap), so every locator
 // here is `.first()`. A bare `locator('canvas')` is a strict-mode violation and
@@ -66,11 +72,32 @@ page.on('console', (m) => {
 page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message))
 
 console.log(`→ ${url}  (mode=${mode})`)
-await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 })
+await page.goto(url + (mode === 'landing' ? '/' : '/play'), { waitUntil: 'networkidle', timeout: 60000 })
 await page.waitForTimeout(1200)
 
-// Onboarding. There is no landing menu: a fresh browser (no character cookie)
-// lands straight on character creation, so fill the name and Enter (the button
+if (mode === 'landing' || mode === 'gate') {
+  // Two page shots, no arena to health-check: `landing` is the static index,
+  // `gate` is /play's character creation (a fresh context has no character
+  // cookie, so the load stops there — leave the name empty).
+  if (mode === 'gate') await page.getByPlaceholder(/name your character/i).first().waitFor({ timeout: 30000 })
+  else await page.getByRole('link', { name: /play|continue as/i }).first().waitFor({ timeout: 30000 })
+  // The 3D bust streams its GLB and the live line polls /api/status once.
+  await page.waitForTimeout(mode === 'gate' ? 6000 : 2500)
+  const narrow = OUT.replace(/\.png$/, '-400.png')
+  await page.screenshot({ path: OUT, timeout: 180000, animations: 'disabled' })
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.waitForTimeout(2000)
+  await page.screenshot({ path: narrow, timeout: 180000, animations: 'disabled', fullPage: true })
+  console.log('SHOT  ', OUT)
+  console.log('SHOT  ', narrow)
+  console.log('ERRORS', errors.length)
+  for (const e of [...new Set(errors)].slice(0, 20)) console.log('  -', e)
+  await browser.close()
+  process.exit(0)
+}
+
+// Onboarding. `/play` has no menu of its own: a fresh browser (no character
+// cookie) lands straight on character creation, so fill the name and Enter (the button
 // is disabled until the name is non-empty). A browser WITH a saved cookie is
 // already in the arena and the name field never appears.
 const click = async (rx) => {
@@ -296,7 +323,7 @@ if (mode === 'walk') {
   await page.waitForTimeout(600)
 }
 
-await page.screenshot({ path: OUT, timeout: 180000, animations: 'disabled' })
+// The health check reads the HUD, so it runs before MMO_HUD can hide it.
 const scene = await page.evaluate(() => {
   const c = document.querySelector('canvas')
   let gl = false
@@ -306,6 +333,16 @@ const scene = await page.evaluate(() => {
   catch { /* no context */ }
   return { canvas: !!c, w: c?.width, h: c?.height, gl, header: document.querySelector('header')?.innerText || '' }
 })
+if (process.env.MMO_HUD === '0') {
+  // A clean scenery still (the landing page's backdrop is one): every 2D
+  // overlay sits on a z-index layer above the canvas, so hiding those layers
+  // leaves the world and nothing else.
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('header, aside, [class*="z-10"], [class*="z-20"], [class*="z-30"], [class*="z-40"]')) el.style.display = 'none'
+  })
+  await page.waitForTimeout(500)
+}
+await page.screenshot({ path: OUT, timeout: 300000, animations: 'disabled' })
 if (process.env.MMO_STATS) {
   const stats = await page.evaluate(() => new Promise((resolve) => {
     let frames = 0

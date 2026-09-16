@@ -73,7 +73,8 @@ The cookie rides the same-origin WebSocket upgrade and [`server/api/ws.ts`](serv
 
 ```
 app/
-├── pages/index.vue           # entry flow + HUD: brand, minimap, chat, Escape menu
+├── pages/index.vue           # landing page: pitch, live player count, Play
+├── pages/play.vue            # entry flow + HUD: brand, minimap, chat, Escape menu
 ├── composables/useGame.ts    # connection, reconnect, roster, chat, clock sync
 └── components/
     ├── GameScene.client.vue  # Tres canvas + pointer lock, WASD, mouse-look

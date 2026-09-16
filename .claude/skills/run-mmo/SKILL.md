@@ -48,14 +48,20 @@ pnpm build
 NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/index.mjs > /tmp/mmo-prod.log 2>&1 &   # listens on :3000
 ```
 
-**2. Drive it.** Five modes: `arena` (default) enters and shoots the spawn;
+**2. Drive it.** The game lives at **`/play`** (`/` is the static landing page),
+and every mode but `landing` drives that. Seven modes: `arena` (default) enters and shoots the spawn;
 `walk` also holds `W` for a few seconds first; `meadow` walks out of the south
 gate and turns back so the shot shows streamed terrain; `build` walks out, arms
 a kit wall from the hotbar and clicks twice so the second piece stacks on the
-first; `map` presses `M` after arrival and shoots the full-screen world map:
+first; `map` presses `M` after arrival and shoots the full-screen world map; `gate`
+stops on `/play`'s character-creation gate and shoots it at 1280x800 and again at
+400x800 (`/tmp/mmo-gate.png` and `/tmp/mmo-gate-400.png`) without entering a
+name; `landing` does the same two shots for `/` (`/tmp/mmo-landing.png` and
+`/tmp/mmo-landing-400.png`), which loads no game at all:
 ```bash
 MMO_URL=http://localhost:4321 node .claude/skills/run-mmo/driver.mjs walk
 MMO_URL=http://localhost:4321 MMO_TIME=day node .claude/skills/run-mmo/driver.mjs build
+MMO_URL=http://localhost:4321 node .claude/skills/run-mmo/driver.mjs landing
 ```
 It prints the HUD label + WebGL status and writes the screenshot to
 `/tmp/mmo-<mode>.png`. **Open the screenshot and look at it** — a black frame, or
@@ -71,7 +77,10 @@ ERRORS 2
 Env knobs: `MMO_URL` (skip port autodetect — recommended), `MMO_OUT` (screenshot
 path), `MMO_PW` (Playwright install location), `MMO_TIME` / `MMO_WEATHER` (fix
 the sky through the chat commands before shooting), `MMO_STATS` (fps / mesh /
-triangle counts), and for `meadow` / `build`: `MMO_BACK` (ms walking out of the
+triangle counts), `MMO_HUD=0` (hide every 2D overlay, for a clean scenery still
+— this is how `public/landing.jpg`, the landing page's backdrop, is reshot:
+`MMO_HUD=0 MMO_OUT=/tmp/still.png … arena`, then
+`sips -s format jpeg -s formatOptions 78 /tmp/still.png --out public/landing.jpg`), and for `meadow` / `build`: `MMO_BACK` (ms walking out of the
 gate), `MMO_TURN` (px of yaw for the about-turn, ~507 px per 90°) and
 `MMO_PITCH`. Framing out in the meadow is luck of the draw — the player can end
 up wedged against a boulder or inside a tree, collapsing the camera boom onto
@@ -79,7 +88,7 @@ its own face. Vary `MMO_BACK` / `MMO_TURN` and shoot again.
 
 ## Run (human path)
 Run the project's dev command (`pnpm dev`, or the `--port`/`NUXT_IGNORE_LOCK=1`
-form above if a server is already up), open the printed URL → **Create your
+form above if a server is already up), open the printed URL → **Play** → **Create your
 character** → type a name → **Enter** → WASD move, mouse look, Space jump, Shift dash. Useless headless — opens a real window and blocks.
 
 ## Gotchas
