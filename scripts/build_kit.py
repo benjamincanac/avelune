@@ -330,6 +330,16 @@ def kit_path():
     slabbox('Path bedding', -1, 1, -1, 1, 0, .022, trim, 0)
 
 
+def kit_deed():
+    # A land-claim signpost: a square post with a small board near the top,
+    # facing Blender +Y (exported -Z, the kit's front). The stone base fills the
+    # declared 0.4 x 0.4 footprint; the post and board sit inside it.
+    slabbox('Deed base', -.2, .2, -.2, .2, 0, .05, trim, .015)
+    slabbox('Deed post', -.05, .05, -.05, .05, .05, 1.4, wood)
+    slabbox('Deed post cap', -.07, .07, -.07, .07, 1.34, 1.4, trim, .012)
+    slabbox('Deed board', -.18, .18, .05, .10, 1.02, 1.26, wood, .012)
+
+
 def kit_crate():
     slabbox('Crate body', -.45, .45, -.45, .45, .05, .95, wood)
     for z in [.04, .5, .96]:
@@ -353,6 +363,7 @@ SPEC = [
     ('Kit_Fence', kit_fence, 2.0, 0.15, 1.0, False),
     ('Kit_Gate', kit_gate, 2.0, 0.15, 1.0, False),
     ('Kit_Torch', kit_torch, 0.4, 0.4, 1.6, False),
+    ('Kit_Deed', kit_deed, 0.4, 0.4, 1.4, False),
     ('Kit_Path', kit_path, 2.0, 2.0, 0.05, False),
     ('Kit_Crate', kit_crate, 1.0, 1.0, 1.0, True),
 ]

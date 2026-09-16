@@ -1,5 +1,5 @@
 /**
- * The player build kit (`public/models/kit/**`): twelve pieces on a 2-tile grid,
+ * The player build kit (`public/models/kit/**`): thirteen pieces on a 2-tile grid,
  * origin at the bottom centre of the footprint, front facing -Z. Dimensions
  * mirror `public/models/kit/manifest.json`, which `scripts/build_kit.py` writes;
  * change the script, rebuild, then update this table.
@@ -20,7 +20,16 @@ export const KIT_ASSETS = {
   Kit_Torch: { width: 0.4, depth: 0.4, height: 1.6, stackable: false },
   Kit_Path: { width: 2, depth: 2, height: 0.05, stackable: false },
   Kit_Crate: { width: 1, depth: 1, height: 1, stackable: true },
+  Kit_Deed: { width: 0.4, depth: 0.4, height: 1.4, stackable: false },
 } as const
+
+/**
+ * The claim post. Placing one claims the plot around it (`DEED_SIZE` in
+ * `building.ts`), so `world.ts` indexes these per chunk and the edit rules read
+ * that index. The kind lives here rather than in `building.ts` because
+ * `world.ts` needs it too and may not import the rules that sit on top of it.
+ */
+export const DEED_KIND = 'Kit_Deed'
 
 export type KitKind = keyof typeof KIT_ASSETS
 export const KIT_NAMES = Object.keys(KIT_ASSETS) as KitKind[]

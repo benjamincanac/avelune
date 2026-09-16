@@ -15,6 +15,11 @@ import { chunkStore } from './chunkStore'
  * Writes are accumulated as signed deltas and drained on the same 5 second
  * timer as the chunks, with `HINCRBY` rather than a set, so an old instance
  * draining while a new one serves adds to the total instead of clobbering it.
+ *
+ * Deed plots ride the same hash under a `deed:` prefix, for exactly the same
+ * reason: `DEED_LIMIT` is a fact about a person, and a plot of theirs can sit
+ * in a chunk nobody has visited since the process started. A deed is an
+ * ordinary piece as well, so placing one moves both counters.
  */
 
 /** Every identity's total, as of the last store read plus everything since. */
@@ -52,6 +57,29 @@ export async function loadPieceCounts(): Promise<void> {
 
 export function pieceCount(id: string): number {
   return counts.get(id) ?? 0
+}
+
+/** The hash field a player's deed total lives under. Player ids never contain
+ *  a colon, so this can never collide with a piece total. */
+function deedField(id: string): string {
+  return `deed:${id}`
+}
+
+export function deedCount(id: string): number {
+  return counts.get(deedField(id)) ?? 0
+}
+
+/** One more plot claimed by this identity. */
+export function addDeed(id: string): number {
+  move(deedField(id), 1)
+  return deedCount(id)
+}
+
+/** ...and one released. */
+export function removeDeed(id: string): number {
+  if (!counts.get(deedField(id))) return 0
+  move(deedField(id), -1)
+  return deedCount(id)
 }
 
 function move(id: string, delta: number) {

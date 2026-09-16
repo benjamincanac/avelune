@@ -17,7 +17,9 @@ import {
 } from 'three'
 import type { Object3D, Scene,
   PerspectiveCamera } from 'three'
-import { brushExtent, checkDemolish, checkTerraform, resolveBuild, snapPlacement } from '#shared/utils/building'
+import { brushExtent, checkDemolish, checkTerraform, plotBounds, refusalText, resolveBuild, snapPlacement } from '#shared/utils/building'
+import type { PlotBounds } from '#shared/utils/building'
+import { DEED_KIND } from '#shared/utils/kit'
 import { propHalfExtents } from '#shared/utils/props'
 import type { PropSpec, WorldPlacement } from '#shared/utils/props'
 import { propsNear, terrainHeight } from '#shared/utils/maze'
@@ -64,6 +66,10 @@ export interface BuildToolsOptions {
   templates: ReadonlyMap<string, Group>
   getCamera: () => PerspectiveCamera | undefined
   build: UseBuild
+  /** The roster, for naming and colouring a plot's owner. A claim the client
+   *  cannot put a name to stays the generic "that plot is claimed" and draws
+   *  in the neutral colour — the rules never depend on it. */
+  owner?: (id: string) => { name: string, color: string } | undefined
 }
 
 /** How far down the crosshair we look. The boom sits ~3.6 behind the player, so
@@ -76,9 +82,14 @@ const MIN_PICK = 0.45
 
 const OK_COLOR = new Color('#6ee7a0')
 const BAD_COLOR = new Color('#f87171')
+/** A plot whose owner is not in the roster — nobody nearby, or not yet joined. */
+const PLOT_COLOR = new Color('#cbd5e1')
+/** How far a plot outline floats over the ground it is drawn on. */
+const PLOT_LIFT = 0.07
 
 export function createBuildTools(options: BuildToolsOptions) {
-  const { scene, world, templates, getCamera, build } = options
+  const { scene, world, templates, getCamera, build, owner } = options
+  const ownerName = (id: string) => owner?.(id)?.name
 
   const group = new Group()
   group.name = 'build-tools'
@@ -162,6 +173,88 @@ export function createBuildTools(options: BuildToolsOptions) {
     const centre = terrainHeight(world, gx, gy)
     brushPost.position.set(gx, (Number.isFinite(centre) ? centre : 0) + 0.6, gy)
   }
+
+  /* Plots ------------------------------------------------------------------ */
+
+  /**
+   * A deed's claim drawn on the ground it claims.
+   *
+   * Every plot in the loaded chunks gets a faint loop in its owner's colour, so
+   * you can see whose doorstep you are standing on before the server tells you.
+   * The armed deed gets a bright one at the pose the ghost is previewing, which
+   * is the only way to judge a sixteen-tile square from inside it.
+   *
+   * Like the brush, the loop is conformed to the heightfield rather than drawn
+   * flat: a square hovering through a hill reads as a bug.
+   */
+  const CONFORM_STEP = 1
+
+  function conformedRing(box: PlotBounds): number[] {
+    const ring: number[] = []
+    const at = (x: number, y: number) => {
+      const h = terrainHeight(world, x, y)
+      ring.push(x, (Number.isFinite(h) ? h : 0) + PLOT_LIFT, y)
+    }
+    for (let x = box.minX; x < box.maxX; x += CONFORM_STEP) at(x, box.minY)
+    for (let y = box.minY; y < box.maxY; y += CONFORM_STEP) at(box.maxX, y)
+    for (let x = box.maxX; x > box.minX; x -= CONFORM_STEP) at(x, box.maxY)
+    for (let y = box.maxY; y > box.minY; y -= CONFORM_STEP) at(box.minX, y)
+    return ring
+  }
+
+  function fitLoop(loop: LineLoop, box: PlotBounds) {
+    loop.geometry.dispose()
+    loop.geometry = new BufferGeometry().setAttribute('position', new Float32BufferAttribute(conformedRing(box), 3))
+  }
+
+  // Existing claims. One loop per deed, rebuilt only when the set of deeds or
+  // the ground under them changes — walking past a plot must not cost a
+  // geometry rebuild every frame.
+  const plotGroup = new Group()
+  group.add(plotGroup)
+  const plotLoops: LineLoop[] = []
+  let plotSignature = ''
+
+  function syncPlots() {
+    let signature = ''
+    const claims: { box: PlotBounds, color: Color }[] = []
+    for (const chunk of world.chunks.values()) {
+      for (const deed of chunk.deeds) {
+        signature += `${deed.id}@${deed.x},${deed.y}:${chunk.version};`
+        const tint = deed.owner ? owner?.(deed.owner)?.color : undefined
+        claims.push({ box: plotBounds(deed), color: tint ? new Color(tint) : PLOT_COLOR })
+      }
+    }
+    if (signature === plotSignature) return
+    plotSignature = signature
+    while (plotLoops.length > claims.length) {
+      const loop = plotLoops.pop()!
+      plotGroup.remove(loop)
+      loop.geometry.dispose()
+      ;(loop.material as LineBasicMaterial).dispose()
+    }
+    for (let i = 0; i < claims.length; i++) {
+      const claim = claims[i]!
+      let loop = plotLoops[i]
+      if (!loop) {
+        loop = new LineLoop(new BufferGeometry(), new LineBasicMaterial({ transparent: true, opacity: 0.4, toneMapped: false, fog: false }))
+        loop.userData.gtaoExclude = true
+        plotLoops[i] = loop
+        plotGroup.add(loop)
+      }
+      ;(loop.material as LineBasicMaterial).color.copy(claim.color)
+      fitLoop(loop, claim.box)
+    }
+  }
+
+  // The plot the armed deed would claim, drawn over everything so it reads from
+  // inside the square.
+  const previewMaterial = new LineBasicMaterial({ color: OK_COLOR, depthTest: false, toneMapped: false, fog: false })
+  const plotPreview = new LineLoop(new BufferGeometry(), previewMaterial)
+  plotPreview.renderOrder = 4
+  plotPreview.userData.gtaoExclude = true
+  plotPreview.visible = false
+  group.add(plotPreview)
 
   /* Ghost ------------------------------------------------------------------ */
 
@@ -272,6 +365,7 @@ export function createBuildTools(options: BuildToolsOptions) {
     brushGroup.visible = false
     pieceHelper.visible = false
     ghost.visible = false
+    plotPreview.visible = false
     build.targetOk.value = false
     build.targetHint.value = hint
     return null
@@ -283,6 +377,10 @@ export function createBuildTools(options: BuildToolsOptions) {
    * position the reach check will be run against a tick later.
    */
   function update(actor: { x: number, y: number }, selfId: string | null): BuildTarget | null {
+    // Claims are drawn whether or not a tool is armed: whose ground you are
+    // standing on is worth knowing while you are only walking over it.
+    syncPlots()
+
     const camera = getCamera()
     const slot = build.active.value
     if (!camera || !slot || !selfId) return hide('')
@@ -298,7 +396,8 @@ export function createBuildTools(options: BuildToolsOptions) {
       brushGroup.visible = false
       if (!piece?.prop.id) return hide('nothing in range')
       const target = piece.prop
-      const verdict = checkDemolish(placementOf(target, target.id!), actor, selfId)
+      const verdict = checkDemolish(world, placementOf(target, target.id!), { ...actor, id: selfId }, selfId)
+      plotPreview.visible = false
       const { ax, ay } = propHalfExtents(target)
       const bottom = target.base ?? target.z ?? 0
       pieceBox.min.set(target.x - Math.max(ax, MIN_PICK), bottom, target.y - Math.max(ay, MIN_PICK))
@@ -306,7 +405,7 @@ export function createBuildTools(options: BuildToolsOptions) {
       pieceHelper.visible = true
       helperMaterial.color.copy(verdict.ok ? OK_COLOR : BAD_COLOR)
       build.targetOk.value = verdict.ok
-      build.targetHint.value = verdict.ok ? piece.prop.kind : verdict.reason
+      build.targetHint.value = verdict.ok ? piece.prop.kind : refusalText(verdict, ownerName)
       return { mode: 'piece', x: piece.prop.x, y: piece.prop.y, id: piece.prop.id, ok: verdict.ok, hint: build.targetHint.value }
     }
 
@@ -325,7 +424,7 @@ export function createBuildTools(options: BuildToolsOptions) {
         world,
         { kind: slot.kind, x: aim.x, y: aim.y, rot: build.rot.value },
         actor,
-        { owner: selfId, id: 'ghost', pieces: build.pieces.value },
+        { owner: selfId, id: 'ghost', pieces: build.pieces.value, deeds: build.deeds.value },
       )
       const ok = resolved.ok
       const z = ok ? resolved.placement.z ?? 0 : terrainHeight(world, pose.x, pose.y)
@@ -333,13 +432,22 @@ export function createBuildTools(options: BuildToolsOptions) {
       ghost.position.set(pose.x, Number.isFinite(z) ? z : 0, pose.y)
       ghost.rotation.set(0, pose.rot, 0)
       ghostMaterial.color.copy(ok ? OK_COLOR : BAD_COLOR)
+      if (slot.kind === DEED_KIND) {
+        plotPreview.visible = true
+        previewMaterial.color.copy(ok ? OK_COLOR : BAD_COLOR)
+        fitLoop(plotPreview, plotBounds(pose))
+      }
+      else {
+        plotPreview.visible = false
+      }
       build.targetOk.value = ok
-      build.targetHint.value = ok ? slot.label : resolved.reason
+      build.targetHint.value = ok ? slot.label : refusalText(resolved, ownerName)
       return { mode: 'tile', x: pose.x, y: pose.y, rot: build.rot.value, ok, hint: build.targetHint.value }
     }
 
     setGhostKind(null)
     ghost.visible = false
+    plotPreview.visible = false
     const mode = slot.id as 'raise' | 'lower' | 'flatten' | 'paint'
     // Paint works on tiles, the shovels on corners: the tile under the
     // crosshair is `floor`, the nearest corner is `round`. Using `round` for
@@ -351,7 +459,7 @@ export function createBuildTools(options: BuildToolsOptions) {
     const verdict = checkTerraform(
       world,
       { x: gx, y: gy, mode, size: build.size.value, surface: build.surface.value as SurfaceType },
-      actor,
+      { ...actor, id: selfId },
     )
     const extent = brushExtent(gx, gy, build.size.value)
     fitBrush((extent.minX + extent.maxX + (tiles ? 1 : 0)) / 2, (extent.minY + extent.maxY + (tiles ? 1 : 0)) / 2, build.size.value)
@@ -361,7 +469,7 @@ export function createBuildTools(options: BuildToolsOptions) {
     brushLineMaterial.color.copy(tint)
     brushPostMaterial.color.copy(tint)
     build.targetOk.value = verdict.ok
-    build.targetHint.value = verdict.ok ? slot.label : verdict.reason
+    build.targetHint.value = verdict.ok ? slot.label : refusalText(verdict, ownerName)
     return { mode: 'tile', x: gx, y: gy, ok: verdict.ok, hint: build.targetHint.value }
   }
 
@@ -384,6 +492,13 @@ export function createBuildTools(options: BuildToolsOptions) {
     ghostMaterial.dispose()
     pieceHelper.geometry.dispose()
     helperMaterial.dispose()
+    plotPreview.geometry.dispose()
+    previewMaterial.dispose()
+    for (const loop of plotLoops) {
+      loop.geometry.dispose()
+      ;(loop.material as LineBasicMaterial).dispose()
+    }
+    plotLoops.length = 0
     group.clear()
   }
 

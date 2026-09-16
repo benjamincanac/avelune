@@ -375,3 +375,13 @@ server decides with; the click is sent either way, because the server is the
 authority. `MazeScene` loads the kit into the same template map as the nature
 kit (`loadTemplates('kit', KIT_NAMES)`), so a placed piece batches through
 `chunkProps` like any other placement.
+
+Deed plots are drawn here too. Every claim in the loaded chunks gets a faint
+ground-conformed `LineLoop` in its owner's colour (`MazeScene` passes the roster
+in as `owner`; a claim it cannot name draws neutral), rebuilt only when the set
+of deeds or the ground under them changes — walking past a plot must not cost a
+geometry rebuild a frame. The armed `Kit_Deed` adds a bright depth-test-off loop
+at the plot the ghost would stake, which is the only way to judge a sixteen-tile
+square from inside it. `mapDraw.paintPlots` is the same claim on the full map,
+as an outlined square: outlined, because a filled one would bury the ground
+colour the rest of the map is made of.

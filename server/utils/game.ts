@@ -8,9 +8,10 @@ import {
   PLAYER_SPEED,
   stepBody,
 } from '#shared/utils/maze'
-import { TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
+import { CHUNK_SIZE, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
 import type { Chunk, SurfaceType } from '#shared/utils/world'
-import { EDITS_PER_SECOND, checkDemolish, checkTerraform, resolveBuild } from '#shared/utils/building'
+import { DEED_KIND } from '#shared/utils/kit'
+import { EDITS_PER_SECOND, checkDemolish, checkTerraform, isKitKind, refusalText, resolveBuild } from '#shared/utils/building'
 import {
   WORLD,
   broadcastToChunk,
@@ -25,10 +26,12 @@ import {
   syncChunks,
   terrainDeltas,
 } from './world'
-import { addPiece, pieceCount, removePiece } from './pieces'
+import { addDeed, addPiece, deedCount, pieceCount, removeDeed, removePiece } from './pieces'
 import { REALM, chunkStore } from './chunkStore'
 import type { Identity } from './session'
 import { FORTIFICATIONS } from '#shared/utils/courtyard'
+import { realmName } from '#shared/utils/realm'
+import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
 import type { HubMessage } from './oracle'
 import { oracleGreeting, oracleReply } from './oracle'
 
@@ -332,6 +335,16 @@ function refuse(session: Session, reason: string) {
 }
 
 /**
+ * The same, for a refusal that may name a plot. The shared rules only know the
+ * owner's id — they run on a client too — so the roster is consulted here and
+ * the line becomes "that plot belongs to <name>". An owner who is not online
+ * stays anonymous rather than being named from somewhere stale.
+ */
+function refuseEdit(session: Session, verdict: { reason: string, claim?: string }) {
+  refuse(session, refusalText(verdict, id => sessions.get(id)?.player.name))
+}
+
+/**
  * Broadcast a `place` or `remove` to everyone holding the chunk, and hand the
  * player who asked for it the same frame with their owned-piece total on it.
  *
@@ -342,7 +355,8 @@ function refuse(session: Session, reason: string) {
  */
 function announceEdit(session: Session, chunk: Chunk, frame: Extract<ServerMessage, { t: 'place' | 'remove' }>) {
   broadcastToChunk(sessions.values(), chunk.cx, chunk.cy, frame, session)
-  session.send(JSON.stringify({ ...frame, pieces: pieceCount(session.player.id) } satisfies ServerMessage))
+  const id = session.player.id
+  session.send(JSON.stringify({ ...frame, pieces: pieceCount(id), deeds: deedCount(id) } satisfies ServerMessage))
 }
 
 export interface Connection {
@@ -351,21 +365,173 @@ export interface Connection {
   disconnect: () => void
 }
 
+/* -------------------------------------------------------------------------- */
+/* The Oracle's view of the world                                             */
+/* -------------------------------------------------------------------------- */
+
+/** Where the Oracle stands, in tiles — the authored pose the scene reads too. */
+const ORACLE_STAND = { x: HUB_ORACLE[0]!, y: HUB_ORACLE[1]! }
+/** A work counts as "beside the Oracle" within this many tiles of its stand. */
+const ORACLE_REACH = 24
+/**
+ * Hard cap on the placement walk. Loaded chunks are already bounded (5×5 per
+ * session), but the scan runs inline on a tool call from the tick loop's
+ * thread, so it must never become unbounded work as the world grows.
+ */
+const SCAN_CAP = 30_000
+/** Only the three biggest builders are named; a longer list reads as a ledger. */
+const TOP_BUILDERS = 3
+
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'] as const
+
+/** Compass word for an offset in the tile plane, where +y runs south. */
+function compass(dx: number, dy: number): string {
+  if (!dx && !dy) return 'right at the gate'
+  const step = Math.round(Math.atan2(dx, -dy) / (Math.PI / 4))
+  return COMPASS[((step % 8) + 8) % 8]!
+}
+
+/** Distance in words: the Oracle speaks in walks, never in tile counts. */
+function howFar(tiles: number): string {
+  if (tiles < 20) return 'within sight of the gate'
+  if (tiles < 60) return 'a short walk from the gate'
+  if (tiles < 150) return 'a good walk from the gate'
+  return 'far out beyond the gate'
+}
+
+/**
+ * Day/night and weather as the sky actually shows them.
+ *
+ * The server never renders, so it holds only the *modes* (`auto` unless an
+ * admin forced one) and lets `welcome.now` drive every client's sky. This
+ * mirrors the auto curves in `app/utils/courtyardSky.ts` (`DAY_MS`, the
+ * overcast sines) so the Oracle describes the same sky the traveller is
+ * standing under. Keep the constants in step with that file.
+ */
+const DAY_MS = 15 * 60_000
+function skyNow(now: number): { timeOfDay: string, weather: string } {
+  let hour: string
+  if (timeOfDay !== 'auto') {
+    hour = timeOfDay === 'day' ? 'daylight' : timeOfDay
+  }
+  else {
+    const sunAngle = (now / DAY_MS % 1) * Math.PI * 2 - Math.PI / 2
+    const height = Math.sin(sunAngle)
+    const rising = Math.cos(sunAngle) > 0
+    hour = height < -0.08 ? 'night' : height < 0.25 ? (rising ? 'dawn' : 'sunset') : 'daylight'
+  }
+
+  let sky: string
+  if (weather !== 'auto') {
+    sky = weather
+  }
+  else {
+    const seconds = now / 1000
+    const overcast = Math.min(1, Math.max(0, 0.22 + 0.42 * Math.sin(seconds / 197) + 0.22 * Math.sin(seconds / 71 + 2.1)))
+    sky = overcast > 0.68 ? 'rain' : overcast > 0.5 ? 'overcast' : overcast > 0.28 ? 'cloudy' : 'clear'
+  }
+  return { timeOfDay: hour, weather: sky }
+}
+
+/** What the Oracle can see of the built world, from one pass over the chunks. */
+export interface ArenaState {
+  /** Which world this is — one stored realm per deployment region. */
+  realm: string
+  /** 'clear' | 'cloudy' | 'overcast' | 'rain'. */
+  weather: string
+  /** 'dawn' | 'daylight' | 'sunset' | 'night'. */
+  timeOfDay: string
+  playersInArena: number
+  players: { name: string, minutesHere: number }[]
+  /** Only the built world outside the walls — the town itself is not counted. */
+  building: {
+    /** Kit pieces standing in the chunks currently loaded. */
+    piecesStanding: number
+    /** How many distinct builders own them. */
+    builders: number
+    /** Biggest builders by their own total, named when they are in the roster. */
+    topBuilders: { name: string, here: boolean, pieces: number }[]
+    /** Pieces standing within `ORACLE_REACH` tiles of where the Oracle stands. */
+    piecesNearOracle: number
+    /** The densest chunk, already worded as a direction and a walk. */
+    busiestSpot?: { pieces: number, where: string }
+  }
+}
+
 /**
  * A read-only snapshot of the living arena, for the Oracle's `arena_state`
  * tool. Because this runs in the same process as the authoritative game loop,
- * it reads the real in-memory roster directly — no HTTP hop, and always the
- * true state (unlike a separate service, which on serverless could miss the
- * instance holding the sockets).
+ * it reads the real in-memory roster and the real chunk map directly — no HTTP
+ * hop, and always the true state (unlike a separate service, which on
+ * serverless could miss the instance holding the sockets).
+ *
+ * The world half is computed here, on demand, in a single capped pass over the
+ * loaded chunks. Nothing about it is maintained per tick: the Oracle speaks a
+ * few times a minute at most, so paying once per tool call is far cheaper than
+ * keeping counters warm 20 times a second.
  */
-export function snapshot() {
+export function snapshot(): ArenaState {
   const now = Date.now()
+
+  let piecesStanding = 0
+  let piecesNearOracle = 0
+  let scanned = 0
+  const owners = new Set<string>()
+  let busiest: { pieces: number, cx: number, cy: number } | undefined
+
+  for (const chunk of WORLD.chunks.values()) {
+    if (scanned >= SCAN_CAP) break
+    let inChunk = 0
+    for (const piece of chunk.placements) {
+      if (++scanned >= SCAN_CAP) break
+      if (!isKitKind(piece.kind)) continue
+      inChunk++
+      if (piece.owner) owners.add(piece.owner)
+      const dx = piece.x - ORACLE_STAND.x
+      const dy = piece.y - ORACLE_STAND.y
+      if (dx * dx + dy * dy <= ORACLE_REACH * ORACLE_REACH) piecesNearOracle++
+    }
+    piecesStanding += inChunk
+    if (inChunk && (!busiest || inChunk > busiest.pieces)) busiest = { pieces: inChunk, cx: chunk.cx, cy: chunk.cy }
+  }
+
+  // Rank by each builder's *own* total, which the piece budget already tracks
+  // across restarts — counting only what happens to be loaded would rank a
+  // builder by who is standing near their work rather than by what they built.
+  const here = new Map([...sessions.values()].map(s => [s.player.id, s.player.name]))
+  // Someone whose work sits in chunks nobody is standing in still built it, so
+  // the present roster joins the owners seen in the scan as a candidate.
+  const candidates = new Set([...owners, ...here.keys()])
+  const topBuilders = [...candidates]
+    .map(id => ({ name: here.get(id) ?? 'a builder who is away', here: here.has(id), pieces: pieceCount(id) }))
+    .filter(b => b.pieces > 0)
+    .sort((a, b) => b.pieces - a.pieces)
+    .slice(0, TOP_BUILDERS)
+
+  let busiestSpot: ArenaState['building']['busiestSpot']
+  if (busiest) {
+    const cx = busiest.cx * CHUNK_SIZE + CHUNK_SIZE / 2
+    const cy = busiest.cy * CHUNK_SIZE + CHUNK_SIZE / 2
+    const dx = cx - FORTIFICATIONS.gateX
+    const dy = cy - FORTIFICATIONS.gateZ
+    busiestSpot = { pieces: busiest.pieces, where: `to the ${compass(dx, dy)}, ${howFar(Math.hypot(dx, dy))}` }
+  }
+
   return {
+    realm: realmName(REALM),
+    ...skyNow(now),
     playersInArena: sessions.size,
     players: [...sessions.values()].map(s => ({
       name: s.player.name,
       minutesHere: Math.floor((now - s.joinedAt) / 60_000),
     })),
+    building: {
+      piecesStanding,
+      builders: owners.size,
+      topBuilders,
+      piecesNearOracle,
+      busiestSpot,
+    },
   }
 }
 
@@ -552,6 +718,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     // The budget readout is the server's to fill: this identity's pieces are
     // spread over the whole world, and the client only ever holds 25 chunks.
     pieces: pieceCount(player.id),
+    deeds: deedCount(player.id),
   } satisfies ServerMessage))
   // The ground before anything standing on it: the spawn neighbourhood goes out
   // on the same tick as the welcome, so no `state` can ever name a player on a
@@ -630,7 +797,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           if (!spendEdit(session)) return refuse(session, 'slow down')
           const request = { x: msg.x, y: msg.y, mode: msg.mode, size: msg.size, surface: msg.surface as SurfaceType | undefined }
           const verdict = checkTerraform(WORLD, request, player)
-          if (!verdict.ok) return refuse(session, verdict.reason)
+          if (!verdict.ok) return refuseEdit(session, verdict)
           const changed = applyTerrain(WORLD, { ...request, maxStep: TERRAFORM_STEP })
           if (!changed.length) return
           for (const chunk of changed) markChunkDirty(chunk)
@@ -648,12 +815,13 @@ export function registerConnection(identity: Identity, send: (data: string) => v
             WORLD,
             { kind: msg.kind, x: msg.x, y: msg.y, rot: msg.rot },
             player,
-            { owner: player.id, id: makePlacementId(), pieces: owned },
+            { owner: player.id, id: makePlacementId(), pieces: owned, deeds: deedCount(player.id) },
           )
-          if (!resolved.ok) return refuse(session, resolved.reason)
+          if (!resolved.ok) return refuseEdit(session, resolved)
           const chunk = applyPlace(WORLD, resolved.placement)
           if (!chunk) return refuse(session, 'outside the world')
           addPiece(player.id)
+          if (resolved.placement.kind === DEED_KIND) addDeed(player.id)
           indexPlacement(resolved.placement)
           markChunkDirty(chunk)
           announceEdit(session, chunk, { t: 'place', cx: chunk.cx, cy: chunk.cy, v: chunk.version, piece: resolved.placement })
@@ -664,12 +832,15 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           if (!spendEdit(session)) return refuse(session, 'slow down')
           const placement = findPlacement(msg.id)
           if (!placement) return refuse(session, 'nothing to remove')
-          const verdict = checkDemolish(placement, player, player.id)
-          if (!verdict.ok) return refuse(session, verdict.reason)
+          const verdict = checkDemolish(WORLD, placement, player, player.id)
+          if (!verdict.ok) return refuseEdit(session, verdict)
           const chunk = applyRemove(WORLD, placement.id)
           if (!chunk) return refuse(session, 'nothing to remove')
           forgetPlacement(placement.id)
           if (placement.owner) removePiece(placement.owner)
+          // Pulling your own deed releases the plot. Whatever stood inside it
+          // stays exactly where it is: the claim was the post, not the ground.
+          if (placement.owner && placement.kind === DEED_KIND) removeDeed(placement.owner)
           markChunkDirty(chunk)
           announceEdit(session, chunk, { t: 'remove', cx: chunk.cx, cy: chunk.cy, v: chunk.version, id: placement.id })
           break

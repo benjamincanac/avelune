@@ -166,6 +166,11 @@ const SOLID_PROPS: Record<string, SolidProp> = {
   Kit_Stairs: { top: 2.5, r: 1.5, box: [1, 1] },
   Kit_Fence: { top: 1, r: 1.1, box: [1, 0.08] },
   Kit_Crate: { top: 1, r: 0.75, box: [0.5, 0.5] },
+  // The claim post. A thin disc rather than a box: it is a 0.4 signpost, and a
+  // player should walk around it, not through it. Nothing stacks on it — its
+  // `top` is the full post height, well past a step, so it reads as a blocker
+  // and never as a ledge.
+  Kit_Deed: { top: 1.4, r: 0.2 },
   // Ground-level town building pieces (baked into courtyard-structure.json). Tall
   // `top` (unjumpable) so house walls block; ~1-tile radius so a chain of 2-unit
   // wall panels reads as a solid perimeter. The door frame + gate arch are left

@@ -36,12 +36,34 @@ independently.
   `EDITS_PER_SECOND`, `MAX_PIECES_PER_PLAYER`, `BUILD_GRID`, `snapPlacement`,
   `overlappingPiece` (AABB plus the vertical band `[z, z+top]`, which is what
   lets pieces stack), `supportHeight` (a placed piece's `z`), `pieceOverBrush`,
-  `isPlaceableKind`, `canRemove`. The server decides with them; the client only
-  colours its ghost preview with them. `snapGridFor(kind)` is the grid a piece
+  `isPlaceableKind`, `canRemove`, and the deed-plot rules below. The server
+  decides with them; the client only colours its ghost preview with them. `snapGridFor(kind)` is the grid a piece
   snaps to: `BUILD_GRID` (2) for everything except pieces whose footprint fits
   in a tile (`Kit_Crate`, `Kit_Torch`), which get `BUILD_GRID_SMALL` (1) so two
   of them can sit side by side, and 0 for the free-standing nature kit. The
   client ghost must call it too or it previews a pose the server won't store.
+
+  **Deed plots.** A `Kit_Deed` post (`DEED_KIND`, in `kit.ts` so `world.ts` can
+  index it without importing the rules) claims the `DEED_SIZE` (16) tile square
+  centred on its own tile, `DEED_LIMIT` (1) per player. `plotBounds` is
+  half-open in tiles, so two plots exactly `DEED_SIZE` apart touch without
+  overlapping. Inside a plot only the owner may terraform, build or demolish —
+  unowned wild growth included, which is the one place `canRemove` is not the
+  last word. `checkDeedPlacement` refuses a post whose plot would overlap
+  another player's plot, a protected tile, or a piece somebody else built; your
+  own pieces are fine, so you can fence a house first and deed it after.
+  `deedAt` / `plotOwner` / `foreignClaim` answer from `chunk.deeds`, a derived
+  per-chunk index of the deeds a chunk *owns* (rebuilt from `placements`
+  wherever they change, moves no version, never persisted or sent) — a claim
+  query widens its box by a whole plot before reading it, because a deed
+  `DEED_SIZE` tiles away still reaches in. Pulling the deed releases the plot
+  and leaves every piece where it stands: the claim is the post, not the ground.
+  A refusal carries `claim` (the owner's *id*) alongside the generic
+  `that plot is claimed`; `refusalText(verdict, names)` is what turns it into
+  `that plot belongs to <name>`, and only a caller holding a roster can.
+  **`propsInBox` answers by eight-tile index cell, so any rule reading it must
+  re-test the exact footprint** — the plot's piece check did not, and claimed
+  neighbours three tiles outside the square.
 - `shared/utils/vegetation.ts` — `generateVegetation(seed, cx, cy)`, the
   deterministic nature scatter (trees and rocks solid, bushes walk-through) with
   `wild:<cx>:<cy>:<n>` ids so a felled tree never regrows under a new name. Each
@@ -222,13 +244,14 @@ Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
 `kicked`, `pong`, plus the world stream `chunk` (encoded heights/surface as
 base64 and the chunk's placements), `unchunk`, `terrain` (`[cornerIndex,
 int16Height][]` deltas, quantised exactly as `Chunk.heights`), `place`,
-`remove`, and `reject`. `welcome` carries `{self, players, now, world, pieces}` —
+`remove`, and `reject`. `welcome` carries `{self, players, now, world, pieces, deeds}` —
 `self` is always a `Player`, `now` is the server clock the client's day/night +
 weather run on, `world` is `{chunkSize, bounds, seed, persistent}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD), and `pieces` is how many
 pieces this identity owns in the *whole* world (only the server can count that;
-a client holds 25 chunks). `place` and `remove` carry an optional `pieces` with
-the same meaning, present only on the copy sent to the player whose edit it was
-— every other viewer gets the frame without it and ignores the field. `state` is filtered
+a client holds 25 chunks), and `deeds` how many plots they hold, counted the
+same way. `place` and `remove` carry optional `pieces`/`deeds` with the same
+meaning, present only on the copy sent to the player whose edit it was — every
+other viewer gets the frame without them and ignores the fields. `state` is filtered
 per session to players within 96 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping; the Oracle
 speaks through the reserved `ORACLE_ID` sender, never a roster player. `kicked`
 carries a `reason` and boots a socket when the same identity opens another

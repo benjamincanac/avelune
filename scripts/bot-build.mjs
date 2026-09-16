@@ -28,15 +28,35 @@ import { SURFACE } from '../shared/utils/world.ts'
 const H = Math.PI / 2
 
 /**
- * Where bot `i` builds. A 12-tile lattice in the meadow south of the gate: the
- * protected footprint ends with the road's last tile at y 139, so y 146 and
- * beyond is open ground for any x, and 12 tiles of pitch keeps one bot's 6×6
- * plot clear of the next one's reach.
+ * Where bot `i` builds. An 18-tile lattice in the meadow south of the gate.
+ *
+ * Both numbers are set by the deed rather than by the house. The pitch is 18
+ * because a claim is `DEED_SIZE` (16) tiles across, and two bots any closer
+ * would be refused each other's ground — the load test would then measure the
+ * refusal path instead of the build path. The first row is at y 150 because the
+ * claim reaches seven tiles back from the post, and the protected footprint
+ * ends with the road's last tile at y 139.
  */
 export function plotFor(i) {
   const col = i % 6
   const row = Math.floor(i / 6)
-  return { x: 52 + col * 12, y: 146 + row * 12 }
+  return { x: 52 + col * 18, y: 150 + row * 18 }
+}
+
+/**
+ * The claim post, planted a tile off the plot's near corner.
+ *
+ * Off the corner rather than in the middle because a deed is solid: inside the
+ * ring it would stand where the floor slab goes. It is still inside
+ * `plotBounds`, so `blockingWild` clears the ground for it, and within reach of
+ * `plotCentre`, where the bot stands to build.
+ *
+ * It goes in after the levelling and before the first wall: `pieceOverBrush`
+ * refuses a terraform under any piece, so a post planted first would refuse
+ * every flatten that follows it.
+ */
+export function deedOp(plot) {
+  return { op: 'build', kind: 'Kit_Deed', x: plot.x - 1, y: plot.y - 1, rot: 0 }
 }
 
 /** The plot's outer square, in tiles: the walls run on [x, x+4]. */

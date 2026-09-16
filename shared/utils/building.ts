@@ -15,11 +15,13 @@ import { surfaceHeight, terrainHeight } from './maze'
 import { elevateProp, isSolidProp, propFromPlacement, propHalfExtents } from './props'
 import type { PropSpec, WorldPlacement } from './props'
 import { ALL_PROP_KINDS } from './propCatalog'
-import { KIT_ASSETS } from './kit'
+import { DEED_KIND, KIT_ASSETS } from './kit'
 import type { KitKind } from './kit'
 import {
   WORLD_TILE_MAX,
   WORLD_TILE_MIN,
+  deedsInBox,
+  isProtectedBox,
   isProtectedTile,
   propsInBox,
 } from './world'
@@ -31,6 +33,11 @@ export const EDIT_REACH = 6
 export const EDITS_PER_SECOND = 8
 /** Pieces one player may own in the world at a time. */
 export const MAX_PIECES_PER_PLAYER = 500
+/** How many tiles across the plot a deed post claims is, centred on the deed's
+ *  own tile. A constant so it can grow without touching a rule. */
+export const DEED_SIZE = 16
+/** Plots one player may hold at a time. */
+export const DEED_LIMIT = 1
 /** Build kit pieces snap to this grid, in tiles. */
 export const BUILD_GRID = 2
 /** ...except the small props. A crate is 1×1 and a torch 0.4, so the 2 tile
@@ -178,17 +185,134 @@ export function supportHeight(world: World, prop: PropSpec): number {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Claims                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Deed plots.
+ *
+ * A `Kit_Deed` post claims the `DEED_SIZE`-tile square around it. Inside that
+ * square only its owner may terraform, build or demolish — generated
+ * vegetation included, so nobody clears your garden. Outside every plot the
+ * rules are exactly what they were.
+ *
+ * The plot is derived from the post, never stored: pull the deed and the claim
+ * is gone, and whatever was built inside stays where it is. That is also why
+ * these live here rather than in the protocol — a client that holds the chunk
+ * holds the claim.
+ */
+
+export interface PlotBounds {
+  /** Half-open in tiles: `minX <= tile < maxX`, so two plots exactly
+   *  `DEED_SIZE` apart touch without overlapping. */
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+/** The square a deed at this position claims, with its own tile at the centre. */
+export function plotBounds(deed: { x: number, y: number }): PlotBounds {
+  const half = DEED_SIZE / 2
+  const tx = Math.floor(deed.x)
+  const ty = Math.floor(deed.y)
+  return { minX: tx - half + 1, minY: ty - half + 1, maxX: tx + half + 1, maxY: ty + half + 1 }
+}
+
+function boxesOverlap(a: PlotBounds, b: PlotBounds): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY
+}
+
+/**
+ * Every claim whose plot overlaps this world-space box. The query widens the
+ * box by a whole plot before asking `deedsInBox`, because a deed up to
+ * `DEED_SIZE` tiles away can still reach into it.
+ */
+export function* plotsOverlapping(world: World, box: PlotBounds): Generator<WorldPlacement> {
+  for (const deed of deedsInBox(world, box.minX - DEED_SIZE, box.minY - DEED_SIZE, box.maxX + DEED_SIZE, box.maxY + DEED_SIZE)) {
+    if (boxesOverlap(box, plotBounds(deed))) yield deed
+  }
+}
+
+/** The deed whose plot covers this point, if any. */
+export function deedAt(world: World, x: number, y: number): WorldPlacement | undefined {
+  for (const deed of plotsOverlapping(world, { minX: x, minY: y, maxX: x, maxY: y })) return deed
+  return undefined
+}
+
+/** Who owns the ground under this point, or undefined where nobody has claimed
+ *  it. An unowned deed cannot exist — only a player places one — but the type
+ *  says `owner?`, so this narrows it. */
+export function plotOwner(world: World, x: number, y: number): string | undefined {
+  return deedAt(world, x, y)?.owner
+}
+
+/** The first claim over this box that belongs to someone else — what every edit
+ *  rule below is actually asking. */
+export function foreignClaim(world: World, box: PlotBounds, playerId: string | undefined): WorldPlacement | undefined {
+  for (const deed of plotsOverlapping(world, box)) {
+    if (deed.owner && deed.owner !== playerId) return deed
+  }
+  return undefined
+}
+
+/** Plots this player holds among the chunks this world has loaded. The server
+ *  holds the honest total (a plot sits in a chunk nobody is standing in); the
+ *  client uses this to colour a ghost. */
+export function countDeeds(world: World, owner: string): number {
+  let count = 0
+  for (const chunk of world.chunks.values()) {
+    for (const deed of chunk.deeds) if (deed.owner === owner) count++
+  }
+  return count
+}
+
+/** The generic refusal, used wherever the owner's name is not to hand. */
+export const PLOT_REFUSAL = 'that plot is claimed'
+
+/** The refusal for somebody else's plot. Callers holding a roster pass the
+ *  owner's name; everyone else gets the generic line. */
+export function plotRefusal(name?: string): string {
+  return name ? `that plot belongs to ${name}` : PLOT_REFUSAL
+}
+
+/**
+ * The line to show a player for a refusal. Identical to `verdict.reason` unless
+ * the refusal was a claim, in which case `names` gets a chance to turn the
+ * owner's id into the name they are known by. The server does this from its
+ * roster; the client does it from the players it has been told about.
+ */
+export function refusalText(verdict: { reason: string, claim?: string }, names?: (id: string) => string | undefined): string {
+  if (!verdict.claim) return verdict.reason
+  return plotRefusal(names?.(verdict.claim))
+}
+
+/* -------------------------------------------------------------------------- */
 /* Rules                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type EditVerdict = { ok: true } | { ok: false, reason: string }
+/** `claim` is the player id whose plot refused the edit; `refusalText` turns it
+ *  into a name where one is known. */
+export type EditVerdict = { ok: true } | { ok: false, reason: string, claim?: string }
 
 const REFUSE = (reason: string): EditVerdict => ({ ok: false, reason })
+const REFUSE_CLAIM = (deed: WorldPlacement): EditVerdict => ({ ok: false, reason: PLOT_REFUSAL, claim: deed.owner })
+
+/** What `resolveBuild` returns: the exact placement the server would store, or
+ *  the refusal, with `claim` carried the same way `EditVerdict` carries it. */
+export type BuildVerdict
+  = | { ok: true, placement: WorldPlacement }
+    | { ok: false, reason: string, claim?: string }
 const ALLOW: EditVerdict = { ok: true }
 
 function inWorld(x: number, y: number): boolean {
   return x >= WORLD_TILE_MIN && y >= WORLD_TILE_MIN && x < WORLD_TILE_MAX && y < WORLD_TILE_MAX
 }
+
+/** Who is editing. The position is what reach is measured from; the id is what
+ *  a claim is measured against. An actor with no id owns no plot, so every
+ *  claim refuses them. */
+export interface EditActor { x: number, y: number, id?: string }
 
 function withinReach(from: { x: number, y: number }, x: number, y: number): boolean {
   return Math.hypot(x - from.x, y - from.y) <= EDIT_REACH
@@ -226,7 +350,7 @@ export interface TerraformRequest {
  * `TERRAFORM_STEP`, and the server passes `maxStep` so even a flatten cannot
  * travel further in one operation.
  */
-export function checkTerraform(world: World, request: TerraformRequest, actor: { x: number, y: number }): EditVerdict {
+export function checkTerraform(world: World, request: TerraformRequest, actor: EditActor): EditVerdict {
   const { x, y, mode, size } = request
   if (!Number.isFinite(x) || !Number.isFinite(y)) return REFUSE('bad coordinates')
   if (mode !== 'raise' && mode !== 'lower' && mode !== 'flatten' && mode !== 'paint') return REFUSE('unknown tool')
@@ -246,6 +370,37 @@ export function checkTerraform(world: World, request: TerraformRequest, actor: {
     }
   }
   if (pieceOverBrush(world, gx, gy, size)) return REFUSE('something is standing there')
+  // A corner moves the four tiles around it, so the claim test covers a tile
+  // more than the corner range on each side. One tile of slack, in the
+  // direction that protects the plot.
+  const claim = foreignClaim(world, { minX: e.minX - 1, minY: e.minY - 1, maxX: e.maxX + 1, maxY: e.maxY + 1 }, actor.id)
+  if (claim) return REFUSE_CLAIM(claim)
+  return ALLOW
+}
+
+/**
+ * Whether a deed may be planted here — the rule that is only about claims.
+ *
+ * A plot has to be clear of everything that would make it a land grab: another
+ * player's plot, the protected town, or a piece somebody else built. Your own
+ * pieces are fine, which is what lets you fence a house first and deed it
+ * after.
+ */
+export function checkDeedPlacement(world: World, deed: { x: number, y: number }, owner: string, held: number): EditVerdict {
+  if (held >= DEED_LIMIT) {
+    return REFUSE(DEED_LIMIT === 1 ? 'you already hold a plot' : `you already hold ${DEED_LIMIT} plots`)
+  }
+  const plot = plotBounds(deed)
+  if (isProtectedBox(plot.minX, plot.minY, plot.maxX, plot.maxY)) return REFUSE('the town is protected')
+  const neighbour = foreignClaim(world, plot, owner)
+  if (neighbour) return REFUSE_CLAIM(neighbour)
+  // `propsInBox` answers by index cell, which is eight tiles wide: a neighbour's
+  // wall a few tiles outside the plot comes back with everything genuinely
+  // inside it. The footprint test is what makes the answer exact.
+  for (const prop of propsInBox(world, plot.minX, plot.minY, plot.maxX - 1, plot.maxY - 1)) {
+    if (!prop.owner || prop.owner === owner) continue
+    if (boxesOverlap(plot, propBounds(prop))) return REFUSE('someone else has built here')
+  }
   return ALLOW
 }
 
@@ -265,9 +420,9 @@ export interface BuildRequest {
 export function resolveBuild(
   world: World,
   request: BuildRequest,
-  actor: { x: number, y: number },
-  context: { owner: string, id: string, pieces: number },
-): { ok: true, placement: WorldPlacement } | { ok: false, reason: string } {
+  actor: EditActor,
+  context: { owner: string, id: string, pieces: number, deeds?: number },
+): BuildVerdict {
   const { kind, x, y, rot } = request
   if (typeof kind !== 'string' || !isPlaceableKind(kind)) return { ok: false, reason: 'that piece is not in your kit' }
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(rot)) return { ok: false, reason: 'bad coordinates' }
@@ -278,6 +433,17 @@ export function resolveBuild(
   if (isProtectedTile(pose.x, pose.y)) return { ok: false, reason: 'the town is protected' }
   const placement: WorldPlacement = { ...pose, kind, scale: 1, id: context.id, owner: context.owner }
   const prop = propFromPlacement(placement)
+  const footprint = propBounds(prop)
+  const claim = foreignClaim(world, footprint, context.owner)
+  if (claim) return { ok: false, reason: PLOT_REFUSAL, claim: claim.owner }
+  if (kind === DEED_KIND) {
+    // The count is the server's to supply: a plot of yours can sit in a chunk
+    // nobody is standing in. A client that does not pass one falls back to what
+    // it can see, which is enough to colour a ghost.
+    const held = context.deeds ?? countDeeds(world, context.owner)
+    const verdict = checkDeedPlacement(world, pose, context.owner, held)
+    if (!verdict.ok) return verdict
+  }
   const support = supportHeight(world, prop)
   if (!Number.isFinite(support)) return { ok: false, reason: 'that ground is not loaded' }
   placement.z = support
@@ -289,10 +455,14 @@ export function resolveBuild(
   return { ok: true, placement }
 }
 
-/** Whether this player may take that piece away, and reach it. */
-export function checkDemolish(placement: WorldPlacement, actor: { x: number, y: number }, playerId: string): EditVerdict {
+/** Whether this player may take that piece away, and reach it. Inside a plot
+ *  only its owner may clear anything, a generated tree included — otherwise a
+ *  stranger could log your garden without touching a thing you built. */
+export function checkDemolish(world: World, placement: WorldPlacement, actor: EditActor, playerId: string): EditVerdict {
   if (isProtectedTile(placement.x, placement.y)) return REFUSE('the town is protected')
   if (!withinReach(actor, placement.x, placement.y)) return REFUSE('too far away')
   if (!canRemove(placement, playerId)) return REFUSE('that is not yours')
+  const deed = deedAt(world, placement.x, placement.y)
+  if (deed?.owner && deed.owner !== playerId) return REFUSE_CLAIM(deed)
   return ALLOW
 }

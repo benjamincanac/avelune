@@ -40,7 +40,7 @@ import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '.
 import { isWalkable } from '../shared/utils/maze.ts'
 import { MAX_PIECES_PER_PLAYER, checkTerraform, resolveBuild } from '../shared/utils/building.ts'
 import { applyPlace, applyRemove, chunkCoord, chunkKey, createWorld, decodeChunk, installChunk, isProtectedTile, removeChunk } from '../shared/utils/world.ts'
-import { fencePlan, housePlan, levelPlan, paveOp, plotBounds, plotCentre, plotFor } from './bot-build.mjs'
+import { deedOp, fencePlan, housePlan, levelPlan, paveOp, plotBounds, plotCentre, plotFor } from './bot-build.mjs'
 
 /* ------------------------------- args --------------------------------- */
 
@@ -162,6 +162,7 @@ class Bot {
     this.plan = []
     this.planAt = 0
     this.pieces = 0 // owned pieces world-wide, from welcome/place/remove
+    this.deeds = 0 // plots held world-wide, same source
     this.mine = new Map() // placement id -> the op that built it, for rebuilds
     this.placed = 0
     this.buildRefused = 0
@@ -203,6 +204,7 @@ class Bot {
         this.pos = { x: m.self.x, y: m.self.y }
         this.home = { x: m.self.x, y: m.self.y }
         this.pieces = m.pieces ?? 0
+        this.deeds = m.deeds ?? 0
         alive++
         console.log(`[${this.name}#${this.n}] welcome — ${m.players.length} in world${BUILD ? `, plot ${this.plot.x},${this.plot.y}` : ''}`)
         this.startBehavior()
@@ -225,11 +227,13 @@ class Bot {
           if (op) this.mine.set(m.piece.id, op)
         }
         if (m.pieces != null) this.pieces = m.pieces
+        if (m.deeds != null) this.deeds = m.deeds
       }
       else if (m.t === 'remove') {
         applyRemove(this.world, m.id)
         this.mine.delete(m.id)
         if (m.pieces != null) this.pieces = m.pieces
+        if (m.deeds != null) this.deeds = m.deeds
       }
       else if (m.t === 'reject') {
         this.refused++
@@ -273,7 +277,9 @@ class Bot {
       // Down the road first, then across the meadow: a straight line from spawn
       // would try to walk the moat.
       this.route = [{ x: ROAD.x, y: 143 }, plotCentre(this.plot)]
-      this.plan = [...levelPlan(this.plot), ...(this.fencer ? fencePlan(this.plot) : housePlan(this.plot))]
+      // Claim the ground first, so everything after it is built on a plot
+      // nobody else may touch — and so the load test exercises the claim rules.
+      this.plan = [...levelPlan(this.plot), deedOp(this.plot), ...(this.fencer ? fencePlan(this.plot) : housePlan(this.plot))]
     }
     this.timers.push(setInterval(() => this.wander(), TICK))
     if (BUILD) this.timers.push(setInterval(() => this.editPump(), EDIT_EVERY))
@@ -384,7 +390,7 @@ class Bot {
       if (this.pos.y <= 143) return
       const op = paveOp(this.pos.x, this.pos.y)
       // The first strides off the plot still have the house under the brush.
-      if (!checkTerraform(this.world, op, this.pos).ok) return
+      if (!checkTerraform(this.world, op, this.actor()).ok) return
       return this.terraform(op)
     }
     if (this.phase === 'settle') {
@@ -415,9 +421,12 @@ class Bot {
     // Run the same predicate the server will, against our streamed world — the
     // client ghost's job. A pose it already refuses is skipped rather than
     // retried, except when the answer is only about timing.
-    const preview = resolveBuild(this.world, op, this.pos, { owner: this.id, id: 'preview', pieces: this.pieces })
+    const preview = resolveBuild(this.world, op, this.actor(), { owner: this.id, id: 'preview', pieces: this.pieces, deeds: this.deeds })
     if (!preview.ok) {
       if ((preview.reason === 'too far away' || preview.reason === 'that ground is not loaded') && this.hold()) return
+      // The claim is the one op worth hearing about when it is skipped: a bot
+      // that never plants its deed is a bot that never exercises the rules.
+      if (op.kind === 'Kit_Deed') console.log(`[${this.name}#${this.n}] no claim — ${preview.reason}`)
       this.planAt++
       this.waits = 0
       return
@@ -428,6 +437,13 @@ class Bot {
     this.lastEditKind = 'build'
     this.edits++
     this.send({ t: 'build', kind: op.kind, x: op.x, y: op.y, rot: op.rot })
+  }
+
+  /** Us, as the shared edit rules see us: where we stand and who we are. The
+   *  id is what a plot is measured against — without it every claim, our own
+   *  included, would refuse us. */
+  actor() {
+    return { x: this.pos.x, y: this.pos.y, id: this.id }
   }
 
   /** Stall the plan for a few pump ticks, then give up on this op. Returns
@@ -506,7 +522,7 @@ class Bot {
       // 'something is standing there'. One dig in seven skips the check, so the
       // server's refusal path stays under load too — that is half of what this
       // script is for.
-      if (Math.random() > 0.15 && !checkTerraform(this.world, op, this.pos).ok) continue
+      if (Math.random() > 0.15 && !checkTerraform(this.world, op, this.actor()).ok) continue
       return this.terraform(op)
     }
   }

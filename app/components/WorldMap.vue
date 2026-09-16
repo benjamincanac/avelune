@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { drawPlayerDot, drawSelfArrow, MAP_COLORS, mapProjection, paintChunkGrid, paintTownOutline, paintWorld } from '~/utils/mapDraw'
+import { drawPlayerDot, drawSelfArrow, MAP_COLORS, mapProjection, paintChunkGrid, paintPlots, paintTownOutline, paintWorld } from '~/utils/mapDraw'
 import type { UseGame } from '~/composables/useGame'
 
 /**
@@ -61,6 +61,7 @@ function draw() {
   paintWorld(ctx, paint)
   paintChunkGrid(ctx, paint)
   paintTownOutline(ctx, paint)
+  paintPlots(ctx, paint, id => props.game.players.get(id)?.color)
 
   // Everyone else, named, then you as an arrow pointing where you look.
   ctx.font = '11px ui-sans-serif, system-ui, sans-serif'

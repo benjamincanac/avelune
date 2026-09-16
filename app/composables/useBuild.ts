@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
 import type { Surface } from '#shared/types/game'
 import { KIT_NAMES } from '#shared/utils/kit'
-import { BUILD_ROT_STEP, EDIT_REACH, MAX_PIECES_PER_PLAYER } from '#shared/utils/building'
+import { BUILD_ROT_STEP, DEED_LIMIT, EDIT_REACH, MAX_PIECES_PER_PLAYER } from '#shared/utils/building'
 import { SURFACE } from '#shared/utils/world'
 
 /**
@@ -53,6 +53,7 @@ const KIT_ICONS: Record<string, string> = {
   Kit_Torch: 'i-lucide-flame',
   Kit_Path: 'i-lucide-route',
   Kit_Crate: 'i-lucide-box',
+  Kit_Deed: 'i-lucide-signpost',
 }
 
 const KIT_SLOTS: Slot[] = KIT_NAMES.map(kind => ({ id: kind, kind, label: kitLabel(kind), icon: KIT_ICONS[kind] ?? 'i-lucide-box' }))
@@ -90,6 +91,8 @@ export interface UseBuild {
    *  sends the total on `welcome` and on every `place`/`remove` of theirs;
    *  `useWorld` writes it here. */
   pieces: Ref<number>
+  /** Plots this player holds, counted by the server the same way. */
+  deeds: Ref<number>
   /** Whether the crosshair is on something the armed tool can act on. */
   targetOk: Ref<boolean>
   /** Why not, or what is targeted. One short line for the HUD. */
@@ -98,6 +101,7 @@ export interface UseBuild {
   fireQueued: Ref<boolean>
   reach: number
   budget: number
+  plots: number
   select: (index: number) => void
   disarm: () => void
   cycleSlot: (delta: number) => void
@@ -121,6 +125,7 @@ export function useBuild(): UseBuild {
   // lays flagstones rather than a patch of dirt nobody asked for.
   const surface = ref<Surface>(SURFACE.path)
   const pieces = ref(0)
+  const deeds = ref(0)
   const targetOk = ref(false)
   const targetHint = ref('')
   const fireQueued = ref(false)
@@ -175,11 +180,13 @@ export function useBuild(): UseBuild {
     rot,
     surface,
     pieces,
+    deeds,
     targetOk,
     targetHint,
     fireQueued,
     reach: EDIT_REACH,
     budget: MAX_PIECES_PER_PLAYER,
+    plots: DEED_LIMIT,
     select,
     disarm,
     cycleSlot,

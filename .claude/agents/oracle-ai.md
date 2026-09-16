@@ -66,13 +66,38 @@ in-character, and reactive to live multiplayer state.
 ## Architecture decision — in-process, NOT eve (load-bearing)
 The game world lives in-memory in the Nitro process that owns the WebSocket loop
 (`server/utils/game.ts`). Because the Oracle runs in that **same process**, the
-`arena_state` tool reads the live roster directly (`snapshot()`: how many are on
-the courtyard, their names, and how long each has been here) —
+`arena_state` tool reads the live roster *and the live chunk map* directly —
 no HTTP hop, no Vercel multi-instance state-miss. **Do not reintroduce eve** for
 this: eve runs the agent in a separate runtime, so its tool would have to fetch a
 `/api/state` endpoint that on serverless can hit an instance without the live WS
 state — the process boundary fights the exact "AI reacts to live multiplayer
 state" hook that makes this feature worth building.
+
+`snapshot()` in `game.ts` returns the exported `ArenaState` interface (the
+getter type in `oracle.ts` is `ArenaStateReader` — the two must not share a
+name, Nitro auto-imports both from `server/utils/` and warns on the clash):
+
+- `realm` — `realmName(REALM)`, one stored world per deployment region.
+- `weather` / `timeOfDay` — the sky as players actually see it. The server only
+  holds the *modes* (`auto` unless an admin forced one) and lets `welcome.now`
+  drive each client's sky, so `skyNow()` re-derives the auto curves from the
+  same `DAY_MS` and overcast sines as `app/utils/courtyardSky.ts`. **Keep those
+  constants in step with that file** — it's a deliberate duplication, because
+  `courtyardSky.ts` imports three.js and can't be pulled into the server.
+- `playersInArena` / `players[]` (`name`, `minutesHere`) — the roster, as before.
+- `building` — the built world outside the walls: `piecesStanding` (kit pieces
+  in loaded chunks), `builders` (distinct owners of them), `topBuilders` (the
+  three biggest by their *own* total from `pieceCount`, named from the roster
+  and `'a builder who is away'` otherwise), `piecesNearOracle` (within
+  `ORACLE_REACH` = 24 tiles of the authored stand in `courtyard-oracle.json`),
+  and `busiestSpot` (the densest chunk, pre-worded as a compass direction and a
+  rough walk from `FORTIFICATIONS.gateX/gateZ`, e.g. `'to the south-east, a
+  short walk from the gate'` — wording it here keeps the model from inventing
+  geography out of raw coordinates).
+
+The world half is a single **capped** pass over `WORLD.chunks` (`SCAN_CAP`),
+run only when the model calls the tool. Keep it that way: the Oracle speaks a
+few times a minute at most, so nothing here may become per-tick work.
 
 > Landmine if eve is ever revisited: `eve/nuxt`'s dev proxy (`/eve/v1/**` Nitro
 > `proxy` rule) infinitely recurses on Nitro 3.0.260610-beta + h3 2.0-rc
@@ -90,6 +115,11 @@ state" hook that makes this feature worth building.
   quests and building entry are unavailable, so never promise those activities.
   The sky turns through day and night and the rain falls when it will;
   travellers walk, run, leap, dash and chat for the joy of it.
+- Outside the walls the land is open and players terraform and build on it, and
+  what they raise belongs to them. The town inside the walls is protected
+  ground: nothing can be dug or built there. The Oracle knows both, points
+  would-be builders outside the gate, and speaks of builders and their works
+  when asked what's new or who's around.
 - **Facts about live state come only from the `arena_state` tool** — never invent
   names or numbers. If it can't know, "the stones keep that secret."
 - Answer live state as omens, not statistics.

@@ -50,7 +50,16 @@ Lore of Avelune:
 - The fountain plaza is a meeting place. Travellers can walk, run, leap, dash and chat, but cannot fight, trade or undertake quests. Never invent these activities or claim they are available.
 - The sky turns through day and night and the rain falls when it will. Travellers cross the courtyard for the joy of it, and there is always room for another story beside the fountain.
 
-When people ask who is here, how many walk the courtyard, or how long someone has lingered, consult the living town with the means available to you and answer from what it shows you as omens, not statistics. If you cannot know something, say the stones keep that secret; never invent names or numbers.`
+The land beyond the walls:
+- Outside the ramparts the land is open and unfinished, and travellers shape it. They raise and lower the ground, lay down grass, dirt, stone, sand and path, and set down pieces of stone and timber to build with. Trees and rocks out there can be cleared away. This is the one making they can do, and you may encourage it.
+- Avelune itself is protected ground. Inside the walls nothing can be dug, raised or built; the town stands as it was laid. Say so plainly if someone means to build in the plaza, and point them outside the gate instead.
+- Works out there belong to whoever raised them, and only they may take their own pieces down again.
+
+When people ask who is here, how many walk the courtyard, how long someone has lingered, what is new, who has been building, or what the sky is doing, consult the living town with the means available to you and answer from what it shows you as omens, not statistics. Name the builders whose hands have been busiest and speak of their works by where they stand and which way they lie, never as a tally. If you cannot know something, say the stones keep that secret; never invent names or numbers.
+
+The shape of an answer, so you hear the voice:
+- Asked what is new: "Kestrel has been busy past the gate, stone on stone to the south-east, and the meadow is losing its quiet."
+- Asked about the sky: "Grey water is gathering above us, and the lanterns will be earning their keep before long."`
 
 export interface HubMessage {
   name: string
@@ -58,7 +67,7 @@ export interface HubMessage {
 }
 
 /** Live-state getter injected by the game loop (avoids a circular import). */
-export type ArenaState = () => unknown
+export type ArenaStateReader = () => unknown
 
 function transcript(recent: HubMessage[]): string {
   return recent.map(m => `${m.name}: ${m.text}`).join('\n')
@@ -151,7 +160,7 @@ Reply with exactly "YES" or "NO" and nothing else.`,
  * Shared by every way the Oracle speaks (answering a question, greeting an
  * arrival). Never throws — any failure resolves to null.
  */
-async function respond(prompt: string, getState: ArenaState): Promise<string | null> {
+async function respond(prompt: string, getState: ArenaStateReader): Promise<string | null> {
   try {
     const { text } = await generateText({
       model: gateway(RESPONDER_MODEL),
@@ -160,7 +169,7 @@ async function respond(prompt: string, getState: ArenaState): Promise<string | n
       prompt,
       tools: {
         arena_state: tool({
-          description: 'Read the living town right now: how many people are gathered, their names, and how many minutes each has been here. Call this whenever someone asks who is present, how many are here, or how long someone has stayed.',
+          description: 'Read the living town right now: the realm it belongs to, the weather and the hour of its sky, how many people are gathered with their names and how many minutes each has been here, and what has been built in the land outside the walls — how many pieces stand, how many builders raised them, the busiest builders with their totals, how much stands beside you, and where the densest work lies. Call this whenever someone asks who is present, how many are here, how long someone has stayed, what the weather or the hour is, what is new, what has been built, or who has been building.',
           inputSchema: z.object({}),
           execute: async () => getState(),
         }),
@@ -180,7 +189,7 @@ async function respond(prompt: string, getState: ArenaState): Promise<string | n
  * reply (with live arena data when relevant); otherwise return null. Never
  * throws — any failure resolves to null so the game loop just stays quiet.
  */
-export async function oracleReply(recent: HubMessage[], getState: ArenaState): Promise<string | null> {
+export async function oracleReply(recent: HubMessage[], getState: ArenaStateReader): Promise<string | null> {
   if (recent.length === 0) return null
   if (!(await isAddressed(recent))) return null
   return respond(`The travellers in the courtyard have been speaking:\n${transcript(recent)}\n\nThe last line is meant for you. Answer as the Oracle, in one or two short sentences.`, getState)
@@ -193,7 +202,7 @@ export async function oracleReply(recent: HubMessage[], getState: ArenaState): P
  * from a fixed in-character fallback, so an arrival is never met with silence.
  * The game loop decides *whether* to greet; this only decides what is said.
  */
-export async function oracleGreeting(name: string, getState: ArenaState): Promise<string> {
+export async function oracleGreeting(name: string, getState: ArenaStateReader): Promise<string> {
   const line = await respond(`A traveller named ${name} has just crossed the bridge and stepped through South Gate, arriving in Avelune.
 
 Greet ${name} by name, in one or two short sentences. Look at the living town first and let what you find there colour the welcome — whether they arrive alone or into company, and who has been lingering. Do not list names or numbers back to them: speak of it as an omen. Do not ask them a question they must answer, and do not promise them anything the town cannot give.`, getState)

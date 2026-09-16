@@ -2,6 +2,7 @@ import { occupancyGrid } from '#shared/utils/maze'
 import { CHUNK_SIZE, SURFACE, WORLD_TILE_MAX, WORLD_TILE_MIN, chunkKey, isProtectedTile, worldProps } from '#shared/utils/world'
 import type { Chunk, World } from '#shared/utils/world'
 import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, isInMoat, isOnGateBridge, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
+import { plotBounds } from '#shared/utils/building'
 import { MOAT_STAIRS } from '#shared/utils/moat'
 import oracle from '#shared/data/courtyard-oracle.json'
 import { SURFACE_COLORS } from './surfaceColors'
@@ -30,6 +31,7 @@ export const MAP_COLORS = {
   tree: '#65815a',
   fountain: '#73c5c5',
   oracle: '#b9eaff',
+  plot: '#cbd5e1',
 } as const
 
 /** Where the painted rectangle sits: `scale` pixels per world tile, centred on
@@ -290,5 +292,34 @@ export function paintTownOutline(ctx: CanvasRenderingContext2D, p: WorldPaint): 
   ctx.setLineDash([6, 4])
   ctx.lineWidth = 1.5
   ctx.strokeRect(min.x, min.y, span, span)
+  ctx.restore()
+}
+
+/**
+ * Deed plots as outlined squares, one per claim in the loaded chunks.
+ *
+ * The outline is the whole drawing: a filled plot would bury the ground colour
+ * the rest of the map is made of, and a plot is a rule about who may edit, not
+ * a place that looks different. `color` hands back the owner's colour where the
+ * caller knows it; anything else falls back to a neutral line.
+ */
+export function paintPlots(ctx: CanvasRenderingContext2D, p: WorldPaint, color?: (owner: string) => string | undefined): void {
+  const project = mapProjection(p)
+  ctx.save()
+  ctx.lineWidth = 1.5
+  for (const chunk of p.world.chunks.values()) {
+    for (const deed of chunk.deeds) {
+      const box = plotBounds(deed)
+      const min = project(box.minX, box.minY)
+      const max = project(box.maxX, box.maxY)
+      if (max.x < 0 || max.y < 0 || min.x > p.width || min.y > p.height) continue
+      ctx.strokeStyle = (deed.owner && color?.(deed.owner)) ?? MAP_COLORS.plot
+      ctx.globalAlpha = 0.75
+      ctx.strokeRect(min.x, min.y, max.x - min.x, max.y - min.y)
+      ctx.globalAlpha = 0.12
+      ctx.fillStyle = ctx.strokeStyle
+      ctx.fillRect(min.x, min.y, max.x - min.x, max.y - min.y)
+    }
+  }
   ctx.restore()
 }

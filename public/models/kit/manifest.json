@@ -90,6 +90,15 @@
     "stackable": false
   },
   {
+    "kind": "Kit_Deed",
+    "file": "Kit_Deed.glb",
+    "width": 0.4,
+    "depth": 0.4,
+    "height": 1.4,
+    "solid": true,
+    "stackable": false
+  },
+  {
     "kind": "Kit_Path",
     "file": "Kit_Path.glb",
     "width": 2.0,

@@ -51,7 +51,10 @@ bytes between it and clients.
   can ask for a welcome, and are written back as signed `HINCRBY` deltas on the
   same 5 s flush as the chunks. Counting cannot be derived from memory — a
   builder's pieces sit in chunks nobody has loaded — so the stored counter is
-  the only honest one.
+  the only honest one. Deed plots ride the same hash under a `deed:<id>` field
+  (`deedCount`/`addDeed`/`removeDeed`), for exactly the same reason: `DEED_LIMIT`
+  is a fact about a person, and a plot of theirs can sit in a chunk nobody has
+  visited. A deed is an ordinary piece as well, so placing one moves both.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
 - `server/api/*.ts` — `auth.get`, `auth.post`. The Oracle has no HTTP route: it
@@ -170,7 +173,12 @@ bytes between it and clients.
    token bucket (`spendEdit`, shared by all three verbs, and a refusal still
    costs a token) and `maxStep: TERRAFORM_STEP` on every `applyTerrain` call, so
    no request — a flatten included — moves a corner more than one click. A
-   refused edit answers `{ t: 'reject', reason }` to that socket alone.
+   refused edit answers `{ t: 'reject', reason }` to that socket alone. A
+   refusal that carries a `claim` goes through `refuseEdit`, which is the one
+   place the owner's *id* becomes a name: the shared rules run on clients too,
+   so they only ever say `that plot is claimed`, and the roster lookup here
+   turns it into `that plot belongs to <name>`. An owner who is not online
+   stays anonymous — never name them from anywhere stale.
 7. **Identity is permanent — there is no logout.** `auth.post` sets an ~10-year
    cookie and there is intentionally no `DELETE /api/auth`. The character is
    never destroyed server-side, and a returning cookie always resumes the same
@@ -180,13 +188,13 @@ bytes between it and clients.
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/
 `now` clock/`world` — `{chunkSize, bounds, seed, persistent}` (`persistent` is `chunkStore().kind !== 'memory'`), all a client needs to build
 its empty `World` — plus `pieces`, this identity's owned-piece total across the
-whole world, which `server/utils/pieces.ts` holds and the store survives a
-redeploy with), `join`, `leave`, `state` (only players that moved, at 10 Hz,
+whole world, and `deeds`, how many plots they hold, both of which
+`server/utils/pieces.ts` holds and the store survives a redeploy with), `join`, `leave`, `state` (only players that moved, at 10 Hz,
 filtered to `STATE_RANGE`), `chat` (`{id, text}` — the Oracle broadcasts under the
 reserved `ORACLE_ID`), `chunk`/`unchunk` (a whole chunk as `encodeChunk` writes
 it, `h`/`s` base64), `terrain` (`[cornerIndex, quantised height]` pairs into the
 33×33 grid, plus `[tileIndex, value]` surface pairs), `place`/`remove` (with an
-optional `pieces` — the actor's new owned total, on their copy of the frame
+optional `pieces`/`deeds` — the actor's new totals, on their copy of the frame
 only; `announceEdit` broadcasts the plain frame with the author `except`ed and
 sends them the annotated one directly), `reject`, `kicked` (booted for a duplicate tab; carries a `reason`), `pong`.
 Clients send `terraform`/`build`/`demolish` alongside `move`/`action`/`chat`/

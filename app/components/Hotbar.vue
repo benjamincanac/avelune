@@ -70,6 +70,7 @@ const isTerraform = computed(() => build.active.value != null && !build.active.v
       </span>
       <span>reach {{ build.reach }}</span>
       <span>{{ build.pieces.value }}/{{ build.budget }} pieces</span>
+      <span>{{ build.deeds.value }}/{{ build.plots }} plots</span>
     </div>
   </div>
 </template>

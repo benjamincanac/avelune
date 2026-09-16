@@ -120,8 +120,14 @@ from `MazeScene`'s render loop *after* the camera has moved). The ghost is the
 kit template cloned with a flat translucent material, green or red from
 `resolveBuild` — the same predicate the server decides with. A red ghost still
 sends its verb; the server is the authority and may see a frame we do not.
-Reach and the piece budget in the bar come from `shared/utils/building.ts`, so
-the HUD can never claim a limit the server does not enforce.
+Reach, the piece budget and the plot count in the bar come from
+`shared/utils/building.ts`, so the HUD can never claim a limit the server does
+not enforce. The piece and plot totals themselves are the server's: they arrive
+on `welcome` and on the actor's own copy of `place`/`remove`, and `useWorld`
+writes them into `build.pieces` / `build.deeds`. Arming `Kit_Deed` previews the
+16-tile claim it would stake, so the hint line beside a red ghost can read
+`that plot belongs to <name>` — the client fills that name from its own roster,
+exactly as the server fills it from its own.
 
 ## Working style
 - Keep gameplay logic out of components — position/collision/elevation logic

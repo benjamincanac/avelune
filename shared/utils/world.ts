@@ -21,6 +21,7 @@
 
 import { FORTIFICATIONS, TOWN_MARGIN } from './courtyard'
 import { MOAT_STAIRS } from './moat'
+import { DEED_KIND } from './kit'
 import { isHeightAwareKind, rampartIndex } from './ramparts'
 import type { RampartIndex } from './ramparts'
 import { isTownPlacement, propFromPlacement } from './props'
@@ -93,6 +94,14 @@ export interface Chunk {
   /** Height-aware pieces (rampart galleries/rails, every stepped ramp)
    *  pre-filtered out of `props`, rebuilt whenever they change. */
   ramparts: RampartIndex
+  /**
+   * The deed posts this chunk *owns*, pre-filtered out of `placements`. Derived
+   * index state like `props` and `ramparts`: it moves no version and is never
+   * persisted or sent. A plot is sixteen tiles across, so a claim query only
+   * ever reads a couple of chunks' worth of these instead of walking every
+   * placement a built-up chunk holds.
+   */
+  deeds: WorldPlacement[]
   /**
    * Bumped exactly once per mutation of *this chunk's own content* — its
    * heights, its surface raster, the placements it owns. Lending a long piece
@@ -203,6 +212,17 @@ export function isProtectedTile(x: number, y: number): boolean {
   return false
 }
 
+/** Whether any tile in this half-open world-space box is protected. The box
+ *  form exists for the claim rules, which test a whole sixteen-tile plot and
+ *  would otherwise call `isProtectedTile` 256 times a frame. */
+export function isProtectedBox(minX: number, minY: number, maxX: number, maxY: number): boolean {
+  for (const rect of PROTECTED_FOOTPRINT) {
+    if (maxX <= rect.minX || minX > rect.maxX || maxY <= rect.minY || minY > rect.maxY) continue
+    return true
+  }
+  return false
+}
+
 /** Every chunk `isTownChunk` accepts. The town is a handful of chunks, so this
  *  walks the footprint's bounding box once rather than the whole world. */
 export function* townChunks(): Generator<{ cx: number, cy: number }> {
@@ -275,7 +295,7 @@ export function generateChunk(seed: number, cx: number, cy: number): Chunk {
       surface[ly * CHUNK_SIZE + lx] = surfaceFor(seed, cx * CHUNK_SIZE + lx, cy * CHUNK_SIZE + ly, h00, Math.hypot(h10 - h00, h01 - h00))
     }
   }
-  return { cx, cy, heights, surface, placements: [], props: [], cells: emptyCells(), ramparts: rampartIndex([]), version: 0 }
+  return { cx, cy, heights, surface, placements: [], props: [], cells: emptyCells(), ramparts: rampartIndex([]), deeds: [], version: 0 }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -358,6 +378,29 @@ function reindexCells(chunk: Chunk) {
 
 function reindexRamparts(chunk: Chunk) {
   chunk.ramparts = rampartIndex(chunk.props)
+}
+
+/** Rebuild a chunk's deed list from the placements it owns. Called wherever
+ *  `placements` changes, which is the only thing a claim depends on. */
+function reindexDeeds(chunk: Chunk) {
+  chunk.deeds = chunk.placements.filter(p => p.kind === DEED_KIND)
+}
+
+/**
+ * Every deed post owned by a loaded chunk overlapping the tile box, each once.
+ *
+ * Deed *centres*, not plots: the caller knows how far a plot reaches and widens
+ * the box by that much before asking. Nothing is generated to answer — a claim
+ * in a chunk we do not hold is a claim we cannot see, which is the same rule
+ * every other spatial query here follows.
+ */
+export function* deedsInBox(world: World, minX: number, minY: number, maxX: number, maxY: number): Generator<WorldPlacement> {
+  for (let cy = chunkCoord(minY); cy <= chunkCoord(maxY); cy++) {
+    for (let cx = chunkCoord(minX); cx <= chunkCoord(maxX); cx++) {
+      const chunk = world.chunks.get(chunkKey(cx, cy))
+      if (chunk) yield* chunk.deeds
+    }
+  }
 }
 
 /**
@@ -562,6 +605,7 @@ export function installChunk(world: World, incoming: Chunk): Chunk | undefined {
   for (const placement of chunk.placements) bucket(world, propFromPlacement(placement))
   adoptOverlapping(world, chunk)
   reindexRamparts(chunk)
+  reindexDeeds(chunk)
   return chunk
 }
 
@@ -634,6 +678,7 @@ export function applyPlace(world: World, placement: WorldPlacement): Chunk | und
   const owner = ensureChunk(world, chunkCoord(placement.x), chunkCoord(placement.y))
   if (!owner) return undefined
   owner.placements.push(placement)
+  if (placement.kind === DEED_KIND) owner.deeds.push(placement)
   bucket(world, propFromPlacement(placement))
   owner.version++
   return owner
@@ -645,7 +690,8 @@ export function applyRemove(world: World, id: string): Chunk | undefined {
   for (const chunk of world.chunks.values()) {
     const at = chunk.placements.findIndex(p => p.id === id)
     if (at < 0) continue
-    chunk.placements.splice(at, 1)
+    const [gone] = chunk.placements.splice(at, 1)
+    if (gone?.kind === DEED_KIND) reindexDeeds(chunk)
     const prop = chunk.props.find(p => p.id === id)
     if (prop) unbucket(world, prop)
     chunk.version++
@@ -861,6 +907,7 @@ export function decodeChunk(encoded: EncodedChunk): Chunk {
     props,
     cells: emptyCells(),
     ramparts: rampartIndex(props),
+    deeds: encoded.props.filter(p => p.kind === DEED_KIND),
     version: encoded.v,
   }
   reindexCells(chunk)

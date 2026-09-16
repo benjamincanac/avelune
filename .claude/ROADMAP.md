@@ -17,7 +17,8 @@
 - [x] Elevation bands: non-town placements carry `z` as base elevation, walk under a raised floor, stand on it, climb `Kit_Stairs`
 - [x] Persistence: Upstash Redis, one key per chunk, write-behind with CAS on `version`, drain on shutdown, in-memory store when unset; `scripts/world-admin.mjs`
 - [x] Tests: `pnpm test` runs world, rampart, terrain, building and chunk-store suites; `ws-test.mjs` covers streaming, terraform, felling, refusals; `spawn-bots.mjs --dig` load test (30 bots, ~1 ms average tick)
-- [ ] Ownership plots (`Kit_Deed`), Oracle sees nearby builds, building bots (plan phase 6)
+- [x] Deed plots: a `Kit_Deed` post claims a 16-tile square (`DEED_SIZE`, one per player) where only the owner terraforms, builds or clears wild growth; plot outlines on the ground and on the full map, refusals that name the owner
+- [ ] Oracle sees nearby builds, building bots (plan phase 6)
 
 ### Core loop & simulation
 - [x] Shared `/time dawn|day|sunset|night|auto` command, independent of weather and synchronized on join.

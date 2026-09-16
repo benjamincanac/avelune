@@ -1132,6 +1132,7 @@ const buildTools = props.editor
       templates: propTemplates,
       getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
       build,
+      owner: id => props.game.players.get(id),
     })
 
 /** Client-side echo of the server's edit budget, so a held mouse button can't

@@ -92,9 +92,10 @@ export interface WorldInfo {
 
 /** Messages the server sends to the client. */
 export type ServerMessage
-  /** `pieces` is how many pieces this identity owns in the whole world, which
-   *  only the server can count: a client holds twenty-five chunks of it. */
-  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number }
+  /** `pieces` is how many pieces this identity owns in the whole world, and
+   *  `deeds` how many plots they hold — only the server can count either: a
+   *  client holds twenty-five chunks of it. */
+  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number, deeds: number }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
@@ -112,12 +113,12 @@ export type ServerMessage
     /** Terrain delta: `edits` are `[cornerIndex, quantised height]` into the
      *  chunk's 33×33 heights, `surface` `[tileIndex, value]` into its raster. */
     | { t: 'terrain', cx: number, cy: number, v: number, edits: [number, number][], surface?: [number, number][] }
-    /** A piece was placed in a chunk the player holds. `pieces` rides only on
-     *  the copy sent to the player who asked for the edit, and is their new
-     *  owned total; every other viewer gets the frame without it. */
-    | { t: 'place', cx: number, cy: number, v: number, piece: WorldPlacement, pieces?: number }
-    /** A piece was removed from a chunk the player holds. `pieces` as above. */
-    | { t: 'remove', cx: number, cy: number, v: number, id: string, pieces?: number }
+    /** A piece was placed in a chunk the player holds. `pieces` and `deeds`
+     *  ride only on the copy sent to the player who asked for the edit, and are
+     *  their new totals; every other viewer gets the frame without them. */
+    | { t: 'place', cx: number, cy: number, v: number, piece: WorldPlacement, pieces?: number, deeds?: number }
+    /** A piece was removed from a chunk the player holds. Counters as above. */
+    | { t: 'remove', cx: number, cy: number, v: number, id: string, pieces?: number, deeds?: number }
     /** An edit request the server refused, sent only to the requester. */
     | { t: 'reject', reason: string }
     /** This identity connected from another tab/window and that newer socket

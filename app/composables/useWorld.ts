@@ -132,6 +132,7 @@ export function useWorld(): UseWorld {
     switch (msg.t) {
       case 'welcome':
         build.pieces.value = msg.pieces
+        build.deeds.value = msg.deeds
         persistent.value = msg.world.persistent
         realm.value = msg.world.realm
         return true
@@ -160,6 +161,7 @@ export function useWorld(): UseWorld {
         applyPlace(world, msg.piece)
         chunk.version = msg.v
         if (msg.pieces != null) build.pieces.value = msg.pieces
+        if (msg.deeds != null) build.deeds.value = msg.deeds
         emitAround(listeners.props, msg.piece)
         return true
       }
@@ -170,6 +172,7 @@ export function useWorld(): UseWorld {
         applyRemove(world, msg.id)
         chunk.version = msg.v
         if (msg.pieces != null) build.pieces.value = msg.pieces
+        if (msg.deeds != null) build.deeds.value = msg.deeds
         if (placement) emitAround(listeners.props, placement)
         else emit(listeners.props, msg.cx, msg.cy)
         return true

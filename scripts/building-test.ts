@@ -7,11 +7,11 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { PLAYER_SPEED, hitsRaisedPiece, stepBody, surfaceHeight, terrainHeight } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
-import { checkTerraform, overlappingPiece, resolveBuild, snapGridFor, supportHeight } from '../shared/utils/building'
+import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, overlappingPiece, plotBounds, plotOwner, refusalText, resolveBuild, snapGridFor, supportHeight } from '../shared/utils/building'
 import { propFromPlacement } from '../shared/utils/props'
 import { KIT_ASSETS } from '../shared/utils/kit'
 import { generateVegetation } from '../shared/utils/vegetation'
-import { CHUNK_SIZE, applyPlace, createWorld } from '../shared/utils/world'
+import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { worldTerrainHeight } from '../shared/utils/terrain'
 import { FORTIFICATIONS } from '../shared/utils/courtyard'
@@ -280,4 +280,129 @@ test('building stops at the end of the gate road, not a chunk later', () => {
   const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.exteriorMax - 2 }
   assert.equal(checkTerraform(world, { x: edge.x, y: edge.y, mode: 'raise', size: 1 }, edge).ok, true)
   assert.equal(checkTerraform(world, { x: edge.x - 1, y: edge.y, mode: 'raise', size: 3 }, edge).ok, false)
+})
+
+/* -------------------------------------------------------------------------- */
+/* Deed plots                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** A levelled chunk well clear of the town, so nothing here is protected. */
+function plotGround() {
+  const world = createWorld()
+  const centre = levelChunk(world, 8, 8)
+  return { world, ...centre }
+}
+
+/** Plant a deed the way the server would, through the shared rules. */
+function claim(world: World, owner: string, x: number, y: number, held = 0) {
+  const verdict = resolveBuild(world, { kind: 'Kit_Deed', x, y, rot: 0 }, { x, y, id: owner }, { owner, id: `deed-${owner}`, pieces: 0, deeds: held })
+  if (verdict.ok) applyPlace(world, verdict.placement)
+  return verdict
+}
+
+test('a deed claims the square around it', () => {
+  const { world, x, y } = plotGround()
+  const planted = claim(world, 'ana', x, y)
+  assert.ok(planted.ok, `the deed was refused: ${planted.ok === false && planted.reason}`)
+
+  const plot = plotBounds(planted.placement)
+  assert.equal(plot.maxX - plot.minX, DEED_SIZE)
+  assert.equal(plot.maxY - plot.minY, DEED_SIZE)
+  assert.equal(plotOwner(world, x, y), 'ana')
+  assert.equal(deedAt(world, x, y)?.id, planted.placement.id)
+  // The tile past the edge belongs to nobody.
+  assert.equal(plotOwner(world, plot.maxX, y), undefined)
+})
+
+test('a deed cannot be planted over another player s plot', () => {
+  const { world, x, y } = plotGround()
+  assert.ok(claim(world, 'ana', x, y).ok)
+
+  const overlapping = claim(world, 'bo', x + DEED_SIZE - 2, y)
+  assert.equal(overlapping.ok, false)
+  assert.equal(overlapping.ok === false && overlapping.claim, 'ana')
+  // The server turns the owner id into a name; nobody else gets one.
+  assert.equal(refusalText(overlapping as { reason: string, claim?: string }, () => 'Ana'), 'that plot belongs to Ana')
+  assert.equal(refusalText(overlapping as { reason: string, claim?: string }), 'that plot is claimed')
+
+  // One tile further and the plots only touch, which is allowed.
+  const clear = claim(world, 'bo', x + DEED_SIZE, y)
+  assert.ok(clear.ok, `two touching plots were refused: ${clear.ok === false && clear.reason}`)
+})
+
+test('a player may only hold DEED_LIMIT plots', () => {
+  const { world, x, y } = plotGround()
+  assert.ok(claim(world, 'ana', x, y).ok)
+  const second = claim(world, 'ana', x + DEED_SIZE * 2, y, 1)
+  assert.equal(second.ok, false)
+  assert.equal(second.ok === false && second.reason, 'you already hold a plot')
+})
+
+test('only the plot owner may edit inside it', () => {
+  const { world, x, y } = plotGround()
+  assert.ok(claim(world, 'ana', x, y).ok)
+
+  const inside = { x: x + 3, y: y + 3 }
+  const terraform = { x: inside.x, y: inside.y, mode: 'raise' as const, size: 1 as const }
+
+  assert.equal(checkTerraform(world, terraform, { ...inside, id: 'bo' }).ok, false)
+  assert.deepEqual(checkTerraform(world, terraform, { ...inside, id: 'bo' }), { ok: false, reason: 'that plot is claimed', claim: 'ana' })
+  assert.equal(checkTerraform(world, terraform, { ...inside, id: 'ana' }).ok, true)
+
+  const strangerBuild = resolveBuild(world, { kind: 'Kit_Crate', ...inside, rot: 0 }, { ...inside, id: 'bo' }, { owner: 'bo', id: 'b1', pieces: 0 })
+  assert.equal(strangerBuild.ok, false)
+  assert.equal(strangerBuild.ok === false && strangerBuild.claim, 'ana')
+
+  const ownBuild = resolveBuild(world, { kind: 'Kit_Crate', ...inside, rot: 0 }, { ...inside, id: 'ana' }, { owner: 'ana', id: 'a1', pieces: 1 })
+  assert.ok(ownBuild.ok, `the owner s own build was refused: ${ownBuild.ok === false && ownBuild.reason}`)
+  applyPlace(world, ownBuild.placement)
+
+  // ...and the same rule outside the plot, where nothing has changed.
+  const outside = { x: x + DEED_SIZE, y }
+  assert.equal(checkTerraform(world, { x: outside.x, y: outside.y, mode: 'raise', size: 1 }, { ...outside, id: 'bo' }).ok, true)
+})
+
+test('wild vegetation inside a plot is the owner s to clear', () => {
+  const { world, x, y } = plotGround()
+  assert.ok(claim(world, 'ana', x, y).ok)
+
+  // A generated tree carries no owner, so anyone may fell it — until it stands
+  // inside somebody s claim.
+  const tree = { id: 'wild:8:8:3', kind: 'tree1', x: x + 2, y: y + 2, rot: 0, scale: 1, z: 0 }
+  applyPlace(world, tree)
+
+  const stranger = checkDemolish(world, tree, { x: tree.x, y: tree.y, id: 'bo' }, 'bo')
+  assert.equal(stranger.ok, false)
+  assert.equal(stranger.ok === false && stranger.claim, 'ana')
+  assert.equal(checkDemolish(world, tree, { x: tree.x, y: tree.y, id: 'ana' }, 'ana').ok, true)
+
+  // The same tree a plot away is anyone s.
+  const wild = { ...tree, id: 'wild:8:8:4', x: x + DEED_SIZE + 2 }
+  applyPlace(world, wild)
+  assert.equal(checkDemolish(world, wild, { x: wild.x, y: wild.y, id: 'bo' }, 'bo').ok, true)
+})
+
+test('pulling the deed releases the plot and leaves the pieces', () => {
+  const { world, x, y } = plotGround()
+  const planted = claim(world, 'ana', x, y)
+  assert.ok(planted.ok)
+
+  const inside = { x: x + 3, y: y + 3 }
+  const crate = resolveBuild(world, { kind: 'Kit_Crate', ...inside, rot: 0 }, { ...inside, id: 'ana' }, { owner: 'ana', id: 'a1', pieces: 1 })
+  assert.ok(crate.ok)
+  applyPlace(world, crate.placement)
+
+  assert.equal(checkDemolish(world, planted.placement, { x, y, id: 'ana' }, 'ana').ok, true)
+  applyRemove(world, planted.placement.id)
+
+  assert.equal(plotOwner(world, x, y), undefined)
+  // The crate stayed where it was, and is still only Ana s to remove.
+  const chunk = world.getChunk(8, 8)!
+  assert.ok(chunk.placements.some(p => p.id === 'a1'))
+  assert.equal(chunk.deeds.length, 0)
+
+  // ...and a stranger can build here again.
+  const bo = { x: x + 6, y: y + 6 }
+  const after = resolveBuild(world, { kind: 'Kit_Crate', ...bo, rot: 0 }, { ...bo, id: 'bo' }, { owner: 'bo', id: 'b2', pieces: 0 })
+  assert.ok(after.ok, `a build on the released plot was refused: ${after.ok === false && after.reason}`)
 })

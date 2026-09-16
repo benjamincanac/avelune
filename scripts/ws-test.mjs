@@ -202,18 +202,21 @@ check('the grass beside the road is editable from spawn', !!beside, beside ? und
 // Walk A out into the open meadow. The road ends at 140 and everything past it
 // is buildable now, but the nearest wild piece is further out — A ends up
 // wedged against the first one, which is the one it fells below.
-const deadline = Date.now() + 30_000
-let previous = positionOf(a)
-while (Date.now() < deadline) {
-  const here = positionOf(a)
-  if (here.y >= 163.5) break
-  send(a, { t: 'move', ...noMove, forward: true, a: Math.PI / 2 })
-  if (Math.hypot(here.x - previous.x, here.y - previous.y) < 0.05) send(a, { t: 'action', kind: 'jump' })
-  previous = here
-  await sleep(250)
+async function walkOut(client) {
+  const deadline = Date.now() + 30_000
+  let previous = positionOf(client)
+  while (Date.now() < deadline) {
+    const here = positionOf(client)
+    if (here.y >= 163.5) break
+    send(client, { t: 'move', ...noMove, forward: true, a: Math.PI / 2 })
+    if (Math.hypot(here.x - previous.x, here.y - previous.y) < 0.05) send(client, { t: 'action', kind: 'jump' })
+    previous = here
+    await sleep(250)
+  }
+  send(client, { t: 'move', ...noMove, a: Math.PI / 2 })
+  return positionOf(client)
 }
-send(a, { t: 'move', ...noMove, a: Math.PI / 2 })
-const outside = positionOf(a)
+const outside = await walkOut(a)
 check('A reaches open ground outside the walls', outside.y >= 163.5, `(${outside.x.toFixed(1)}, ${outside.y.toFixed(1)})`)
 
 // Raising a corner out here reaches both clients, because B still holds the
@@ -303,6 +306,119 @@ if (built) {
   await sleep(250)
   const gone = a.frames.slice(aMark).find(f => f.t === 'remove')
   check('removing your own piece gives the budget back', gone?.id === built.mine.piece.id && gone?.pieces === 0, `pieces=${gone?.pieces}`)
+}
+
+/* -------------------------------------------------------------------------- */
+/* Deed plots                                                                 */
+/* -------------------------------------------------------------------------- */
+
+// A claim is only worth anything where somebody else can reach it, so B walks
+// out of the gate onto the same patch of meadow before A plants anything.
+const bOutside = await walkOut(b)
+check('B reaches the meadow beside A', bOutside.y >= 163.5, `(${bOutside.x.toFixed(1)}, ${bOutside.y.toFixed(1)})`)
+
+const aOutside = positionOf(a)
+let deed = null
+for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]]) {
+  const aMark = a.frames.length
+  send(a, { t: 'build', kind: 'Kit_Deed', x: Math.round(aOutside.x) + dx, y: Math.round(aOutside.y) + dy, rot: 0 })
+  await sleep(250)
+  const mine = a.frames.slice(aMark).find(f => f.t === 'place')
+  if (mine) {
+    deed = mine
+    break
+  }
+}
+check('A plants a deed outside the walls', !!deed, deed ? `${deed.piece.id} at (${deed.piece.x}, ${deed.piece.y})` : a.frames.findLast(f => f.t === 'reject')?.reason)
+
+if (deed) {
+  check('the place frame carries the new plot total', deed.deeds === 1, `deeds=${deed.deeds}`)
+  check('a deed counts against the piece budget like any piece', deed.pieces === 1, `pieces=${deed.pieces}`)
+
+  // The plot the server now holds, derived exactly as `plotBounds` does.
+  const tx = Math.floor(deed.piece.x)
+  const ty = Math.floor(deed.piece.y)
+  const plot = { minX: tx - 7, maxX: tx + 9, minY: ty - 7, maxY: ty + 9 }
+  const inPlot = (x, y) => x >= plot.minX && x < plot.maxX && y >= plot.minY && y < plot.maxY
+  /** Grid poses inside A's plot that `who` can still reach. */
+  const spots = (who) => {
+    const here = positionOf(who)
+    const out = []
+    for (let dy = -4; dy <= 4; dy += 2) {
+      for (let dx = -4; dx <= 4; dx += 2) {
+        const x = Math.round((here.x + dx) / 2) * 2
+        const y = Math.round((here.y + dy) / 2) * 2
+        if (!inPlot(x, y) || Math.hypot(x - here.x, y - here.y) > 5) continue
+        if (!out.some(p => p.x === x && p.y === y)) out.push({ x, y })
+      }
+    }
+    return out
+  }
+
+  // B builds inside the claim: refused, and refused by name.
+  let denied = null
+  let strayed = null
+  for (const spot of spots(b)) {
+    const bMark = b.frames.length
+    send(b, { t: 'build', kind: 'Kit_Crate', x: spot.x, y: spot.y, rot: 0 })
+    await sleep(250)
+    const placed = b.frames.slice(bMark).find(f => f.t === 'place')
+    if (placed) {
+      strayed = placed
+      break
+    }
+    const reason = b.frames.slice(bMark).findLast(f => f.t === 'reject')?.reason
+    if (reason?.startsWith('that plot')) {
+      denied = { spot, reason }
+      break
+    }
+  }
+  check('B cannot build inside A\'s plot', !strayed && !!denied, strayed ? `B placed ${strayed.piece.id}` : denied?.reason ?? 'no candidate spot was reachable')
+  check('the refusal names the plot owner', denied?.reason === 'that plot belongs to TestA', denied?.reason)
+  if (strayed) {
+    send(b, { t: 'demolish', id: strayed.piece.id })
+    await sleep(250)
+  }
+
+  // A builds on their own doorstep: allowed.
+  let own = null
+  for (const spot of spots(a)) {
+    const aMark = a.frames.length
+    send(a, { t: 'build', kind: 'Kit_Crate', x: spot.x, y: spot.y, rot: 0 })
+    await sleep(250)
+    const mine = a.frames.slice(aMark).find(f => f.t === 'place')
+    if (mine) {
+      own = mine
+      break
+    }
+  }
+  check('A builds inside their own plot', !!own, own ? own.piece.id : a.frames.findLast(f => f.t === 'reject')?.reason)
+
+  // Pulling the deed releases the claim. Nothing inside it moves.
+  const aMark = a.frames.length
+  send(a, { t: 'demolish', id: deed.piece.id })
+  await sleep(250)
+  const released = a.frames.slice(aMark).find(f => f.t === 'remove' && f.id === deed.piece.id)
+  check('A releases the plot by pulling the deed', !!released, JSON.stringify(released))
+  check('releasing the plot gives the claim back', released?.deeds === 0, `deeds=${released?.deeds}`)
+
+  if (denied) {
+    const bMark = b.frames.length
+    send(b, { t: 'build', kind: 'Kit_Crate', x: denied.spot.x, y: denied.spot.y, rot: 0 })
+    await sleep(250)
+    const now = b.frames.slice(bMark).find(f => f.t === 'place')
+    check('B can build there once the plot is released', !!now, now ? now.piece.id : b.frames.slice(bMark).findLast(f => f.t === 'reject')?.reason)
+    if (now) {
+      send(b, { t: 'demolish', id: now.piece.id })
+      await sleep(250)
+    }
+  }
+  if (own) {
+    send(a, { t: 'demolish', id: own.piece.id })
+    await sleep(250)
+  }
+  const leftover = a.frames.findLast(f => f.t === 'remove' && f.pieces !== undefined)
+  check('the meadow is left as it was found', leftover?.pieces === 0, `A owns ${leftover?.pieces} pieces`)
 }
 
 // Anything but a tool the server knows is refused outright.
