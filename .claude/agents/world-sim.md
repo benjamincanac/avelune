@@ -110,11 +110,25 @@ independently.
    chunk, so an unloaded chunk reads as void rather than a hole to fall through.
    `isWalkable` blocks the world edge, missing chunks, and any tile whose local
    gradient exceeds `SLOPE_MAX` (1.2 per tile) — that is how cliffs work.
-   **Every spatial query reads at most the 3×3 chunk neighbourhood**
-   (`propsNear`); nothing may scan a flat list of the world's props again. Props
-   are bucketed into every chunk their footprint overlaps, so a 78-tile gallery
-   run is never missed and may be yielded twice — every consumer takes a max or
-   an OR, which makes that harmless.
+   **Every spatial query goes through the per-chunk cell index.** Props are
+   bucketed into every chunk the square `prop.r` in each direction around them
+   reaches (so a 78-tile gallery run is never missed), and inside each chunk into
+   `chunk.cells`: 16 buckets of `CELL_SIZE` (8) tiles, one entry per cell that
+   same square covers. `propsInBox(world, minX, minY, maxX, maxY)` in `world.ts`
+   is the single primitive — it reads only the cells the box covers and stamps
+   each spec (`PropSpec.mark`) so a prop comes back once per query.
+   `propsNear(world, x, y, r)` in `maze.ts` is that box plus the old
+   `hypot <= prop.r + r` disc test, and `overlappingPiece` / `pieceOverBrush` in
+   `building.ts` call `propsInBox` with their own AABB. Nothing may scan a flat
+   list of the world's props, or a whole chunk's `props`, in a physics path
+   again: `chunk.props` stays the per-chunk list for renderers, the minimap
+   raster and the tests. Cells are derived index state like `props` and
+   `ramparts` — they move no version, are never persisted or sent, and are
+   maintained wherever `chunk.props` is (`bucket`, `unbucket`,
+   `adoptOverlapping`, `withdrawLent`, `installChunk`, `decodeChunk`). That
+   index is what took `stepBody` from 1.18 ms to 0.35 ms per tick for 12 bodies
+   among 400 kit pieces (`scripts/bench-step.ts`), and it is why the cost no
+   longer tracks how built-up the neighbourhood is.
 4. **The town is a protected footprint, not a chunk band.**
    `PROTECTED_FOOTPRINT` in `world.ts` hugs the geometry: the moat's outer
    square plus a 1-tile `TOWN_MARGIN` (`[22, 121]`), the bank stair with the

@@ -57,15 +57,26 @@ WORLD.generate = false
 
 /** Chunks streamed around a player: the 5×5 they stand in. */
 const LOAD_RADIUS = 2
+/** The ring that goes out on the spot: the 3×3 a player is standing in or can
+ *  step into before the next tick. A late chunk two away is scenery; a late
+ *  chunk underfoot is a hole. */
+const URGENT_RADIUS = 1
 /** ...dropped once they are further than this, so a player pacing over a chunk
  *  border doesn't re-download the same ring every few seconds. */
 const DROP_RADIUS = 4
+/** Chunks one session is handed per tick from its queue. A welcome's outer
+ *  ring is 16 chunks, so it lands within six ticks — a third of a second —
+ *  without any single tick paying for the whole neighbourhood. */
+const CHUNKS_PER_TICK = 3
 
 /** Whatever `game.ts` calls a session, seen through the streaming contract.
  *  Kept structural so this module never imports the game loop back. */
 export interface ChunkViewer {
   /** Chunk keys this socket currently holds. */
   chunks: Set<string>
+  /** Chunk keys owed to this socket, nearest first. Insertion order is ring
+   *  order, which is what makes a `Set` the queue. */
+  pending: Set<string>
   /** Chunk coordinate at the last sync; NaN before the first one. */
   chunkCx: number
   chunkCy: number
@@ -489,9 +500,16 @@ function chunkFrame(chunk: Chunk): string {
 /**
  * Bring a session's loaded set in line with where its player is standing.
  *
- * Sends the 3×3 around them before the surrounding ring — a late chunk two
- * away is scenery, a late chunk underfoot is a hole — and drops anything past
- * `DROP_RADIUS`. Returns whether anything moved, so the caller can log it.
+ * Only the 3×3 around them goes out on this call: that is the ground they
+ * stand on and the ground they can step onto before the next tick, and a late
+ * chunk underfoot is a hole. The surrounding ring is scenery, so it is queued
+ * on the session and drained a few chunks per tick, so the one piece of
+ * per-join work that grows with how built-up a neighbourhood is never lands on
+ * one tick. The store read is still issued for the whole 5×5 right here,
+ * one `MGET`, so the ring is resident by the time the queue reaches it.
+ *
+ * Anything past `DROP_RADIUS` is dropped. Returns whether anything moved, so
+ * the caller can log it.
  */
 export function syncChunks(viewer: ChunkViewer, x: number, y: number, force = false): boolean {
   const cx = chunkCoord(x)
@@ -500,28 +518,40 @@ export function syncChunks(viewer: ChunkViewer, x: number, y: number, force = fa
   viewer.chunkCx = cx
   viewer.chunkCy = cy
 
-  const missing: [number, number][] = []
+  const urgent: [number, number][] = []
+  const later: [number, number][] = []
   for (let ring = 0; ring <= LOAD_RADIUS; ring++) {
     for (let dy = -ring; dy <= ring; dy++) {
       for (let dx = -ring; dx <= ring; dx++) {
         // Only the outermost row/column of this ring; the inner ones went out
         // on the previous pass.
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
-        const key = chunkKey(cx + dx, cy + dy)
+        const kx = cx + dx
+        const ky = cy + dy
+        if (!isChunkInBounds(kx, ky)) continue
+        const key = chunkKey(kx, ky)
         if (viewer.chunks.has(key)) continue
-        const chunk = residentChunk(cx + dx, cy + dy)
-        if (!chunk) {
-          // Still in the store. `missing` stays in ring order, so the ground
-          // underfoot goes out ahead of the scenery when the read lands.
-          if (isChunkInBounds(cx + dx, cy + dy)) missing.push([cx + dx, cy + dy])
+        if (ring > URGENT_RADIUS) {
+          // Ring order is insertion order, so the queue drains nearest first.
+          viewer.pending.add(key)
+          if (!loaded.has(key)) later.push([kx, ky])
           continue
         }
+        const chunk = residentChunk(kx, ky)
+        if (!chunk) {
+          // Still in the store. `urgent` stays in ring order, so the ground
+          // underfoot goes out ahead of the rest when the read lands.
+          urgent.push([kx, ky])
+          continue
+        }
+        viewer.pending.delete(key)
         viewer.chunks.add(key)
         viewer.send(chunkFrame(chunk))
       }
     }
   }
-  if (missing.length) void loadChunks(missing).then(() => sendLoaded(viewer, missing))
+  if (urgent.length) void loadChunks(urgent).then(() => sendLoaded(viewer, urgent))
+  if (later.length) void loadChunks(later)
 
   for (const key of viewer.chunks) {
     const [kx, ky] = key.split(',')
@@ -552,10 +582,51 @@ function sendLoaded(viewer: ChunkViewer, coords: readonly (readonly [number, num
   }
 }
 
+/**
+ * Hand a session the next few chunks it is owed, and no more.
+ *
+ * Called once per session per tick. The budget is the whole point: a welcome
+ * owes 16 chunks of scenery beyond the ground underfoot, and encoding and
+ * sending them is the only per-join cost that grows with the number of pieces
+ * standing in them. Paying it a few chunks at a time puts a ceiling on it.
+ *
+ * A queued chunk the player has walked away from is dropped rather than sent —
+ * the distance test is written so that a released viewer, whose last chunk is
+ * NaN, matches nothing. One that is still in the store stays queued and costs a
+ * map lookup a tick; `retry` (once a second from the tick) re-issues the read
+ * for those, which is what recovers a neighbourhood whose first read failed.
+ */
+export function drainChunkQueue(viewer: ChunkViewer, retry = false) {
+  if (!viewer.pending.size) return
+  let sent = 0
+  let stalled: [number, number][] | undefined
+  for (const key of viewer.pending) {
+    if (sent >= CHUNKS_PER_TICK) break
+    const comma = key.indexOf(',')
+    const kx = Number(key.slice(0, comma))
+    const ky = Number(key.slice(comma + 1))
+    if (viewer.chunks.has(key) || !(Math.max(Math.abs(kx - viewer.chunkCx), Math.abs(ky - viewer.chunkCy)) <= LOAD_RADIUS)) {
+      viewer.pending.delete(key)
+      continue
+    }
+    const chunk = residentChunk(kx, ky)
+    if (!chunk) {
+      if (retry && !loading.has(key)) (stalled ??= []).push([kx, ky])
+      continue
+    }
+    viewer.pending.delete(key)
+    viewer.chunks.add(key)
+    viewer.send(chunkFrame(chunk))
+    sent++
+  }
+  if (stalled) void loadChunks(stalled)
+}
+
 /** A session is gone: forget what it held, and make sure no store read still in
  *  flight tries to hand it a chunk. */
 export function releaseViewer(viewer: ChunkViewer) {
   viewer.chunks.clear()
+  viewer.pending.clear()
   viewer.chunkCx = Number.NaN
   viewer.chunkCy = Number.NaN
 }

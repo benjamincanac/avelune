@@ -20,8 +20,8 @@ import type { KitKind } from './kit'
 import {
   WORLD_TILE_MAX,
   WORLD_TILE_MIN,
-  chunkCoord,
   isProtectedTile,
+  propsInBox,
 } from './world'
 import type { SurfaceType, TerraformMode, World } from './world'
 
@@ -127,24 +127,6 @@ function propSpan(prop: PropSpec): { lo: number, hi: number } {
   return { lo, hi: lo + Math.max(prop.height, 0.1) }
 }
 
-/** Props from the 3×3 chunk neighbourhood around a point, each at most once. */
-function* propsAround(world: World, x: number, y: number): Generator<PropSpec> {
-  const cx0 = chunkCoord(x)
-  const cy0 = chunkCoord(y)
-  const seen = new Set<PropSpec>()
-  for (let cy = cy0 - 1; cy <= cy0 + 1; cy++) {
-    for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
-      const chunk = world.getChunk(cx, cy)
-      if (!chunk) continue
-      for (const prop of chunk.props) {
-        if (seen.has(prop)) continue
-        seen.add(prop)
-        yield prop
-      }
-    }
-  }
-}
-
 const OVERLAP_EPSILON = 0.02
 
 /**
@@ -159,7 +141,9 @@ export function overlappingPiece(world: World, candidate: PropSpec): PropSpec | 
   if (!isSolidProp(candidate.kind)) return null
   const a = propBounds(candidate)
   const av = propSpan(candidate)
-  for (const prop of propsAround(world, candidate.x, candidate.y)) {
+  // The cell index over the candidate's own AABB: every piece whose footprint
+  // could touch it is in there, and the exact tests below throw the rest away.
+  for (const prop of propsInBox(world, a.minX, a.minY, a.maxX, a.maxY)) {
     if (prop.id === candidate.id || !isSolidProp(prop.kind)) continue
     const b = propBounds(prop)
     if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
@@ -220,7 +204,7 @@ export function brushExtent(gx: number, gy: number, size: 1 | 2 | 3) {
  *  from under a building. Any placement counts, generated trees included. */
 export function pieceOverBrush(world: World, gx: number, gy: number, size: 1 | 2 | 3): PropSpec | null {
   const e = brushExtent(gx, gy, size)
-  for (const prop of propsAround(world, gx, gy)) {
+  for (const prop of propsInBox(world, e.minX, e.minY, e.maxX + 1, e.maxY + 1)) {
     const b = propBounds(prop)
     if (b.maxX <= e.minX || b.minX >= e.maxX + 1 || b.maxY <= e.minY || b.minY >= e.maxY + 1) continue
     return prop

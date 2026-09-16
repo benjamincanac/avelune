@@ -14,6 +14,7 @@ import { EDITS_PER_SECOND, checkDemolish, checkTerraform, resolveBuild } from '#
 import {
   WORLD,
   broadcastToChunk,
+  drainChunkQueue,
   findPlacement,
   flushDirtyChunks,
   forgetPlacement,
@@ -81,8 +82,10 @@ interface Session {
   lastSeen: number
   /** A greeting composed on join, spoken when they step through the gate. */
   greeting?: Promise<string | null>
-  /** Chunk keys this socket holds, and the chunk it last synced around. */
+  /** Chunk keys this socket holds, the ones still owed to it, and the chunk it
+   *  last synced around. */
   chunks: Set<string>
+  pending: Set<string>
   chunkCx: number
   chunkCy: number
   /** Edit budget: a token bucket refilled at `EDITS_PER_SECOND`. */
@@ -123,6 +126,13 @@ function tick() {
 
   for (const session of sessions.values()) {
     const { player, input } = session
+
+    // Whatever else happens this tick, this session gets the next few chunks
+    // it is owed, a handful at a time, so no one tick pays for a whole
+    // neighbourhood.
+    // Once a second the drain also re-asks the store for anything still
+    // missing, which is how a failed read recovers.
+    drainChunkQueue(session, tickCount % RESYNC_EVERY === 0)
 
     let drive = (input.forward ? 1 : 0) - (input.back ? 1 : 0)
     const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0)
@@ -507,6 +517,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     joinedAt: Date.now(),
     lastSeen: Date.now(),
     chunks: new Set(),
+    pending: new Set(),
     chunkCx: Number.NaN,
     chunkCy: Number.NaN,
     editTokens: EDITS_PER_SECOND,

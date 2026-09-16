@@ -26,7 +26,7 @@ bytes between it and clients.
   `loadChunk`/`loadChunks` (read the store, else generate terrain and seed
   `generateVegetation` once), the dirty set with its `flushDirtyChunks`
   write-behind, the id→chunk placement index, and the streaming (`syncChunks`,
-  `broadcastToChunk`, `terrainDeltas`). It never imports `game.ts`: sessions
+  the per-session `drainChunkQueue`, `broadcastToChunk`, `terrainDeltas`). It never imports `game.ts`: sessions
   reach it through the structural `ChunkViewer` interface, and `releaseViewer`
   on disconnect stops an in-flight load from sending to a dead socket.
 - `server/utils/chunkStore.ts` — where chunks live between visits, behind one
@@ -125,9 +125,18 @@ bytes between it and clients.
    ids. Never a dirty chunk, never a town chunk (`isTownChunk` — its authored
    pieces came from `seedTown`, not the store), never one whose load is in
    flight.
-   **Interest management is per session.** Each session carries the chunk keys
-   it holds; `syncChunks` sends the 5×5 around it and `unchunk`s past distance 4,
-   on welcome and on every chunk-border crossing in the tick. An edit is
+   **Interest management is per session, and the stream is budgeted.** Each
+   session carries the chunk keys it holds and a `pending` queue of the ones it
+   is still owed. `syncChunks` runs on welcome and on every chunk-border
+   crossing in the tick, and `unchunk`s past distance 4. It sends the 3×3
+   inline, because a player has to stand on loaded ground, and queues the outer
+   ring in ring order for `drainChunkQueue`, which the tick hands every session
+   `CHUNKS_PER_TICK` chunks from before it steps their body. The store read
+   still covers the whole 5×5 in the one `MGET` `syncChunks` issues, so the ring
+   is resident by the time the queue reaches it; only the encode and the send
+   are rationed. Once a second the drain re-asks for queued chunks that are
+   still missing, which is how a neighbourhood recovers from a failed read. An
+   edit is
    broadcast only to the sessions holding the chunk it landed in, and `state`
    only names players within `STATE_RANGE` (192 tiles — the town exterior is 136
    a side, so a smaller range let two players inside the walls stop seeing each
@@ -226,10 +235,25 @@ only an index rebuild.
   `wipe --from cx,cy --to cx,cy`, `reset --yes`). It loads the server's own store module rather than a second
   implementation of the same keys, and refuses to run without Redis.
 - Load-test with `pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:<port>
-  --count 30 --dig` — through jiti, because the bots now stream chunks into a
-  real client-side `World` and the shared modules use extensionless imports node
-  cannot resolve. `AVELUNE_TICK_LOG=1` on the server prints tick avg/max every
-  5 seconds; 30 digging bots sit around 1 ms average.
+  --count 30 --dig` — through jiti, because the bots stream chunks into a real
+  client-side `World` and the shared modules use extensionless imports node
+  cannot resolve. That world is kept in step from `chunk`/`terrain`/`place`/
+  `remove` with the same shared `apply*` calls a browser makes, which is what
+  lets a bot run `checkTerraform`/`resolveBuild` itself and only send poses the
+  server will accept. `--build` (composable with `--dig`, plans in
+  `scripts/bot-build.mjs`) gives each bot a 12-tile-pitch plot in the meadow
+  south of the gate, where it clears the wild vegetation, flattens the ground,
+  raises a two-storey kit cottage or a fenced paddock, paves a path back to the
+  road, then settles in to wander, dig and occasionally rebuild a piece. A
+  summary prints every 5 s and again at Ctrl-C. `AVELUNE_TICK_LOG=1` on the
+  server prints tick avg/max every 5 seconds: 30 digging bots sit around 1 ms
+  average, 12 building ones around 3 ms. What that budget actually goes on is
+  `stepBody`: with 12 bots standing in ~350 kit pieces, every tick over 6 ms
+  measured is physics, and streaming a welcome never showed up in one. A
+  welcome's chunk encoding is around 30 µs per chunk (17 µs of heights and
+  surface base64, 10 µs of placement JSON at ~33 pieces), so the whole 5×5 is
+  under a millisecond. If a join ever does cost a tick, suspect collision
+  before you suspect `syncChunks`.
 
 ## Retired character identities
 `verifyToken` validates the stored character against the active roster. Unknown

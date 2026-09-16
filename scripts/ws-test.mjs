@@ -26,13 +26,18 @@ async function auth(label) {
 function connect(label, cookie) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL, { headers: { cookie } })
-    const client = { ws, label, cookie, welcome: null, frames: [] }
+    // `times` runs alongside `frames`: the streaming budget spreads a
+    // neighbourhood over several ticks, so when a frame arrived is as much a
+    // part of the contract as whether it did.
+    const client = { ws, label, cookie, welcome: null, frames: [], times: [], t0: 0 }
     const timeout = setTimeout(() => reject(new Error(`${label}: no welcome`)), 5000)
     ws.addEventListener('message', (event) => {
       const msg = JSON.parse(event.data)
       client.frames.push(msg)
+      client.times.push(performance.now())
       if (msg.t === 'welcome') {
         client.welcome = msg
+        client.t0 = performance.now()
         clearTimeout(timeout)
         resolve(client)
       }
@@ -79,23 +84,32 @@ const b = await connect('B', await auth('B'))
 check('welcome includes other player character', b.welcome.players.find(p => p.id === self.id)?.character === characters.A)
 await sleep(100)
 check('join includes new player character', a.frames.find(f => f.t === 'join' && f.player.id === b.welcome.self.id)?.player.character === characters.B)
-// The ground arrives before anyone can be standing on it: the 5×5 around the
-// spawn chunk is on the wire before the first `state` frame.
+// The ground a player stands on arrives before anyone can be standing on it:
+// the 3×3 around the spawn chunk is on the wire before the first `state`
+// frame. The ring beyond it is scenery, drained a few chunks per tick so that
+// no single tick pays for a whole neighbourhood — it only has to land soon.
+await sleep(900)
 const spawnChunk = { cx: Math.floor(self.x / 32), cy: Math.floor(self.y / 32) }
 const chunkAt = new Map()
 a.frames.forEach((f, i) => f.t === 'chunk' && chunkAt.set(`${f.cx},${f.cy}`, i))
 let missing = 0
-let lastChunk = -1
+let lastInner = -1
+let lastArrival = 0
 for (let dy = -2; dy <= 2; dy++) {
   for (let dx = -2; dx <= 2; dx++) {
     const at = chunkAt.get(`${spawnChunk.cx + dx},${spawnChunk.cy + dy}`)
-    if (at === undefined) missing++
-    else lastChunk = Math.max(lastChunk, at)
+    if (at === undefined) {
+      missing++
+      continue
+    }
+    lastArrival = Math.max(lastArrival, a.times[at] - a.t0)
+    if (Math.max(Math.abs(dx), Math.abs(dy)) <= 1) lastInner = Math.max(lastInner, at)
   }
 }
 const firstState = a.frames.findIndex(f => f.t === 'state')
 check('spawn neighbourhood streams on welcome', missing === 0, `${25 - missing}/25 chunks`)
-check('chunks arrive before the first state', firstState === -1 || lastChunk < firstState, `chunks ≤ ${lastChunk}, state ${firstState}`)
+check('the chunks underfoot arrive before the first state', firstState === -1 || lastInner < firstState, `3×3 ≤ ${lastInner}, state ${firstState}`)
+check('the rest of the neighbourhood follows within a second', lastArrival < 1000, `5×5 complete after ${lastArrival.toFixed(0)}ms`)
 const sample = a.frames.find(f => f.t === 'chunk')
 check(
   'chunk frames carry encoded terrain',

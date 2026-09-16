@@ -1,4 +1,5 @@
-// Spawn wandering bot players against a running Avelune server (local or prod).
+// Spawn wandering bot players against a running Avelune server (local only —
+// never point these at production).
 //
 // Each bot mints a signed identity cookie via `POST /api/auth` (the same path
 // the onboarding flow uses), then opens an authenticated WebSocket to
@@ -9,24 +10,37 @@
 //
 // Usage (through jiti: this pulls in the shared modules, which use extensionless
 // imports node cannot resolve on its own):
-//   pnpm exec jiti scripts/spawn-bots.mjs [--url <base>] [--count N] [--radius R] [--chat] [--dig]
+//   pnpm exec jiti scripts/spawn-bots.mjs [--url <base>] [--count N] [--radius R] [--chat] [--dig] [--build]
 //
 // Each bot keeps its own streamed `World`: it builds nothing locally, it just
-// installs the `chunk` frames the server sends and reads walkability out of
-// them, exactly as a browser does. `--dig` walks them out past the town's
-// protected footprint and has them terraform the meadow, which is what puts the
-// tick loop under an edit load.
+// installs the `chunk` frames the server sends and mirrors every `terrain` /
+// `place` / `remove` frame with the shared `apply*` functions, exactly as a
+// browser does. That is load-bearing for `--build`: `resolveBuild` is run
+// client-side to pick poses the server will accept, and it can only see another
+// bot's wall if that bot's `place` frame went into this bot's world.
+//
+// `--dig` walks them out past the town's protected footprint and has them
+// terraform the meadow. `--build` sends each bot to its own plot in the same
+// meadow to flatten the ground and raise a two-storey cottage (or a fenced
+// paddock) out of the build kit, then pave a path back to the gate road. The
+// two compose: a building bot digs once it has finished and settled in.
+//
+// Edits are paced ~150 ms apart, just under the server's `EDITS_PER_SECOND`
+// bucket, and a `reject` is attributed to the most recent edit — with one edit
+// in flight at a time that is accurate enough for the summary, and no edit is
+// ever retried at the same pose.
 //
 // Examples:
-//   pnpm exec jiti scripts/spawn-bots.mjs                     # 3 bots on prod
-//   pnpm exec jiti scripts/spawn-bots.mjs --count 8           # 8 bots on prod
-//   pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:50889 --count 5 --dig
+//   pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:3000 --count 8
+//   pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:50889 --count 12 --build --dig
 //
-// Ctrl-C for a clean shutdown (closes every socket).
+// Ctrl-C for a clean shutdown (closes every socket) and a final total.
 
 import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '../shared/utils/characters.ts'
 import { isWalkable } from '../shared/utils/maze.ts'
-import { applyPlace, applyRemove, chunkKey, createWorld, decodeChunk, installChunk, isProtectedTile, removeChunk } from '../shared/utils/world.ts'
+import { MAX_PIECES_PER_PLAYER, checkTerraform, resolveBuild } from '../shared/utils/building.ts'
+import { applyPlace, applyRemove, chunkCoord, chunkKey, createWorld, decodeChunk, installChunk, isProtectedTile, removeChunk } from '../shared/utils/world.ts'
+import { fencePlan, housePlan, levelPlan, paveOp, plotBounds, plotCentre, plotFor } from './bot-build.mjs'
 
 /* ------------------------------- args --------------------------------- */
 
@@ -38,18 +52,27 @@ function flag(name, fallback) {
   return next && !next.startsWith('--') ? next : true
 }
 
-const BASE = String(flag('url', 'https://avelune-online.vercel.app')).replace(/\/$/, '')
+const BASE = String(flag('url', 'http://localhost:3000')).replace(/\/$/, '')
 const WS_URL = BASE.replace(/^http/, 'ws') + '/api/ws'
 const COUNT = Math.max(1, Number(flag('count', 3)) || 3)
 const RADIUS = Number(flag('radius', 5)) || 5 // wander radius around spawn (tiles)
 const CHAT = flag('chat', false) === true
 const DIG = flag('dig', false) === true
+const BUILD = flag('build', false) === true
 /** Where digging bots head for: the open meadow that starts as soon as the gate
  *  road ends. Protection is a tile footprint, so this is a few tiles past 140,
  *  not a chunk band away. */
 const MEADOW_Y = 150
 /** ms between terraform requests — well under the server's 8 per second. */
 const DIG_EVERY = 1200
+/** ms between build/terraform requests from the edit pump. `EDITS_PER_SECOND`
+ *  is 8, so this leaves headroom for a settled bot's digging on top. */
+const EDIT_EVERY = 150
+/** The mouth of the gate road: where a paved path from a plot rejoins the town.
+ *  y 140 is the first buildable tile, so paving stops a tile short of it. */
+const ROAD = { x: 72, y: 142 }
+/** Stop building this far short of the budget, so a rebuild always fits. */
+const PIECE_HEADROOM = 8
 
 const rand = (min, max) => min + Math.random() * (max - min)
 const pick = arr => arr[Math.floor(Math.random() * arr.length)]
@@ -65,6 +88,21 @@ function randomWaypoint(world, cx, cy, r) {
     if (isWalkable(world, Math.floor(x), Math.floor(y))) return { x, y }
   }
   return null
+}
+
+/* ------------------------------ stats --------------------------------- */
+
+/** Reject reasons, world-wide, so the summary can name the top few. */
+const rejectReasons = new Map()
+function noteReject(reason) {
+  rejectReasons.set(reason, (rejectReasons.get(reason) ?? 0) + 1)
+}
+function topReasons(n = 3) {
+  return [...rejectReasons.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([reason, count]) => `${reason} ×${count}`)
+    .join(', ')
 }
 
 /* --------------------------- bot appearance --------------------------- */
@@ -110,11 +148,29 @@ class Bot {
     this.timers = []
     // A real client never generates the world: it starts empty and is filled by
     // the `chunk` frames the server streams. Bots do the same, so their
-    // walkability checks see exactly what a browser would.
+    // walkability checks — and, when building, their `resolveBuild` previews —
+    // see exactly what a browser would.
     this.world = createWorld({ generate: false, town: false })
-    this.trekking = DIG // heading for the meadow before it can dig
     this.edits = 0
     this.refused = 0
+
+    // --- building ---
+    this.plot = plotFor(n)
+    this.fencer = BUILD && n % 3 === 2
+    this.phase = BUILD ? 'trek' : DIG ? 'dig-trek' : 'settle'
+    this.route = []
+    this.plan = []
+    this.planAt = 0
+    this.pieces = 0 // owned pieces world-wide, from welcome/place/remove
+    this.mine = new Map() // placement id -> the op that built it, for rebuilds
+    this.placed = 0
+    this.buildRefused = 0
+    this.terraformSent = 0
+    this.terraformRefused = 0
+    this.demolished = 0
+    this.lastEditKind = null // what the next `reject` most likely answers
+    this.sentBuilds = [] // build ops awaiting their `place` frame, in order
+    this.waits = 0 // pump ticks spent waiting on ground that isn't here yet
   }
 
   async auth() {
@@ -146,8 +202,9 @@ class Bot {
         this.id = m.self.id
         this.pos = { x: m.self.x, y: m.self.y }
         this.home = { x: m.self.x, y: m.self.y }
+        this.pieces = m.pieces ?? 0
         alive++
-        console.log(`[${this.name}] welcome — ${m.players.length} in world`)
+        console.log(`[${this.name}#${this.n}] welcome — ${m.players.length} in world${BUILD ? `, plot ${this.plot.x},${this.plot.y}` : ''}`)
         this.startBehavior()
       }
       else if (m.t === 'state') {
@@ -158,12 +215,30 @@ class Bot {
       else if (m.t === 'unchunk') removeChunk(this.world, m.cx, m.cy)
       else if (m.t === 'terrain') this.applyTerrainFrame(m)
       else if (m.t === 'place') {
+        // Mirror every placement, ours and everyone else's: `resolveBuild` reads
+        // this world to decide where a piece fits, so a neighbour's wall has to
+        // be in it or we would aim at an occupied cell and be refused.
         if (this.world.chunks.has(chunkKey(m.cx, m.cy))) applyPlace(this.world, m.piece)
+        if (m.piece.owner === this.id) {
+          this.placed++
+          const op = this.sentBuilds.shift()
+          if (op) this.mine.set(m.piece.id, op)
+        }
+        if (m.pieces != null) this.pieces = m.pieces
       }
-      else if (m.t === 'remove') applyRemove(this.world, m.id)
-      else if (m.t === 'reject') this.refused++
+      else if (m.t === 'remove') {
+        applyRemove(this.world, m.id)
+        this.mine.delete(m.id)
+        if (m.pieces != null) this.pieces = m.pieces
+      }
+      else if (m.t === 'reject') {
+        this.refused++
+        noteReject(m.reason)
+        if (this.lastEditKind === 'terraform') this.terraformRefused++
+        else if (this.lastEditKind === 'build') this.buildRefused++
+      }
       else if (m.t === 'kicked') {
-        console.log(`[${this.name}] kicked: ${m.reason}`)
+        console.log(`[${this.name}#${this.n}] kicked: ${m.reason}`)
         this.close()
       }
     })
@@ -175,7 +250,7 @@ class Bot {
         this.started = false
       }
       if (this.closed) return
-      console.log(`[${this.name}] socket closed (code ${e.code}) — reconnecting in 2s`)
+      console.log(`[${this.name}#${this.n}] socket closed (code ${e.code}) — reconnecting in 2s`)
       setTimeout(() => !this.closed && this.connect(), 2000)
     })
     ws.addEventListener('error', () => { /* close fires next */ })
@@ -194,7 +269,14 @@ class Bot {
   startBehavior() {
     if (this.started) return
     this.started = true
+    if (BUILD) {
+      // Down the road first, then across the meadow: a straight line from spawn
+      // would try to walk the moat.
+      this.route = [{ x: ROAD.x, y: 143 }, plotCentre(this.plot)]
+      this.plan = [...levelPlan(this.plot), ...(this.fencer ? fencePlan(this.plot) : housePlan(this.plot))]
+    }
     this.timers.push(setInterval(() => this.wander(), TICK))
+    if (BUILD) this.timers.push(setInterval(() => this.editPump(), EDIT_EVERY))
     if (DIG) this.timers.push(setInterval(() => this.dig(), DIG_EVERY))
     // Keep-alive ping so idle proxies don't reap the socket.
     this.timers.push(setInterval(() => this.send({ t: 'ping' }), 10_000))
@@ -203,25 +285,66 @@ class Bot {
     }, 8_000))
   }
 
-  // One navigation decision: head for the current waypoint, pick a new one once
-  // we arrive (or after idling), and hop/dash now and then for signs of life.
+  /* ----------------------------- navigation --------------------------- */
+
   wander() {
     if (!this.pos) return
-    // Digging bots first walk clear of the town footprint, then settle down and
-    // wander where the ground is theirs to move.
-    if (this.trekking) {
-      if (this.pos.y >= MEADOW_Y || (!isProtectedTile(this.pos.x, this.pos.y) && this.pos.y > 142)) {
-        this.trekking = false
-        this.home = { ...this.pos }
-        this.target = null
-      }
-      else {
-        this.drive(Math.atan2(MEADOW_Y - this.pos.y, (this.home?.x ?? this.pos.x) - this.pos.x), true)
-        if (Math.random() < 0.15) this.send({ t: 'action', kind: 'jump' })
-        this.trackStuck()
-        return
-      }
+    if (this.phase === 'dig-trek') return this.digTrek()
+    if (this.phase === 'trek') return this.followRoute('work')
+    if (this.phase === 'work') {
+      // Stand still while building: every pose is chosen against where the
+      // server thinks we are, and walking would drift out of `EDIT_REACH`.
+      this.drive(this.angle, false)
+      return
     }
+    if (this.phase === 'pave') return this.followRoute('settle')
+    this.roam()
+  }
+
+  /** Walk the queued waypoints, then switch phase. */
+  followRoute(next) {
+    const wp = this.route[0]
+    if (!wp) {
+      this.enter(next)
+      return
+    }
+    if (Math.hypot(wp.x - this.pos.x, wp.y - this.pos.y) < 1.2) {
+      this.route.shift()
+      if (!this.route.length) this.enter(next)
+      return
+    }
+    this.drive(Math.atan2(wp.y - this.pos.y, wp.x - this.pos.x), true)
+    this.trackStuck()
+  }
+
+  enter(phase) {
+    this.phase = phase
+    this.drive(this.angle, false)
+    this.target = null
+    if (phase === 'work') this.home = plotCentre(this.plot)
+    if (phase === 'pave') this.route = [{ ...ROAD }]
+    if (phase === 'settle') {
+      this.home = plotCentre(this.plot)
+      console.log(`[${this.name}#${this.n}] finished — ${this.placed} pieces placed, ${this.buildRefused} refused`)
+    }
+  }
+
+  /** The `--dig`-without-`--build` walk out of town, unchanged. */
+  digTrek() {
+    if (this.pos.y >= MEADOW_Y || (!isProtectedTile(this.pos.x, this.pos.y) && this.pos.y > 142)) {
+      this.phase = 'settle'
+      this.home = { ...this.pos }
+      this.target = null
+      return
+    }
+    this.drive(Math.atan2(MEADOW_Y - this.pos.y, (this.home?.x ?? this.pos.x) - this.pos.x), true)
+    if (Math.random() < 0.15) this.send({ t: 'action', kind: 'jump' })
+    this.trackStuck()
+  }
+
+  // One navigation decision: head for the current waypoint, pick a new one once
+  // we arrive (or after idling), and hop/dash now and then for signs of life.
+  roam() {
     const anchor = this.home ?? this.pos
 
     if (!this.target || Math.hypot(this.target.x - this.pos.x, this.target.y - this.pos.y) < ARRIVE) {
@@ -244,22 +367,148 @@ class Bot {
     this.trackStuck()
   }
 
+  /* ------------------------------- editing ---------------------------- */
+
+  /** One edit per pump tick, whatever the phase wants next. */
+  editPump() {
+    if (!this.pos || !this.id) return
+    if (this.phase === 'work') {
+      // Generated trees stand where the walls go, and both `checkTerraform` and
+      // `resolveBuild` refuse around them — so clear them first. They are
+      // unowned nature, which `canRemove` lets anyone take.
+      const wild = this.blockingWild()
+      if (wild) return this.demolish(wild.id)
+      return this.nextPlanOp()
+    }
+    if (this.phase === 'pave') {
+      if (this.pos.y <= 143) return
+      const op = paveOp(this.pos.x, this.pos.y)
+      // The first strides off the plot still have the house under the brush.
+      if (!checkTerraform(this.world, op, this.pos).ok) return
+      return this.terraform(op)
+    }
+    if (this.phase === 'settle') {
+      // Requeued rebuilds first, then the occasional teardown of our own work.
+      if (this.planAt < this.plan.length) return this.nextPlanOp()
+      if (Math.random() < 0.015) this.rebuildSomething()
+    }
+  }
+
+  nextPlanOp() {
+    const op = this.plan[this.planAt]
+    if (!op) {
+      if (this.phase === 'work') this.enter('pave')
+      return
+    }
+    // Ground still in flight is not a refusal, it's a "not yet": the server
+    // would answer 'that ground is not loaded' and we'd have burned a token.
+    if (!this.world.chunks.has(chunkKey(chunkCoord(op.x), chunkCoord(op.y)))) return this.hold()
+    if (op.op === 'terraform') {
+      this.planAt++
+      this.waits = 0
+      return this.terraform(op)
+    }
+    if (this.pieces >= MAX_PIECES_PER_PLAYER - PIECE_HEADROOM) {
+      this.planAt++
+      return
+    }
+    // Run the same predicate the server will, against our streamed world — the
+    // client ghost's job. A pose it already refuses is skipped rather than
+    // retried, except when the answer is only about timing.
+    const preview = resolveBuild(this.world, op, this.pos, { owner: this.id, id: 'preview', pieces: this.pieces })
+    if (!preview.ok) {
+      if ((preview.reason === 'too far away' || preview.reason === 'that ground is not loaded') && this.hold()) return
+      this.planAt++
+      this.waits = 0
+      return
+    }
+    this.planAt++
+    this.waits = 0
+    this.sentBuilds.push(op)
+    this.lastEditKind = 'build'
+    this.edits++
+    this.send({ t: 'build', kind: op.kind, x: op.x, y: op.y, rot: op.rot })
+  }
+
+  /** Stall the plan for a few pump ticks, then give up on this op. Returns
+   *  whether the caller should keep waiting. */
+  hold() {
+    if (++this.waits < 40) return true
+    this.waits = 0
+    this.planAt++
+    return false
+  }
+
+  terraform(op) {
+    this.lastEditKind = 'terraform'
+    this.terraformSent++
+    this.edits++
+    this.send({ t: 'terraform', x: op.x, y: op.y, mode: op.mode, size: op.size, ...(op.surface != null ? { surface: op.surface } : {}) })
+  }
+
+  demolish(id) {
+    this.lastEditKind = 'demolish'
+    this.edits++
+    this.demolished++
+    this.send({ t: 'demolish', id })
+  }
+
+  /** Tear one of our own pieces down and queue it to go straight back up. */
+  rebuildSomething() {
+    let best = null
+    let bestD = Infinity
+    for (const [id, op] of this.mine) {
+      const d = Math.hypot(op.x - this.pos.x, op.y - this.pos.y)
+      if (d < bestD) {
+        bestD = d
+        best = { id, op }
+      }
+    }
+    if (!best || bestD > 4) return
+    this.demolish(best.id)
+    this.plan.push(best.op)
+  }
+
+  /** A generated nature piece standing inside our plot and within reach. */
+  blockingWild() {
+    const b = plotBounds(this.plot)
+    for (let cy = chunkCoord(b.minY); cy <= chunkCoord(b.maxY); cy++) {
+      for (let cx = chunkCoord(b.minX); cx <= chunkCoord(b.maxX); cx++) {
+        const chunk = this.world.getChunk(cx, cy)
+        if (!chunk) continue
+        for (const prop of chunk.props) {
+          if (!prop.id?.startsWith('wild:')) continue
+          if (prop.x < b.minX || prop.x > b.maxX || prop.y < b.minY || prop.y > b.maxY) continue
+          if (Math.hypot(prop.x - this.pos.x, prop.y - this.pos.y) > 5) continue
+          return prop
+        }
+      }
+    }
+    return null
+  }
+
   // Move a corner of the ground near our feet. The server refuses anything
   // inside the walls, out of reach, or faster than its rate limit, so this is a
   // load test of the validation path as much as of the apply path.
   dig() {
-    if (!this.pos || this.trekking) return
-    const gx = Math.round(this.pos.x + rand(-3, 3))
-    const gy = Math.round(this.pos.y + rand(-3, 3))
-    if (isProtectedTile(gx, gy)) return
-    this.edits++
-    this.send({
-      t: 'terraform',
-      x: gx,
-      y: gy,
-      mode: pick(['raise', 'raise', 'lower', 'flatten']),
-      size: pick([1, 1, 2, 3]),
-    })
+    if (!this.pos || this.phase !== 'settle') return
+    for (let i = 0; i < 5; i++) {
+      const op = {
+        x: Math.round(this.pos.x + rand(-4, 4)),
+        y: Math.round(this.pos.y + rand(-4, 4)),
+        mode: pick(['raise', 'raise', 'lower', 'flatten']),
+        size: pick([1, 1, 2, 3]),
+      }
+      if (isProtectedTile(op.x, op.y)) continue
+      // A building bot digs in its own front garden, where most of the brushes
+      // it might pick have a wall standing on them. Running the server's own
+      // predicate first keeps it from spending its whole token bucket on
+      // 'something is standing there'. One dig in seven skips the check, so the
+      // server's refusal path stays under load too — that is half of what this
+      // script is for.
+      if (Math.random() > 0.15 && !checkTerraform(this.world, op, this.pos).ok) continue
+      return this.terraform(op)
+    }
   }
 
   // Send a move only when the heading turned or the throttle toggled: the server
@@ -284,6 +533,8 @@ class Bot {
     if (++this.stuck < 3) return
     this.send({ t: 'action', kind: 'jump' })
     this.target = null
+    // A route waypoint we cannot reach is worse than one we skip.
+    if (this.route.length) this.route.shift()
     this.stuck = 0
   }
 
@@ -311,7 +562,13 @@ class Bot {
 
 /* ------------------------------- main --------------------------------- */
 
-console.log(`Spawning ${COUNT} bot${COUNT > 1 ? 's' : ''} on ${BASE} (radius ${RADIUS}${CHAT ? ', chatty' : ''}${DIG ? ', digging' : ''})`)
+if (/avelune-online\.vercel\.app/.test(BASE)) {
+  console.error('Refusing to load-test production. Point --url at a local server.')
+  process.exit(1)
+}
+
+const modes = [CHAT && 'chatty', DIG && 'digging', BUILD && 'building'].filter(Boolean)
+console.log(`Spawning ${COUNT} bot${COUNT > 1 ? 's' : ''} on ${BASE} (radius ${RADIUS}${modes.length ? ', ' + modes.join(', ') : ''})`)
 
 const bots = []
 for (let i = 0; i < COUNT; i++) {
@@ -327,20 +584,37 @@ for (let i = 0; i < COUNT; i++) {
   await new Promise(r => setTimeout(r, 250)) // stagger auths + upgrades
 }
 
+const total = key => bots.reduce((n, b) => n + b[key], 0)
+
+function summary(label) {
+  const parts = [`${alive}/${COUNT} bots connected`]
+  if (BUILD) {
+    const phases = bots.reduce((acc, b) => {
+      acc[b.phase] = (acc[b.phase] ?? 0) + 1
+      return acc
+    }, {})
+    parts.push(Object.entries(phases).map(([p, n]) => `${n} ${p}`).join('/'))
+    parts.push(`${total('placed')} placed (${total('buildRefused')} refused)`)
+    parts.push(`${total('demolished')} demolished`)
+  }
+  const sent = total('terraformSent')
+  const refused = total('terraformRefused')
+  if (sent) parts.push(`terraform ${sent - refused} ok / ${refused} refused`)
+  const top = topReasons()
+  if (top) parts.push(`rejects: ${top}`)
+  console.log(`— ${label}${parts.join(', ')} —`)
+}
+
+setInterval(() => summary(''), 5_000)
+
 let shuttingDown = false
 function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
-  console.log(`\nClosing ${bots.length} bot socket${bots.length > 1 ? 's' : ''}…`)
+  summary('total: ')
+  console.log(`Closing ${bots.length} bot socket${bots.length > 1 ? 's' : ''}…`)
   for (const b of bots) b.close()
   setTimeout(() => process.exit(0), 400)
 }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
-
-setInterval(() => {
-  const edits = bots.reduce((n, b) => n + b.edits, 0)
-  const refused = bots.reduce((n, b) => n + b.refused, 0)
-  const outside = bots.filter(b => b.started && !b.trekking).length
-  console.log(`— ${alive}/${COUNT} bots connected${DIG ? `, ${outside} digging, ${edits} edits (${refused} refused)` : ''} —`)
-}, 15_000)

@@ -23,7 +23,7 @@ import { FORTIFICATIONS, TOWN_MARGIN } from './courtyard'
 import { MOAT_STAIRS } from './moat'
 import { isHeightAwareKind, rampartIndex } from './ramparts'
 import type { RampartIndex } from './ramparts'
-import { isTownPlacement, propFromPlacement, propHalfExtents } from './props'
+import { isTownPlacement, propFromPlacement } from './props'
 import type { PropSpec, WorldPlacement } from './props'
 import { worldTerrainHeight } from './terrain'
 import townProps from '../data/courtyard-props.json'
@@ -34,6 +34,16 @@ export const CHUNK_SIZE = 32
 /** Corner samples per chunk edge — one more than the tiles they bound, so the
  *  last row/column duplicates the neighbour's first. */
 export const CHUNK_CORNERS = CHUNK_SIZE + 1
+/**
+ * Tiles per side of one spatial-index cell. Physics queries read cells, not
+ * whole chunks: a 32-tile chunk holding a few hundred kit pieces was being
+ * scanned end to end four or five times per substep, which is what made a
+ * built-up neighbourhood cost more than an empty one.
+ */
+export const CELL_SIZE = 8
+/** Index cells per chunk edge — 4, so 16 cells per chunk. */
+export const CELLS_PER_CHUNK = CHUNK_SIZE / CELL_SIZE
+
 /** Corner heights are quantised to this many units in an `Int16Array`. */
 export const HEIGHT_STEP = 0.05
 /** One terraform click. */
@@ -72,6 +82,14 @@ export interface Chunk {
    *  takes a max or an OR, so a prop seen twice costs nothing and a 3×3 query
    *  can never miss a long piece. */
   props: PropSpec[]
+  /**
+   * The same props again, bucketed by `CELL_SIZE`-tile cell: 16 buckets per
+   * chunk, each holding every prop whose footprint square overlaps it. Derived
+   * index state, exactly like `props` and `ramparts` — it moves no version and
+   * is never persisted or sent. `props` stays the per-chunk list renderers and
+   * the minimap iterate; `propsInBox` reads this.
+   */
+  cells: PropSpec[][]
   /** Height-aware pieces (rampart galleries/rails, every stepped ramp)
    *  pre-filtered out of `props`, rebuilt whenever they change. */
   ramparts: RampartIndex
@@ -257,23 +275,85 @@ export function generateChunk(seed: number, cx: number, cy: number): Chunk {
       surface[ly * CHUNK_SIZE + lx] = surfaceFor(seed, cx * CHUNK_SIZE + lx, cy * CHUNK_SIZE + ly, h00, Math.hypot(h10 - h00, h01 - h00))
     }
   }
-  return { cx, cy, heights, surface, placements: [], props: [], ramparts: rampartIndex([]), version: 0 }
+  return { cx, cy, heights, surface, placements: [], props: [], cells: emptyCells(), ramparts: rampartIndex([]), version: 0 }
 }
 
 /* -------------------------------------------------------------------------- */
 /* Prop bucketing                                                             */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Half-extent of the square a placement is indexed by, on both axes.
+ *
+ * Deliberately the bounding radius rather than `propHalfExtents`: `propsNear`
+ * broad-phases with `hypot(d) <= prop.r + r`, so the square that has to contain
+ * every hit is `r` on a side, and indexing by anything tighter could hide a
+ * rotated wall from a chunk the disc reaches into. The exact footprint tests
+ * (`coversPoint`, `propBounds`) run afterwards and throw the slack away.
+ */
+function propExtent(prop: PropSpec): number {
+  return Math.max(prop.r, 0)
+}
+
 /** Chunk range a placement's footprint overlaps. Long pieces (a gallery run is
- *  78 tiles) land in several chunks so a 3×3 query can never miss them. */
+ *  78 tiles) land in several chunks so a neighbourhood query can never miss
+ *  them. */
 function propChunkRange(prop: PropSpec) {
-  const { ax, ay } = propHalfExtents(prop)
+  const e = propExtent(prop)
   return {
-    minCx: chunkCoord(prop.x - ax),
-    maxCx: chunkCoord(prop.x + ax),
-    minCy: chunkCoord(prop.y - ay),
-    maxCy: chunkCoord(prop.y + ay),
+    minCx: chunkCoord(prop.x - e),
+    maxCx: chunkCoord(prop.x + e),
+    minCy: chunkCoord(prop.y - e),
+    maxCy: chunkCoord(prop.y + e),
   }
+}
+
+/** Index-cell coordinate of a tile coordinate, in the same global frame as
+ *  `chunkCoord`. */
+export function cellCoord(tile: number): number {
+  return Math.floor(tile / CELL_SIZE)
+}
+
+/** Global cell range a placement's square covers — the same square
+ *  `propChunkRange` uses, so a chunk's cells are always a subdivision of the
+ *  chunks it was bucketed into. */
+function propCellRange(prop: PropSpec) {
+  const e = propExtent(prop)
+  return {
+    minCx: cellCoord(prop.x - e),
+    maxCx: cellCoord(prop.x + e),
+    minCy: cellCoord(prop.y - e),
+    maxCy: cellCoord(prop.y + e),
+  }
+}
+
+function emptyCells(): PropSpec[][] {
+  const cells: PropSpec[][] = Array.from({ length: CELLS_PER_CHUNK * CELLS_PER_CHUNK })
+  for (let i = 0; i < cells.length; i++) cells[i] = []
+  return cells
+}
+
+/** Put a prop into every cell of this chunk its square overlaps, clipped to the
+ *  chunk. A piece reaching past the border is in the neighbour's cells too,
+ *  because `bucket` also put it in the neighbour's `props`. */
+function addToCells(chunk: Chunk, prop: PropSpec) {
+  const range = propCellRange(prop)
+  const ox = chunk.cx * CELLS_PER_CHUNK
+  const oy = chunk.cy * CELLS_PER_CHUNK
+  const minX = Math.max(range.minCx, ox)
+  const maxX = Math.min(range.maxCx, ox + CELLS_PER_CHUNK - 1)
+  const minY = Math.max(range.minCy, oy)
+  const maxY = Math.min(range.maxCy, oy + CELLS_PER_CHUNK - 1)
+  for (let cy = minY; cy <= maxY; cy++) {
+    for (let cx = minX; cx <= maxX; cx++) chunk.cells[(cy - oy) * CELLS_PER_CHUNK + (cx - ox)]!.push(prop)
+  }
+}
+
+/** Rebuild a chunk's cells from its `props`. Used wherever the list is replaced
+ *  wholesale rather than edited one prop at a time. */
+function reindexCells(chunk: Chunk) {
+  chunk.cells = emptyCells()
+  for (const prop of chunk.props) addToCells(chunk, prop)
 }
 
 function reindexRamparts(chunk: Chunk) {
@@ -296,12 +376,13 @@ function bucket(world: World, prop: PropSpec) {
       const chunk = world.chunks.get(chunkKey(cx, cy))
       if (!chunk || chunk.props.includes(prop)) continue
       chunk.props.push(prop)
+      addToCells(chunk, prop)
       if (rampart) reindexRamparts(chunk)
     }
   }
 }
 
-/** Drop a prop from every chunk it was bucketed into. */
+/** Drop a prop from every chunk it was bucketed into, cells included. */
 function unbucket(world: World, prop: PropSpec) {
   const range = propChunkRange(prop)
   const rampart = isHeightAwareKind(prop.kind)
@@ -312,7 +393,57 @@ function unbucket(world: World, prop: PropSpec) {
       const at = chunk.props.indexOf(prop)
       if (at < 0) continue
       chunk.props.splice(at, 1)
+      for (const cell of chunk.cells) {
+        const i = cell.indexOf(prop)
+        if (i >= 0) cell.splice(i, 1)
+      }
       if (rampart) reindexRamparts(chunk)
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Neighbourhood queries                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every prop whose indexed square overlaps the world-space box, each yielded at
+ * most once per query.
+ *
+ * This is the one spatial primitive: `propsNear` in `maze.ts` and the build
+ * rules in `building.ts` both narrow its output with their own exact test. It
+ * reads only the cells the box covers, so the cost tracks the size of the query
+ * rather than how built-up the chunk is.
+ *
+ * Dedupe is a stamp on the spec rather than a `Set`, so an abandoned generator
+ * leaves nothing to clean up. A query started while another is still running
+ * re-stamps shared specs, which costs the outer one a duplicate — harmless,
+ * because every consumer takes a max, an OR, or the first hit.
+ */
+let queryStamp = 0
+export function* propsInBox(world: World, minX: number, minY: number, maxX: number, maxY: number): Generator<PropSpec> {
+  const stamp = ++queryStamp
+  const minCellX = cellCoord(minX)
+  const maxCellX = cellCoord(maxX)
+  const minCellY = cellCoord(minY)
+  const maxCellY = cellCoord(maxY)
+  for (let cy = minCellY; cy <= maxCellY; cy++) {
+    const chunkY = Math.floor(cy / CELLS_PER_CHUNK)
+    const localY = cy - chunkY * CELLS_PER_CHUNK
+    let chunkX = NaN
+    let chunk: Chunk | undefined
+    for (let cx = minCellX; cx <= maxCellX; cx++) {
+      const wantX = Math.floor(cx / CELLS_PER_CHUNK)
+      if (wantX !== chunkX) {
+        chunkX = wantX
+        chunk = world.getChunk(chunkX, chunkY)
+      }
+      if (!chunk) continue
+      for (const prop of chunk.cells[localY * CELLS_PER_CHUNK + (cx - chunkX * CELLS_PER_CHUNK)]!) {
+        if (prop.mark === stamp) continue
+        prop.mark = stamp
+        yield prop
+      }
     }
   }
 }
@@ -376,6 +507,7 @@ function adoptOverlapping(world: World, chunk: Chunk) {
         if (chunk.cx < range.minCx || chunk.cx > range.maxCx || chunk.cy < range.minCy || chunk.cy > range.maxCy) continue
         if (chunk.props.includes(prop)) continue
         chunk.props.push(prop)
+        addToCells(chunk, prop)
         rampart ||= isHeightAwareKind(prop.kind)
       }
     }
@@ -392,6 +524,7 @@ function withdrawLent(world: World, cx: number, cy: number) {
       const kept = neighbour.props.filter(prop => !ownsProp(cx, cy, prop))
       if (kept.length === neighbour.props.length) continue
       neighbour.props = kept
+      reindexCells(neighbour)
       reindexRamparts(neighbour)
     }
   }
@@ -424,6 +557,7 @@ export function installChunk(world: World, incoming: Chunk): Chunk | undefined {
     existing.version = incoming.version
   }
   chunk.props = []
+  chunk.cells = emptyCells()
   world.chunks.set(key, chunk)
   for (const placement of chunk.placements) bucket(world, propFromPlacement(placement))
   adoptOverlapping(world, chunk)
@@ -718,16 +852,19 @@ export function decodeChunk(encoded: EncodedChunk): Chunk {
   const surface = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE)
   surface.set(fromBase64(encoded.s).subarray(0, surface.length))
   const props = encoded.props.map(p => propFromPlacement(p))
-  return {
+  const chunk: Chunk = {
     cx: encoded.cx,
     cy: encoded.cy,
     heights,
     surface,
     placements: encoded.props,
     props,
+    cells: emptyCells(),
     ramparts: rampartIndex(props),
     version: encoded.v,
   }
+  reindexCells(chunk)
+  return chunk
 }
 
 /* -------------------------------------------------------------------------- */

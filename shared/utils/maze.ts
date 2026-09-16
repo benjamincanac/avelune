@@ -13,8 +13,9 @@
  * (`courtyard-structure.json` for the buildings, `courtyard-props.json` for the
  * clutter). No geometry travels over the WebSocket — only players.
  *
- * Every spatial query reads at most the 3×3 chunk neighbourhood around the
- * point, never a flat list of every prop in the world.
+ * Every spatial query goes through the per-chunk cell index (`propsInBox`),
+ * which reads only the 8-tile cells the query actually covers — never a flat
+ * list of every prop in the world, and never a whole chunk's worth either.
  */
 
 import { MOAT, isOnMoatStairs, moatGroundHeight, moatWaterDepth, hitsMoatObstacle } from './moat'
@@ -31,6 +32,7 @@ import {
   WORLD_TILE_MIN,
   chunkCoord,
   isProtectedTile,
+  propsInBox,
 } from './world'
 import type { Chunk, World } from './world'
 
@@ -85,33 +87,21 @@ export const HUB_LAYOUT = {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Chunk neighbourhood queries                                                */
+/* Neighbourhood queries                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** The up-to-nine chunks around a point. Every physics query goes through here,
- *  so no code path can ever walk the whole world. */
-function* chunksNear(world: World, x: number, y: number): Generator<Chunk> {
-  const cx0 = chunkCoord(x)
-  const cy0 = chunkCoord(y)
-  for (let cy = cy0 - 1; cy <= cy0 + 1; cy++) {
-    for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
-      const chunk = world.getChunk(cx, cy)
-      if (chunk) yield chunk
-    }
-  }
-}
-
 /**
- * Props whose footprint comes within `r` of (x, y), from the 3×3 chunk
- * neighbourhood. A piece straddling a border is bucketed into every chunk it
- * overlaps, so it can be yielded twice — every consumer takes a max or an OR,
- * which makes that harmless.
+ * Props whose footprint comes within `r` of (x, y).
+ *
+ * Reads the cell index (`propsInBox` in `world.ts`), so the cost tracks the
+ * size of the query disc rather than how many pieces stand in the surrounding
+ * chunks. Each prop is yielded at most once per query; the broad-phase disc
+ * test here is exactly what it always was, and consumers still run their own
+ * exact footprint test afterwards.
  */
 export function* propsNear(world: World, x: number, y: number, r = 0): Generator<PropSpec> {
-  for (const chunk of chunksNear(world, x, y)) {
-    for (const prop of chunk.props) {
-      if (Math.hypot(x - prop.x, y - prop.y) <= prop.r + r) yield prop
-    }
+  for (const prop of propsInBox(world, x - r, y - r, x + r, y + r)) {
+    if (Math.hypot(x - prop.x, y - prop.y) <= prop.r + r) yield prop
   }
 }
 

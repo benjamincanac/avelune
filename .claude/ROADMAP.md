@@ -88,7 +88,8 @@ both sides share.
 ## Next up (prioritized)
 
 ### 1. Verify prod
-- [ ] **Verify the WebSocket upgrade under load in prod** — load-bearing; the whole architecture rests on it
+- [x] **Verify the WebSocket upgrade in prod** — verified 2026-09-16 on `avelune-online.vercel.app` (`cdg1`): the full `ws-test.mjs` (124 checks: streaming, terraform, felling, building, budgets, takeover) passes against the live socket, and 15 walking bots held their connections for 45 s on one instance (every welcome counted the previous bots). Heavier load and the multi-instance question are still open
+- [ ] **Link Upstash Redis to the Vercel project** — prod currently reports `persistent: false` (in-memory store): every restart and every max-duration recycle wipes the world. Storage tab → Upstash for Redis → link; the env vars are picked up as-is
 - [ ] Verify the Oracle works deployed: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in chat (needs `AI_GATEWAY_API_KEY`)
 - [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the newer kits are already meshopt+WebP)
 

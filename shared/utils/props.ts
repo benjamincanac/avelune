@@ -62,6 +62,11 @@ export interface PropSpec {
   id?: string
   /** Player id that owns this piece; absent for generated and town pieces. */
   owner?: string
+  /**
+   * Scratch slot for `propsInBox`'s per-query dedupe stamp. Not content: it is
+   * written by queries, never persisted, sent or compared.
+   */
+  mark?: number
 }
 
 /**
