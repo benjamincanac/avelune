@@ -27,10 +27,7 @@ function loadModel(url: string) {
 /** All character models use the universal skeleton animation library. */
 function loadSharedClips(): Promise<AnimationClip[]> {
   clipsPromise ??= loadModel('/models/characters/animations.glb')
-    .then(async (gltf) => {
-      const swimming = await loadModel('/models/characters/swimming.glb')
-      return [...gltf.animations, ...swimming.animations]
-    })
+    .then(gltf => gltf.animations)
     .catch((error) => {
       clipsPromise = null
       throw error

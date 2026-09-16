@@ -16,6 +16,8 @@ Run headless:
 import bpy
 import os
 import sys
+from bpy_extras import anim_utils
+from mathutils import Vector
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 PACKS = argv[0] if argv else os.path.expanduser("~/GitHub/quaternius")
@@ -30,6 +32,9 @@ CLIPS_UAL1 = ["Idle_Loop", "Walk_Loop", "Jog_Fwd_Loop", "Sprint_Loop",
               "Jump_Start", "Jump_Loop", "Jump_Land", "Roll", "Dance_Loop", "Death01"]
 CLIPS_UAL2 = ["Slide_Start", "Slide_Loop", "Sword_Regular_A", "Yes",
               "Sword_Dash", "Shield_Dash"]
+# Exported name -> library action, plus the pelvis lift baked into each.
+RENAMED = {"Swim_Loop": "Swim_Fwd_Loop", "Swim_Idle": "Swim_Idle_Loop"}
+LIFT = {"Swim_Loop": 0.80, "Swim_Idle": 0.60}
 
 
 def import_gltf(path):
@@ -54,17 +59,44 @@ if arm2 and arm2 is not rig:
 
 rig.animation_data_clear()
 rig.animation_data_create()
+scene = bpy.context.scene
+
+
+def lift_pelvis(action, metres):
+    """Add a constant world-up offset to the pelvis location keys. Pose-bone
+    location lives in the bone's rest space, so map world up through the posed
+    parent chain first (the root bone never rotates in these clips)."""
+    rig.animation_data.action = action
+    scene.frame_set(int(action.frame_range[0]))
+    pelvis = rig.pose.bones["pelvis"]
+    basis = (rig.matrix_world.to_3x3() @ pelvis.parent.matrix.to_3x3()
+             @ pelvis.parent.bone.matrix_local.to_3x3().inverted() @ pelvis.bone.matrix_local.to_3x3())
+    local = basis.inverted() @ Vector((0.0, 0.0, metres))
+    bag = anim_utils.action_get_channelbag_for_slot(action, action.slots[0])
+    curves = [c for c in bag.fcurves if c.data_path == 'pose.bones["pelvis"].location']
+    assert len(curves) == 3, "pelvis location is not keyed on all axes"
+    for curve in curves:
+        for key in curve.keyframe_points:
+            key.co.y += local[curve.array_index]
+            key.handle_left.y += local[curve.array_index]
+            key.handle_right.y += local[curve.array_index]
+    rig.animation_data.action = None
+
+
 added = []
-for name in CLIPS_UAL1 + CLIPS_UAL2:
-    act = bpy.data.actions.get(name)
+for name in CLIPS_UAL1 + CLIPS_UAL2 + list(RENAMED):
+    act = bpy.data.actions.get(RENAMED.get(name, name))
     if not act:
         print("  MISSING clip %s" % name)
         continue
+    if name in LIFT:
+        lift_pelvis(act, LIFT[name])
     track = rig.animation_data.nla_tracks.new()
     track.name = name
     strip = track.strips.new(name, int(act.frame_range[0]), act)
     strip.name = name
     added.append(name)
+scene.frame_set(1)
 
 os.makedirs(OUT, exist_ok=True)
 out = os.path.join(OUT, "animations.glb")
@@ -78,6 +110,7 @@ bpy.ops.export_scene.gltf(
     export_image_quality=80,
     export_animations=True,
     export_animation_mode="NLA_TRACKS",
+    export_force_sampling=True,
 )
 print("OK animations.glb clips=%d -> %d KB" % (len(added), os.path.getsize(out) // 1024))
 print("   " + ", ".join(added))
