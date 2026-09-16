@@ -3,7 +3,7 @@
 Run headless:
   Blender --background --python convert_universal_characters.py -- <packs_dir> <out_dir>
 
-<packs_dir> is the folder holding the unzipped packs (default: ~/Downloads/quaternius):
+<packs_dir> is the folder holding the unzipped packs (default: ~/GitHub/quaternius):
   - Universal Base Characters[Standard]      (heads/faces/eyes/skin + hairstyles)
   - Modular Character Outfits - Fantasy[...]  (Peasant + Ranger outfits, M/F)
   - Universal Animation Library[Standard]     (UAL1_Standard.glb, 43 clips)
@@ -28,7 +28,7 @@ import sys
 from mathutils import Vector
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-PACKS = argv[0] if argv else os.path.expanduser("~/Downloads/quaternius")
+PACKS = argv[0] if argv else os.path.expanduser("~/GitHub/quaternius")
 OUT = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "public", "models", "characters")
 OUT = os.path.abspath(OUT)
 

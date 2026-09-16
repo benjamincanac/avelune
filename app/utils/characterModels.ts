@@ -29,9 +29,7 @@ function loadSharedClips(): Promise<AnimationClip[]> {
   clipsPromise ??= loadModel('/models/characters/animations.glb')
     .then(async (gltf) => {
       const swimming = await loadModel('/models/characters/swimming.glb')
-      const sprinting = await loadModel('/models/characters/sprinting.glb')
-      const replacements = new Map(sprinting.animations.map(clip => [clip.name, clip]))
-      return [...gltf.animations.filter(clip => !replacements.has(clip.name)), ...swimming.animations, ...replacements.values()]
+      return [...gltf.animations, ...swimming.animations]
     })
     .catch((error) => {
       clipsPromise = null

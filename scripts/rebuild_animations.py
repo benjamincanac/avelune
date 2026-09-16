@@ -1,6 +1,6 @@
 """Rebuild ONLY the shared clip library (animations.glb), adding the dash clips.
 
-The packs under ~/Downloads/quaternius were renamed to lowercase-hyphenated
+The packs under ~/GitHub/quaternius were renamed to lowercase-hyphenated
 folders, which broke convert_universal_characters.py's hardcoded paths. This
 targeted script rebuilds just animations.glb (no character regen) using the
 current paths, and adds Sword_Dash + Shield_Dash on top of the shipped set.
@@ -18,7 +18,7 @@ import os
 import sys
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-PACKS = argv[0] if argv else os.path.expanduser("~/Downloads/quaternius")
+PACKS = argv[0] if argv else os.path.expanduser("~/GitHub/quaternius")
 OUT = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "public", "models", "characters")
 OUT = os.path.abspath(OUT)
 
