@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { generateHub, stepBody, JUMP_VELOCITY, getSwimmingContact } from '../shared/utils/maze'
+import { test } from 'vitest'
+import { stepBody, JUMP_VELOCITY, getSwimmingContact } from '../shared/utils/maze'
 import { MOAT } from '../shared/utils/moat'
+import { createWorld } from '../shared/utils/world'
 
-const plan = generateHub()
+const plan = createWorld()
 function body(x: number, y: number, z = 0) {
   return { x, y, z, vz: 0, grounded: true }
 }

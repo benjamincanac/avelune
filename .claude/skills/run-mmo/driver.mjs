@@ -3,14 +3,31 @@
 // WebGL game — there is no server-rendered "page" to assert on; you must drive the
 // live canvas. This is the harness the /run-mmo skill points at.
 //
-// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk]
+// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk|meadow|build|map]
 //   arena  (default) enter the arena and screenshot it
 //   walk   arena, then hold forward for a few seconds before shooting
+//   meadow walk out of the south gate, turn back toward the hills, shoot
+//   build  walk out of the gate, arm a kit wall, click to place it, shoot
+//   map    enter the arena, press M, shoot the full-screen world map
 //
 // Env:
-//   MMO_URL  explicit base url, skips port autodetect        (e.g. http://localhost:3001)
-//   MMO_OUT  screenshot path                                 (default /tmp/mmo-<mode>.png)
-//   MMO_PW   path to a Playwright install                    (default the Homebrew global)
+//   MMO_URL      explicit base url, skips port autodetect    (e.g. http://localhost:3001)
+//   MMO_OUT      screenshot path                             (default /tmp/mmo-<mode>.png)
+//   MMO_PW       path to a Playwright install                (default the Homebrew global)
+//   MMO_TIME     /time argument to fix the sun before shooting
+//   MMO_WEATHER  /weather argument, only with MMO_TIME
+//   MMO_BACK     ms to hold S walking out of the gate        (meadow/build)
+//   MMO_TURN     px of yaw for the about-turn                (~507 px per 90°)
+//   MMO_SWIM_X/Y target tile in the moat (dev builds)       (swim)
+//   MMO_STRAFE   ms of D before walking in (prod builds)     (swim)
+//   MMO_HOLD     keep W held through the shot                 (swim)
+//   MMO_PITCH    px of pitch per step, 8 steps (positive looks down)
+//   MMO_STATS    non-empty: also report fps / mesh / triangle counts
+//
+// Note: the page has TWO canvases (the world and the minimap), so every locator
+// here is `.first()`. A bare `locator('canvas')` is a strict-mode violation and
+// the `.catch()` around each click swallows it silently — clicks then never
+// land, which matters now that a click also uses the armed hotbar tool.
 //
 // Playwright is NOT a project dependency here — it's installed globally and is CJS,
 // so we require() it by absolute path rather than `import { chromium }`.
@@ -91,24 +108,195 @@ for (let i = 0; i < 12; i++) {
   await page.waitForTimeout(1000)
 }
 if (!live) {
-  await page.screenshot({ path: OUT })
+  await page.screenshot({ path: OUT, timeout: 180000, animations: 'disabled' })
   console.error(`FAILED: never reached the game view at ${url} (canvas 0x0 / no HUD).`)
   console.error('  This target may be a stale instance — start a fresh server and pass MMO_URL (see SKILL.md).')
   await browser.close()
   process.exit(1)
 }
 
+if (process.env.MMO_TIME) {
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(400)
+  await page.keyboard.type(`/time ${process.env.MMO_TIME}`)
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(1200)
+  if (process.env.MMO_WEATHER) {
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(400)
+    await page.keyboard.type(`/weather ${process.env.MMO_WEATHER}`)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(1200)
+  }
+}
+
+if (mode === 'build') {
+  // Out of the south gate far enough to clear the protected town, turn around
+  // so the crosshair lands on open meadow a couple of tiles ahead, arm a kit
+  // wall and click twice with a sidestep between.
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.keyboard.down('KeyS')
+  await page.waitForTimeout(Number(process.env.MMO_BACK || 17000))
+  await page.keyboard.up('KeyS')
+  await page.waitForTimeout(800)
+  const look = async (total, key) => {
+    for (let i = 0; i < 12; i++) {
+      await page.evaluate(([d, k]) => {
+        document.querySelector('canvas').dispatchEvent(new MouseEvent('mousemove', { [k]: d, bubbles: true }))
+      }, [total / 12, key])
+      await page.waitForTimeout(60)
+    }
+  }
+  await look(Number(process.env.MMO_TURN || 1014), 'movementX')
+  await page.waitForTimeout(400)
+  await look(Number(process.env.MMO_PITCH || 120), 'movementY')
+  await page.waitForTimeout(600)
+  // Slot 6 on the first hotbar page is Kit_Wall (five tools, then the kit).
+  await page.keyboard.press('Digit6')
+  await page.waitForTimeout(500)
+  // Two clicks without moving: the second wall stacks on the first, which is
+  // the thing worth seeing. Stay still afterwards so both stay in frame.
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.waitForTimeout(900)
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.waitForTimeout(2000)
+}
+
+if (mode === 'paint') {
+  // Back out of the gate a few tiles past the end of the road, turn around to
+  // face it, arm Paint and lay a run of tiles walking back toward the road, so
+  // the seams between painted tiles and the join with the authored road are
+  // both in frame.
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.keyboard.down('KeyS')
+  await page.waitForTimeout(Number(process.env.MMO_BACK || 6000))
+  await page.keyboard.up('KeyS')
+  await page.waitForTimeout(800)
+  const look = async (total, key) => {
+    for (let i = 0; i < 12; i++) {
+      await page.evaluate(([d, k]) => {
+        document.querySelector('canvas').dispatchEvent(new MouseEvent('mousemove', { [k]: d, bubbles: true }))
+      }, [total / 12, key])
+      await page.waitForTimeout(60)
+    }
+  }
+  await look(Number(process.env.MMO_TURN || 1014), 'movementX')
+  await page.waitForTimeout(400)
+  await look(Number(process.env.MMO_PITCH || 160), 'movementY')
+  await page.waitForTimeout(600)
+  // Tools page, slot 4 is Paint (defaults to paving).
+  await page.keyboard.press('Digit4')
+  await page.waitForTimeout(500)
+  for (let i = 0; i < Number(process.env.MMO_TILES || 6); i++) {
+    await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+    await page.waitForTimeout(400)
+    await page.keyboard.down('KeyW')
+    await page.waitForTimeout(320)
+    await page.keyboard.up('KeyW')
+    await page.waitForTimeout(500)
+  }
+  await page.keyboard.down('KeyS')
+  await page.waitForTimeout(1200)
+  await page.keyboard.up('KeyS')
+  await page.waitForTimeout(2500)
+}
+
+if (mode === 'meadow') {
+  // Walk out of the gate into the meadow, then turn around to face the hills.
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.keyboard.down('KeyS')
+  await page.waitForTimeout(Number(process.env.MMO_BACK || 6000))
+  await page.keyboard.up('KeyS')
+  await page.waitForTimeout(600)
+  const dx = Number(process.env.MMO_TURN || 1014)
+  for (let i = 0; i < 12; i++) {
+    await page.evaluate((d) => {
+      document.querySelector('canvas').dispatchEvent(new MouseEvent('mousemove', { movementX: d, bubbles: true }))
+    }, dx / 12)
+    await page.waitForTimeout(60)
+  }
+  await page.waitForTimeout(600)
+  // Pitch the camera up so the shot shows the horizon, not the boot the boom
+  // collapsed onto.
+  for (let i = 0; i < 8; i++) {
+    await page.evaluate((d) => {
+      document.querySelector('canvas').dispatchEvent(new MouseEvent('mousemove', { movementY: d, bubbles: true }))
+    }, Number(process.env.MMO_PITCH || -20))
+    await page.waitForTimeout(60)
+  }
+  await page.waitForTimeout(1500)
+}
+
+if (mode === 'map') {
+  // Click to focus (Digit1 first so the click's tool fire is a harmless raise
+  // we never trigger — the click requests pointer lock instead), then M.
+  await page.keyboard.press('Digit1')
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.waitForTimeout(600)
+  await page.keyboard.press('KeyM')
+  await page.waitForTimeout(1500)
+}
+
+if (mode === 'swim') {
+  // Steer into the moat ring by feedback: read the predicted body from
+  // window.__maze.local, aim at a point in the water beside the bridge
+  // (x 80, y 118: moat z 115..121, bridge |x-72| < 4) and hold whichever of
+  // W/A/S/D closes the larger axis. MMO_HOLD keeps W held through the shot so
+  // the stroke clip plays instead of treading water.
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  const pos = () => page.evaluate(() => ({ x: window.__maze?.local?.x, y: window.__maze?.local?.y, z: window.__maze?.local?.z, a: window.__maze?.view?.yaw }))
+  const target = { x: Number(process.env.MMO_SWIM_X || 80), y: Number(process.env.MMO_SWIM_Y || 118) }
+  let held = null
+  const probe = await pos()
+  if (probe.x === undefined) {
+    // window.__maze is dev-only. In a prod build fall back to timed keys from
+    // the spawn (72,129 facing -y): strafe right past the bridge, walk in.
+    await page.keyboard.down('KeyD')
+    await page.waitForTimeout(Number(process.env.MMO_STRAFE || 2400))
+    await page.keyboard.up('KeyD')
+    await page.keyboard.down('KeyW')
+    await page.waitForTimeout(Number(process.env.MMO_BACK || 3600))
+    await page.keyboard.up('KeyW')
+  }
+  for (let i = 0; probe.x !== undefined && i < 60; i++) {
+    const p = await pos()
+    const dx = target.x - p.x
+    const dy = target.y - p.y
+    if (Math.hypot(dx, dy) < 1) break
+    // yaw -PI/2 faces -y: W moves -y, D moves +x (see server/utils/game.ts).
+    const key = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'KeyD' : 'KeyA') : (dy > 0 ? 'KeyS' : 'KeyW')
+    if (key !== held) {
+      if (held) await page.keyboard.up(held)
+      await page.keyboard.down(key)
+      held = key
+    }
+    await page.waitForTimeout(250)
+  }
+  if (held) await page.keyboard.up(held)
+  console.log('POS   ', JSON.stringify(await pos()))
+  if (process.env.MMO_HOLD) await page.keyboard.down('KeyW')
+  for (let i = 0; i < 8; i++) {
+    await page.evaluate((d) => {
+      document.querySelector('canvas').dispatchEvent(new MouseEvent('mousemove', { movementY: d, bubbles: true }))
+    }, Number(process.env.MMO_PITCH || 25))
+    await page.waitForTimeout(60)
+  }
+  await page.waitForTimeout(1500)
+  console.log('POS   ', JSON.stringify(await pos()))
+}
+
 if (mode === 'walk') {
   // Walk across the sand, to prove movement + collision are live. Keys are
   // global keydown listeners, but click the canvas to focus.
-  await page.locator('canvas').click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
   await page.keyboard.down('KeyW')
   await page.waitForTimeout(4000)
   await page.keyboard.up('KeyW')
   await page.waitForTimeout(600)
 }
 
-await page.screenshot({ path: OUT })
+await page.screenshot({ path: OUT, timeout: 180000, animations: 'disabled' })
 const scene = await page.evaluate(() => {
   const c = document.querySelector('canvas')
   let gl = false
@@ -118,6 +306,31 @@ const scene = await page.evaluate(() => {
   catch { /* no context */ }
   return { canvas: !!c, w: c?.width, h: c?.height, gl, header: document.querySelector('header')?.innerText || '' }
 })
+if (process.env.MMO_STATS) {
+  const stats = await page.evaluate(() => new Promise((resolve) => {
+    let frames = 0
+    const start = performance.now()
+    const tick = () => {
+      frames++
+      if (performance.now() - start < 3000) requestAnimationFrame(tick)
+      else {
+        let meshes = 0
+        let instanced = 0
+        let tris = 0
+        // eslint-disable-next-line no-undef
+        const root = window.__maze?.camera?.value?.parent
+        const scene = root && root.type === 'Scene' ? root : null
+        scene?.traverse((o) => {
+          if (o.isInstancedMesh) { instanced++; tris += (o.geometry?.index?.count ?? 0) / 3 * o.count }
+          else if (o.isMesh) { meshes++; tris += (o.geometry?.index?.count ?? o.geometry?.attributes?.position?.count ?? 0) / 3 }
+        })
+        resolve({ fps: Math.round(frames / ((performance.now() - start) / 1000)), meshes, instanced, tris: Math.round(tris) })
+      }
+    }
+    requestAnimationFrame(tick)
+  }))
+  console.log('STATS ', JSON.stringify(stats))
+}
 console.log('SCENE ', JSON.stringify(scene))
 console.log('SHOT  ', OUT)
 console.log('ERRORS', errors.length)

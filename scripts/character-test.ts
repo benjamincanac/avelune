@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   CHARACTER_NAMES, DEFAULT_CHARACTER, GENDERS,
   HAIRSTYLES, OUTFITS, characterName, isCharacter,

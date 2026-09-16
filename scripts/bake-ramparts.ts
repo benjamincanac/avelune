@@ -15,7 +15,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { COURTYARD_ASSETS } from '../shared/utils/courtyard'
-import type { HubPropPlacement } from '../shared/utils/maze'
+import type { HubPropPlacement } from '../shared/utils/props'
 
 /* ---- the old generated layout, copied verbatim from ramparts.ts ---------- */
 

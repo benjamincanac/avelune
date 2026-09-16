@@ -120,3 +120,13 @@ export function isOnGateBridge(x: number, z: number): boolean {
   const f = FORTIFICATIONS
   return Math.abs(x - f.gateX) < f.bridgeWidth / 2 && z >= f.bridgeStart && z <= f.bridgeEnd
 }
+
+/** Breathing room kept around the moat's outer ring and its bank stair, in
+ *  tiles. One tile: enough for the bank geometry, no more, so a road or a
+ *  shack can sit right against the town. The footprint itself is built in
+ *  `world.ts` (`PROTECTED_FOOTPRINT`), which can also see the moat stair. */
+export const TOWN_MARGIN = 1
+
+// `isProtectedTile` and `isTownChunk` read this footprint from
+// `shared/utils/world.ts`, which is where every consumer already goes for the
+// world's shape.

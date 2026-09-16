@@ -1,9 +1,10 @@
 ---
 name: world-sim
 description: >
-  The shared arena, kinematics, and gameplay types — the code that BOTH server
-  and client must agree on. Use for anything in shared/utils/maze.ts (arena
-  generation, collision, elevation, stepBody), shared/utils/characters.ts, or
+  The shared world, kinematics, and gameplay types — the code that BOTH server
+  and client must agree on. Use for anything in shared/utils/world.ts (chunks,
+  terrain, generation) or shared/utils/maze.ts (collision, elevation,
+  stepBody), shared/utils/characters.ts, or
   shared/types/game.ts (Player, PlayerState, MoveInput,
   ClientMessage/ServerMessage). Reach for this whenever a change touches player
   position, collision, elevation, or the wire protocol shape.
@@ -15,9 +16,41 @@ authoritative server and the client's prediction/rendering both build from
 independently.
 
 ## Files you own
-- `shared/utils/maze.ts` — the world (`HUB_LAYOUT` + `generateHub`), collision,
-  elevation (walkable props), `stepBody` kinematics, the movement constants both
-  sides read, and `occupancyGrid` (a display-only wall raster for the minimap).
+- `shared/utils/world.ts` — the chunked `World`: `Chunk`, `createWorld`,
+  `generateChunk`, `seedTown`, `applyTerrain` / `applyPlace` / `applyRemove`,
+  `installChunk` / `removeChunk`, chunk key helpers, `encodeChunk` /
+  `decodeChunk`, `WORLD_BOUNDS`.
+- `shared/utils/maze.ts` — physics over a `World`: `terrainHeight`, `propsNear`,
+  `isWalkable`, `surfaceHeight`, collision, elevation (walkable props),
+  `stepBody` kinematics, the movement constants both sides read, and
+  `occupancyGrid` (a display-only wall raster, now per chunk, for the minimap).
+- `shared/utils/terrain.ts` — the height field itself (`landscapeHeight`,
+  `worldTerrainHeight`). `app/utils/courtyardLandscape.ts` draws its decorative
+  mesh from the *same* function, so the visible ground and the feet that walk it
+  can never drift apart. Change one and you change both.
+- `shared/utils/props.ts` — `PropSpec`, `HubPropPlacement`, `WorldPlacement`,
+  `SOLID_PROPS` and `makeProp`. Split out of `maze.ts` so `world.ts` (which
+  buckets placements) and `maze.ts` (which queries them) share it without a
+  runtime import cycle.
+- `shared/utils/building.ts` — the pure edit rules both sides run: `EDIT_REACH`,
+  `EDITS_PER_SECOND`, `MAX_PIECES_PER_PLAYER`, `BUILD_GRID`, `snapPlacement`,
+  `overlappingPiece` (AABB plus the vertical band `[z, z+top]`, which is what
+  lets pieces stack), `supportHeight` (a placed piece's `z`), `pieceOverBrush`,
+  `isPlaceableKind`, `canRemove`. The server decides with them; the client only
+  colours its ghost preview with them. `snapGridFor(kind)` is the grid a piece
+  snaps to: `BUILD_GRID` (2) for everything except pieces whose footprint fits
+  in a tile (`Kit_Crate`, `Kit_Torch`), which get `BUILD_GRID_SMALL` (1) so two
+  of them can sit side by side, and 0 for the free-standing nature kit. The
+  client ghost must call it too or it previews a pose the server won't store.
+- `shared/utils/vegetation.ts` — `generateVegetation(seed, cx, cy)`, the
+  deterministic nature scatter (trees and rocks solid, bushes walk-through) with
+  `wild:<cx>:<cy>:<n>` ids so a felled tree never regrows under a new name. Each
+  piece carries `z = worldTerrainHeight(x, y)` rounded to 2 decimals, so it
+  collides at the height of the hill it grew on. The scatter is meadow, not
+  woodland: a per-chunk copse centre makes trees cluster, and they are sparse
+  everywhere else.
+  Deliberately NOT inside `generateChunk`: the server's `loadChunk` applies it
+  once per chunk, and the client receives the result as placements.
 - `shared/utils/characters.ts` — character roster / assignment logic.
 - `shared/utils/courtyard.ts` — the courtyard bounds, arena/fountain positions,
   and `COURTYARD_ASSETS` dimensions shared by collision and the art templates.
@@ -26,10 +59,10 @@ independently.
   renderer and the dev prop editor agree on what's placeable. A prop `kind` is a
   GLB basename; its directory is implied by which list it's in.
 - `shared/data/courtyard-props.json` — the courtyard's hand-placed furniture,
-  trees, fountain, and lanterns (see invariant 4).
+  trees, fountain, and lanterns (see invariant 5).
 - `shared/data/courtyard-structure.json` — editable town buildings and
-  perimeter walls (see invariant 4). The old `hub-*.json` placements remain
-  legacy colosseum data and are not loaded by `generateHub`.
+  perimeter walls (see invariant 5). The legacy colosseum `hub-*.json` files are
+  deleted.
 - `shared/data/courtyard-oracle.json` — the Oracle's stand position as a bare `[x, y]`
   array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
   scene and the editor; written by the editor's save route.
@@ -42,28 +75,85 @@ independently.
    (`server/utils/game.ts`) and client prediction call the SAME exported
    functions so they never disagree. If you're tempted to put physics in a
    component or the WS handler, stop — it belongs in `shared/utils/maze.ts`.
-2. **The arena is committed data, not a seed.** `generateHub()` takes no
-   arguments and returns the same plan every time: the tile boundary is computed
-   from `COURTYARD`, everything else is read from the committed JSON. `createRng`
-   survives only for cosmetic hashing that must stay stable across reloads
-   (procedural textures) — never for gameplay state. No geometry travels over
-   the socket, only players.
-3. **`HUB_LAYOUT` sets the 144×144 grid and exterior spawn at `(72, 129)`;
-   `COURTYARD` sets city bounds `[32, 112]`.** `FORTIFICATIONS` defines exterior
-   ground `[4, 140)`, curtain walls, moat and the south bridge. `TOWN_STREETS`,
-   `TOWN_GARDENS` and `TOWN_DISTRICTS` share the authored layout with the scene
-   and minimap. Buildings and furniture collide through authored footprints;
-   moat and outer bounds use solid tiles. The raised gallery, stairs and rails
+2. **The world is a seed plus committed data, never a live download.**
+   `createWorld()` seeds the authored town from the committed JSON into the
+   town chunks and generates everything else lazily through
+   `generateChunk(seed, cx, cy)`, which is pure: same coordinates in, same bytes
+   out, on the server, in the client and in the tests. Only the server builds
+   it; the client receives chunks over the socket (`chunk` / `terrain` /
+   `place` / `remove` frames) and mirrors the server's edits with the same
+   `applyTerrain` / `applyPlace` / `applyRemove`, so both sides still hold
+   identical bytes. A chunk that arrives whole — off the wire, or out of the
+   server's store — goes in through `installChunk`, which is the single place
+   cross-chunk bucketing happens for a chunk nobody generated: it buckets the
+   incoming placements outward into the loaded neighbours, adopts the long
+   pieces those neighbours own inward, and rebuilds both rampart indexes. It
+   refills a chunk already at those coordinates *in place*, because the server's
+   dirty set and frame cache hold `Chunk` objects. `removeChunk` is its inverse
+   and takes the loans back. Neither ever invents a neighbour: `bucket` lends
+   only into chunks that already exist, so a streaming client can never generate
+   terrain the server did not send it.
+   **`version` counts mutations of a chunk's own content — heights, surface,
+   the placements it owns — exactly one per mutation.** Lending a piece to a
+   neighbour or adopting one is derived index state and moves no version, which
+   is why a straddling `applyPlace` bumps only the owner. That is what keeps a
+   client's number from ever running ahead of the server's, and so what makes
+   the client's "apply when newer" rule safe. `z` on a kit piece is gameplay elevation (its support
+   height), like the rampart kinds.
+   `createRng` survives only for cosmetic hashing that must stay stable across
+   reloads (procedural textures) — never for gameplay state.
+3. **The world is 32×32 chunks of 32 tiles, `-448..576` on both axes
+   (`WORLD_BOUNDS`), and its edge is a hard wall.** A chunk holds 33×33 corner
+   heights (`Int16Array`, 0.05 steps, the last row/column duplicating the
+   neighbour), a 32×32 surface raster, its placements and a `version`.
+   `terrainHeight` interpolates bilinearly and returns `-Infinity` for a missing
+   chunk, so an unloaded chunk reads as void rather than a hole to fall through.
+   `isWalkable` blocks the world edge, missing chunks, and any tile whose local
+   gradient exceeds `SLOPE_MAX` (1.2 per tile) — that is how cliffs work.
+   **Every spatial query reads at most the 3×3 chunk neighbourhood**
+   (`propsNear`); nothing may scan a flat list of the world's props again. Props
+   are bucketed into every chunk their footprint overlaps, so a 78-tile gallery
+   run is never missed and may be yielded twice — every consumer takes a max or
+   an OR, which makes that harmless.
+4. **The town is a protected footprint, not a chunk band.**
+   `PROTECTED_FOOTPRINT` in `world.ts` hugs the geometry: the moat's outer
+   square plus a 1-tile `TOWN_MARGIN` (`[22, 121]`), the bank stair with the
+   same margin, and exactly the road's tiles (`x` `[68, 75]`, `y` `[121, 139]`),
+   so the first tile beside or past the road is buildable. `isProtectedTile` tests it
+   and is what `checkTerraform` / `resolveBuild` / `checkDemolish` refuse on — a
+   brush is refused if any corner it writes lands inside — so building starts
+   the tile after the road ends instead of thirty tiles later.
+   `isTownChunk(cx, cy)` is the coarser fact: a chunk overlapping the footprint,
+   seeded from the town JSON by `seedTown`, created up front and never evicted.
+   Its tiles outside the footprint are ordinary editable ground.
+   `isFlatTownGround` (the `[4, 140]` square) still shapes the *initial* terrain
+   at height 0 so the ground outside the walls starts level, and it is what
+   `generateVegetation` keeps clear, so the near-wall meadow stays open; but only
+   footprint tiles get the `path` surface, the rest of the square is grass.
+   The moat bed, its bank stair and the fountain basin are height-aware surfaces
+   layered on top by `maze.ts`, not terrain. `HUB_LAYOUT` is now only the
+   town's own 144-tile extent (the editor's bounds) plus the spawn at
+   `(72, 129)`; `COURTYARD` sets city bounds `[32, 112]`. `FORTIFICATIONS`
+   defines the level square `[4, 140]`, curtain walls, moat and the south
+   bridge. `TOWN_STREETS`, `TOWN_GARDENS` and `TOWN_DISTRICTS` share the authored
+   layout with the scene and minimap. Buildings and furniture collide through
+   authored footprints. The raised gallery, stairs and rails
    are the one exception to the render-only prop `z` contract (see "Raised
    rampart passages"). Units are tiles; `PLAYER_RADIUS` and prop radii too. Keep
    tunables as exported constants so both sides read the same numbers.
-4. **The arena loads its props/pieces from two committed JSON files**, both
-   written by the dev editor and both appended to `plan.props` (each
-   `hand: true`) through `makeProp`. `courtyard-props.json` = furniture and
-   landscaping; `courtyard-structure.json` = buildings and walls. Placements are
-   `{kind, x, y, rot, scale, z?, s3?}`: `z` is render-only elevation; `s3` overrides
+5. **The town loads its props/pieces from two committed JSON files**, both
+   written by the dev editor and both seeded into the town chunks (each
+   `hand: true`, with a deterministic `town:<index>` id) through `makeProp`. `courtyard-props.json` = furniture and
+   landscaping; `courtyard-structure.json` = buildings and walls. A stored
+   placement is `{kind, x, y, rot, scale, z?, s3?}`; a `WorldPlacement` adds
+   `{id, owner?}`: for these authored `town:<index>` pieces `z` is render-only
+   elevation; `s3` overrides
    uniform scale for both rendering and collision. Collision stays ground-based
-   even when a solid kind is placed above ground. A `SOLID_PROPS` entry is a collision disc (`r`), or an
+   even when a solid kind is placed above ground. **That render-only rule holds
+   only for the town.** `propFromPlacement` keys off the `town:` id prefix (see
+   `isTownPlacement`): every other placement — the build kit, generated
+   vegetation, anything a player placed — reads `z` as gameplay elevation and
+   gets a collision band (see "Elevation bands"). A `SOLID_PROPS` entry is a collision disc (`r`), or an
    oriented box (`box: [localX, localY]`) for wall/panel kinds a circle can't fit
    — `r` is then its bounding radius for broad-phase. Arches, doorways and
    entrances stay OUT so their openings remain walkable. Courtyard entries derive
@@ -79,12 +169,53 @@ independently.
    dashes cannot skip narrow steps. Visual ripples remain client-only.
 
 
+## Elevation bands
+
+`PropSpec` carries three heights: `height` is the piece's own thickness (the
+scaled `SOLID_PROPS` value), `top` is the **absolute** world height of its
+walkable surface, and `base` is the absolute bottom of its collision band. A
+hand-authored town piece has no `base` and `top === height`, exactly as before.
+Everything else is banded at `[base, base + height]`, with `base = z`;
+`elevateProp(prop, z)` is the one place that keeps `z`/`base`/`top` in step, and
+`resolveBuild` calls it after choosing a piece's support height.
+
+A banded piece is resolved by height, not by footprint alone:
+
+- it **supports** feet at `feet >= top - STEP_MAX` — the same ledge rule a
+  gallery deck uses, applied in `surfaceHeight` through `supportsFeet`;
+- it **blocks** when the body's span `[feet, feet + BODY_HEIGHT]` overlaps the
+  band and the feet have not reached the top. That is `hitsRaisedPiece`, which
+  `stepBodyOnce` ORs into both axis tests. Ground-based pieces need no such test:
+  they block by presenting a surface too tall to step onto;
+- otherwise the body passes **underneath**, which is what makes a second-storey
+  `Kit_Floor` a ceiling rather than a wall.
+
+`BODY_HEIGHT` (= `MOAT.bodyHeight`) is the shared player height. `occupancyGrid`
+rasters by `height`, not `top`, so a slab two storeys up is not a minimap wall.
+`isPieceCameraBlocked` is the banded twin of `isRampartCameraBlocked` — the
+client's boom must OR both, or it will clip through a raised floor.
+
+Stepped ramps are a kind table in `ramparts.ts`, not a second code path:
+`Courtyard_Stairs` and `Kit_Stairs` both go into a chunk's `ramparts.stairs`
+(`isStairKind`), and `isHeightAwareKind` is what `maze.ts` and `world.ts` use to
+keep them out of ordinary footprint collision. Kit stairs carry no rails
+(`railHeight` 0).
+
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
-`action` (`jump`|`dash`), `chat`, `ping`. Server→client: `welcome`, `join`,
-`leave`, `state`, `chat`, `kicked`, `pong`. `welcome` carries `{self, players,
-now}` — `self` is always a `Player`, and `now` is the server clock the client's
-day/night + weather run on. `chat` is `{id, text}` with no scoping; the Oracle
+`action` (`jump`|`dash`), `chat`, `ping`, and the edit verbs `terraform`,
+`build`, `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
+`kicked`, `pong`, plus the world stream `chunk` (encoded heights/surface as
+base64 and the chunk's placements), `unchunk`, `terrain` (`[cornerIndex,
+int16Height][]` deltas, quantised exactly as `Chunk.heights`), `place`,
+`remove`, and `reject`. `welcome` carries `{self, players, now, world, pieces}` —
+`self` is always a `Player`, `now` is the server clock the client's day/night +
+weather run on, `world` is `{chunkSize, bounds, seed, persistent}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD), and `pieces` is how many
+pieces this identity owns in the *whole* world (only the server can count that;
+a client holds 25 chunks). `place` and `remove` carry an optional `pieces` with
+the same meaning, present only on the copy sent to the player whose edit it was
+— every other viewer gets the frame without it and ignores the field. `state` is filtered
+per session to players within 96 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping; the Oracle
 speaks through the reserved `ORACLE_ID` sender, never a roster player. `kicked`
 carries a `reason` and boots a socket when the same identity opens another
 (single session per player). When you change a frame's shape, flag both
@@ -96,8 +227,19 @@ agent are told what moved.
   named exported constants alongside the existing ones.
 - After changes to generation or kinematics, sanity-check that `stepBody`
   produces identical results given identical inputs (that's the whole contract).
-- `pnpm exec jiti scripts/world-test.ts` checks spawn, boundaries, courtyard
-  obstacles, diagonal boxes, bench jumping, and deterministic movement.
+- `pnpm test` runs `world-test.ts`, `rampart-test.ts`, `terrain-test.ts` and
+  `building-test.ts` (and every other `scripts/*-test.ts`) through vitest. `building-test.ts` covers the elevation
+  bands: a wild tree on a hill, a kit wall on a slope, walking under and
+  standing on a stacked floor, climbing kit stairs onto a landing, and the
+  stack-versus-overlap verdicts `resolveBuild` returns, plus the per-piece snap
+  grid and the footprint edge at the end of the gate road. `world-test.ts` checks spawn, the world edge, town obstacles,
+  diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
+  covers bilinear heights, the slope rule, terraform-then-walk, chunk-border
+  sync, generation determinism, the encode round trip, and the protected
+  footprint — that the road ends the protection, that the meadow beside it is
+  editable, and that the bank stair is still covered.
+  `scripts/moat-test.ts` and `scripts/character-animation-test.ts` also build a
+  `World` and are run the same way.
 - The protocol test is `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`.
 
 ## Shared weather commands
@@ -137,9 +279,9 @@ gameplay elevation:
 - `Courtyard_Rail` (4 × 0.18 × 1.1, `elevated`) — blocks only the band
   `[z, z + height]`, so it can be jumped.
 
-`shared/utils/ramparts.ts` reads them off `plan.props` through `plan.ramparts`,
-a per-kind index built by `rampartIndex` (rebuild it whenever props change, or
-physics keeps using the old placements). It takes `radius`/`stepMax` as
+`shared/utils/ramparts.ts` reads them off each chunk's `ramparts`, a per-kind
+index built by `rampartIndex` (`world.ts` rebuilds it whenever a chunk's props
+change, or physics keeps using the old placements). It takes `radius`/`stepMax` as
 parameters instead of importing them, avoiding a runtime cycle with `maze.ts` —
 the same arrangement `moat.ts` uses. All tests are in the piece's rotated frame,
 inverting the Three.js Y rotation like boxed prop collision. These kinds carry a
@@ -155,11 +297,11 @@ is the run-once migration that generated these placements from the old
 audit trail, don't re-run it. Its east/west rotations are `round3(π/2)` like the
 editor's save route writes, which tilts those decks by ~0.004 tiles.
 
-`pnpm exec jiti scripts/rampart-test.ts` covers both stairs, the connected loop,
+`scripts/rampart-test.ts` covers both stairs, the connected loop,
 ground passage, rail containment, landing, deterministic movement, and that a
 moved gallery placement moves its deck.
 
-`getSwimmingContact(plan, body)` selects deep moat swimming from the shared
+`getSwimmingContact(world, body)` selects deep moat swimming from the shared
 water level and supporting floor. `stepBody` owns damped buoyancy and the swim
 speed cap, including during dash. Floating bodies are not grounded; shallow
 escape steps restore walking. Fountain water remains wading-only.

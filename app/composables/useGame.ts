@@ -1,5 +1,5 @@
 import type { Ref } from 'vue'
-import type { ClientMessage, MoveInput, Player, ServerMessage, TimeOfDayMode, WeatherMode } from '#shared/types/game'
+import type { ClientMessage, MoveInput, Player, ServerMessage, Surface, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 
 export interface GamePlayer extends Player {
@@ -53,6 +53,13 @@ export interface UseGame {
   sendChat: (text: string) => void
   /** Push a system announcement into the chat. */
   announce: (text: string) => void
+  /** Move ground under the brush. The server validates and answers with a
+   *  `terrain` delta, or a `reject`. */
+  sendTerraform: (x: number, y: number, mode: 'raise' | 'lower' | 'flatten' | 'paint', size: 1 | 2 | 3, surface?: Surface) => void
+  /** Place a kit piece. The server snaps the pose and assigns the id. */
+  sendBuild: (kind: string, x: number, y: number, rot: number) => void
+  /** Take a piece away, if it is yours or unowned. */
+  sendDemolish: (id: string) => void
 }
 
 /** Heartbeat cadence, and how long to wait for a pong before treating the socket as dead. */
@@ -80,6 +87,9 @@ const SNAP_DISTANCE = 5
  */
 export function useGame(): UseGame {
   const oracle = useOracle()
+  // The streamed world. Every world frame is handed straight to it; nothing
+  // here interprets chunks, and the scene subscribes to it rather than to us.
+  const stream = useWorld()
   const status = ref<GameStatus>('connecting')
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
@@ -136,6 +146,10 @@ export function useGame(): UseGame {
   }
 
   function handle(msg: ServerMessage) {
+    // Chunks, terrain, placements and rejects belong to `useWorld`. `welcome`
+    // is read by both (it carries the world info as well as the roster), so
+    // this runs before the switch rather than instead of it.
+    stream.handle(msg)
     switch (msg.t) {
       case 'welcome':
         players.clear()
@@ -152,7 +166,7 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle just inside the gate, explore the town, or just say hello. Press Esc for the menu. Type /weather or /time for environment commands.`)
+          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle just inside the gate or head outside to dig and build. Keys 1 to 9 pick a tool, Tab to switch modes. Press M for the map, F for fullscreen, Esc for the menu.`)
         }
         break
       case 'time':
@@ -283,6 +297,8 @@ export function useGame(): UseGame {
       selfId.value = null
       players.clear()
       count.value = 0
+      // The loaded set belonged to that session; a reconnect re-sends it all.
+      stream.reset()
       stopHeartbeat()
       if (closed) return
       reconnectTimer = setTimeout(open, reconnectDelay)
@@ -345,6 +361,18 @@ export function useGame(): UseGame {
     }
   }
 
+  function sendTerraform(x: number, y: number, mode: 'raise' | 'lower' | 'flatten' | 'paint', size: 1 | 2 | 3, surface?: Surface) {
+    send({ t: 'terraform', x, y, mode, size, surface })
+  }
+
+  function sendBuild(kind: string, x: number, y: number, rot: number) {
+    send({ t: 'build', kind, x, y, rot })
+  }
+
+  function sendDemolish(id: string) {
+    send({ t: 'demolish', id })
+  }
+
   // The socket is opened by the page once the identity cookie exists (see
   // index.vue) — not automatically on mount.
   onBeforeUnmount(() => {
@@ -371,5 +399,8 @@ export function useGame(): UseGame {
     sendAction,
     sendChat,
     announce,
+    sendTerraform,
+    sendBuild,
+    sendDemolish,
   }
 }

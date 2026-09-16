@@ -6,11 +6,15 @@ definePageMeta({
 })
 
 const game = useGame()
+const world = useWorld()
 const oracle = useOracle()
 
 const gameRoot = useTemplateRef('gameRoot')
 const gameScene = useTemplateRef('gameScene')
 const showMenu = ref(false)
+/** The full-screen world map. `GameScene` owns the `M` key and the pointer lock
+ *  around it; the page renders it and routes Escape to it. */
+const map = useWorldMap()
 const fullscreen = ref(false)
 
 type View = 'checking' | 'creating' | 'playing' | 'editing'
@@ -105,6 +109,19 @@ function openMenu() {
   document.exitPointerLock?.()
 }
 
+// The two overlays are exclusive: `M` works from the menu too, and opening the
+// map from anywhere puts the menu away.
+watch(() => map.open.value, (open) => {
+  if (open) showMenu.value = false
+})
+
+/** From the Escape menu: swap the menu for the map. Both are cursor surfaces,
+ *  so there is no lock to take here — closing the map re-takes it. */
+function openMap() {
+  showMenu.value = false
+  map.open.value = true
+}
+
 function resume() {
   showMenu.value = false
   // Chrome refuses re-lock for ~1.25s after an Escape-exit — if this one loses
@@ -189,7 +206,10 @@ function onKeyDown(event: KeyboardEvent) {
   }
   else if (event.code === 'Escape' && view.value === 'playing') {
     event.preventDefault()
-    if (showMenu.value) resume()
+    // The map is the topmost surface: Escape closes it and hands the mouse back
+    // to the camera, rather than stacking the menu on top of it.
+    if (map.open.value) gameScene.value?.toggleMap()
+    else if (showMenu.value) resume()
     else openMenu()
   }
 }
@@ -231,10 +251,22 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       <header class="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-2">
         <BrandMark
           :count="game.count.value"
+          :realm="world.realm.value ? realmName(world.realm.value) : null"
           :dot-class="statusColor"
           size="size-8"
           class="pointer-events-auto rounded-lg bg-black/45 px-3 py-2 backdrop-blur"
         />
+        <!-- The server has no store: say so before anyone builds a house. -->
+        <p
+          v-if="world.persistent.value === false"
+          class="pointer-events-auto flex items-center gap-1.5 rounded-lg bg-warning/20 px-3 py-1.5 text-[11px] text-warning backdrop-blur"
+        >
+          <UIcon
+            name="i-lucide-triangle-alert"
+            class="size-3.5"
+          />
+          Sandbox: this world resets when the server restarts
+        </p>
       </header>
 
       <!-- Top-right: minimap. -->
@@ -242,9 +274,19 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         <MiniMap :game="game" />
       </aside>
 
+      <!-- Centre: the crosshair the build ray is cast through. -->
+      <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+        <span class="size-1.5 rounded-full bg-white/80 ring-1 ring-black/50" />
+      </div>
+
       <!-- Bottom-left: chat. -->
       <div class="pointer-events-none absolute bottom-4 left-4 z-10">
         <ChatPanel :game="game" />
+      </div>
+
+      <!-- Bottom-centre: the build bar. -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+        <Hotbar />
       </div>
 
       <!-- Oracle: a discovery hint when near it. The Oracle answers in the
@@ -257,13 +299,21 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       >
         <div
           v-if="oracle.near.value"
-          class="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex justify-center"
+          class="pointer-events-none absolute inset-x-0 bottom-32 z-20 flex justify-center"
         >
           <span class="flex items-center gap-1.5 rounded-full bg-black/60 px-3.5 py-1.5 text-[13px] text-highlighted ring ring-white/10 backdrop-blur">
             The Oracle listens — <span class="text-muted">speak to it in chat</span>
           </span>
         </div>
       </Transition>
+
+      <!-- Full-screen world map (M). Modal over the game: the scene freezes
+           its input while it is up. -->
+      <WorldMap
+        v-if="map.open.value"
+        :game="game"
+        @close="gameScene?.toggleMap()"
+      />
 
       <!-- Escape menu (WoW-style): dims the world, controls + session actions.
            Clicking the backdrop resumes too — the click doubles as the user
@@ -304,6 +354,26 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
                 <UKbd value="Alt" />
               </div>
               <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Hotbar</span>
+                <span class="flex items-center gap-0.5">
+                  <UKbd value="1" /><UKbd value="9" /><UKbd value="Tab" />
+                </span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Use tool</span>
+                <UKbd value="Click" />
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Brush / rotate</span>
+                <span class="flex items-center gap-0.5">
+                  <UKbd value="[" /><UKbd value="]" /><UKbd value="R" />
+                </span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-muted">Map</span>
+                <UKbd value="M" />
+              </div>
+              <div class="flex items-center justify-between gap-4">
                 <span class="text-muted">Fullscreen</span>
                 <UKbd value="F" />
               </div>
@@ -321,6 +391,14 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
                 variant="soft"
                 block
                 @click="toggleFullscreen"
+              />
+              <UButton
+                label="Map (M)"
+                icon="i-lucide-map"
+                color="neutral"
+                variant="soft"
+                block
+                @click="openMap"
               />
               <UButton
                 v-if="isDev"

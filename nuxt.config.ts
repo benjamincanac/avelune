@@ -91,6 +91,15 @@ export default defineNuxtConfig({
     // Secret for signing the identity cookie (see server/utils/session.ts).
     // Set NUXT_SESSION_PASSWORD in production; a dev fallback is used if empty.
     sessionPassword: '',
+    // Upstash Redis, where the chunks players terraform and build in live
+    // between deploys. Set NUXT_UPSTASH_REDIS_REST_URL and
+    // NUXT_UPSTASH_REDIS_REST_TOKEN — or leave both empty and the server keeps
+    // the world in memory, which is what local dev and the tests do. The bare
+    // UPSTASH_* names the Vercel marketplace integration sets are read at
+    // runtime too (server/utils/chunkStore.ts), so a linked store needs no
+    // extra configuration — which is why neither default is baked in here.
+    upstashRedisRestUrl: '',
+    upstashRedisRestToken: '',
   },
 
   experimental: {
@@ -108,7 +117,7 @@ export default defineNuxtConfig({
   // crossws via `crossws/adapters/vercel`, so a single handler powers every
   // environment. (Requires Nitro >= 3.0.260610-beta.)
   nitro: {
-    experimental: {
+    features: {
       websocket: true,
     },
   },

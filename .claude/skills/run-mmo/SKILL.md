@@ -48,10 +48,14 @@ pnpm build
 NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/index.mjs > /tmp/mmo-prod.log 2>&1 &   # listens on :3000
 ```
 
-**2. Drive it.** `arena` (default) enters and shoots the spawn; `walk` also holds
-`W` for a few seconds first so the shot shows movement and streamed geometry:
+**2. Drive it.** Five modes: `arena` (default) enters and shoots the spawn;
+`walk` also holds `W` for a few seconds first; `meadow` walks out of the south
+gate and turns back so the shot shows streamed terrain; `build` walks out, arms
+a kit wall from the hotbar and clicks twice so the second piece stacks on the
+first; `map` presses `M` after arrival and shoots the full-screen world map:
 ```bash
 MMO_URL=http://localhost:4321 node .claude/skills/run-mmo/driver.mjs walk
+MMO_URL=http://localhost:4321 MMO_TIME=day node .claude/skills/run-mmo/driver.mjs build
 ```
 It prints the HUD label + WebGL status and writes the screenshot to
 `/tmp/mmo-<mode>.png`. **Open the screenshot and look at it** — a black frame, or
@@ -65,7 +69,13 @@ ERRORS 2
 ```
 
 Env knobs: `MMO_URL` (skip port autodetect — recommended), `MMO_OUT` (screenshot
-path), `MMO_PW` (Playwright install location).
+path), `MMO_PW` (Playwright install location), `MMO_TIME` / `MMO_WEATHER` (fix
+the sky through the chat commands before shooting), `MMO_STATS` (fps / mesh /
+triangle counts), and for `meadow` / `build`: `MMO_BACK` (ms walking out of the
+gate), `MMO_TURN` (px of yaw for the about-turn, ~507 px per 90°) and
+`MMO_PITCH`. Framing out in the meadow is luck of the draw — the player can end
+up wedged against a boulder or inside a tree, collapsing the camera boom onto
+its own face. Vary `MMO_BACK` / `MMO_TURN` and shoot again.
 
 ## Run (human path)
 Run the project's dev command (`pnpm dev`, or the `--port`/`NUXT_IGNORE_LOCK=1`
@@ -99,6 +109,15 @@ character** → type a name → **Enter** → WASD move, mouse look, Space jump,
   ("Named export not found") — the driver uses `createRequire` + the absolute path.
 - **Movement keys need canvas focus but not pointer lock.** They're global keydown
   listeners; the driver clicks the canvas once, then `keyboard.down('KeyW')`.
+- **There are TWO canvases** — the world and the minimap — so `locator('canvas')`
+  is a strict-mode violation and every click in the driver uses `.first()`. The
+  `.catch(() => {})` around each click swallows that error silently, so a bare
+  locator means clicks never land. That went unnoticed while clicks were only
+  used for focus; it matters now that a click also applies the armed hotbar tool.
+- **A click in the world uses the hotbar tool.** The first click of a real
+  session is spent requesting pointer lock *and* firing, so an armed shovel will
+  dig the moment the driver clicks to focus. Arm the slot you want (`Digit1`..
+  `Digit9`) before clicking, or expect a stray edit.
 - **Screenshot only after the model queue drains.** Under SwiftShader the main
   thread starves the network callbacks, so the ~180 GLB requests complete at just
   ~5/s — the world rebuilds with kit models only once its batch resolves, and an

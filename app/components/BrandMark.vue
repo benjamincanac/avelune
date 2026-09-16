@@ -7,6 +7,8 @@
 withDefaults(defineProps<{
   /** Players in town; null hides the line until the first probe resolves. */
   count: number | null
+  /** The realm's display name, shown after the count once known. */
+  realm?: string | null
   /** Tailwind `bg-*` utility for the status dot. */
   dotClass?: string
   /** Logo edge size (Tailwind `size-*` utility). */
@@ -35,7 +37,7 @@ withDefaults(defineProps<{
           class="size-1.5 rounded-full"
           :class="dotClass"
         />
-        {{ count }} in town
+        {{ count }} in town<template v-if="realm"> · {{ realm }}</template>
       </span>
     </div>
   </div>

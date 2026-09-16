@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PROP_CATALOG } from '#shared/utils/propCatalog'
-import { isSolidProp } from '#shared/utils/maze'
+import { isSolidProp } from '#shared/utils/props'
 
 /**
  * 2D overlay for the dev world editor. Pure HUD chrome over the live scene — the

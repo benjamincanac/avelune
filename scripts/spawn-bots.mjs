@@ -7,18 +7,26 @@
 // waypoints around their spawn, walk to them, jump/dash occasionally, and
 // reconnect if the socket drops.
 //
-// Usage:
-//   node scripts/spawn-bots.mjs [--url <base>] [--count N] [--radius R] [--chat]
+// Usage (through jiti: this pulls in the shared modules, which use extensionless
+// imports node cannot resolve on its own):
+//   pnpm exec jiti scripts/spawn-bots.mjs [--url <base>] [--count N] [--radius R] [--chat] [--dig]
+//
+// Each bot keeps its own streamed `World`: it builds nothing locally, it just
+// installs the `chunk` frames the server sends and reads walkability out of
+// them, exactly as a browser does. `--dig` walks them out past the town's
+// protected footprint and has them terraform the meadow, which is what puts the
+// tick loop under an edit load.
 //
 // Examples:
-//   node scripts/spawn-bots.mjs                       # 3 bots on prod
-//   node scripts/spawn-bots.mjs --count 8             # 8 bots on prod
-//   node scripts/spawn-bots.mjs --url http://localhost:50889 --count 5
+//   pnpm exec jiti scripts/spawn-bots.mjs                     # 3 bots on prod
+//   pnpm exec jiti scripts/spawn-bots.mjs --count 8           # 8 bots on prod
+//   pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:50889 --count 5 --dig
 //
 // Ctrl-C for a clean shutdown (closes every socket).
 
 import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '../shared/utils/characters.ts'
-import { generateHub, isWalkable } from '../shared/utils/maze.ts'
+import { isWalkable } from '../shared/utils/maze.ts'
+import { applyPlace, applyRemove, chunkKey, createWorld, decodeChunk, installChunk, isProtectedTile, removeChunk } from '../shared/utils/world.ts'
 
 /* ------------------------------- args --------------------------------- */
 
@@ -35,22 +43,26 @@ const WS_URL = BASE.replace(/^http/, 'ws') + '/api/ws'
 const COUNT = Math.max(1, Number(flag('count', 3)) || 3)
 const RADIUS = Number(flag('radius', 5)) || 5 // wander radius around spawn (tiles)
 const CHAT = flag('chat', false) === true
+const DIG = flag('dig', false) === true
+/** Where digging bots head for: the open meadow that starts as soon as the gate
+ *  road ends. Protection is a tile footprint, so this is a few tiles past 140,
+ *  not a chunk band away. */
+const MEADOW_Y = 150
+/** ms between terraform requests — well under the server's 8 per second. */
+const DIG_EVERY = 1200
 
 const rand = (min, max) => min + Math.random() * (max - min)
 const pick = arr => arr[Math.floor(Math.random() * arr.length)]
 
-// The arena is a fixed hand-authored map, identical on both sides — build its
-// plan once and reuse it for every bot's waypoint validation.
-const PLAN = generateHub()
-
-/** A random walkable point within `r` tiles of (cx, cy), or null after N tries. */
-function randomWaypoint(cx, cy, r) {
+/** A random walkable point within `r` tiles of (cx, cy) in the bot's own
+ *  streamed world, or null after N tries. */
+function randomWaypoint(world, cx, cy, r) {
   for (let i = 0; i < 30; i++) {
     const a = rand(0, Math.PI * 2)
     const d = Math.sqrt(Math.random()) * r
     const x = cx + Math.cos(a) * d
     const y = cy + Math.sin(a) * d
-    if (isWalkable(PLAN, Math.floor(x), Math.floor(y))) return { x, y }
+    if (isWalkable(world, Math.floor(x), Math.floor(y))) return { x, y }
   }
   return null
 }
@@ -96,6 +108,13 @@ class Bot {
     this.driving = false // is 'forward' currently held server-side?
     this.closed = false
     this.timers = []
+    // A real client never generates the world: it starts empty and is filled by
+    // the `chunk` frames the server streams. Bots do the same, so their
+    // walkability checks see exactly what a browser would.
+    this.world = createWorld({ generate: false, town: false })
+    this.trekking = DIG // heading for the meadow before it can dig
+    this.edits = 0
+    this.refused = 0
   }
 
   async auth() {
@@ -135,6 +154,14 @@ class Bot {
         const me = m.players.find(p => p.id === this.id)
         if (me) this.pos = { x: me.x, y: me.y }
       }
+      else if (m.t === 'chunk') installChunk(this.world, decodeChunk(m))
+      else if (m.t === 'unchunk') removeChunk(this.world, m.cx, m.cy)
+      else if (m.t === 'terrain') this.applyTerrainFrame(m)
+      else if (m.t === 'place') {
+        if (this.world.chunks.has(chunkKey(m.cx, m.cy))) applyPlace(this.world, m.piece)
+      }
+      else if (m.t === 'remove') applyRemove(this.world, m.id)
+      else if (m.t === 'reject') this.refused++
       else if (m.t === 'kicked') {
         console.log(`[${this.name}] kicked: ${m.reason}`)
         this.close()
@@ -154,10 +181,21 @@ class Bot {
     ws.addEventListener('error', () => { /* close fires next */ })
   }
 
+  // A `terrain` delta names corner indices and their new quantised heights, so
+  // applying one is a write straight into the chunk the client already holds.
+  applyTerrainFrame(m) {
+    const chunk = this.world.chunks.get(chunkKey(m.cx, m.cy))
+    if (!chunk) return
+    for (const [i, h] of m.edits) chunk.heights[i] = h
+    for (const [i, v] of m.surface ?? []) chunk.surface[i] = v
+    chunk.version = m.v
+  }
+
   startBehavior() {
     if (this.started) return
     this.started = true
     this.timers.push(setInterval(() => this.wander(), TICK))
+    if (DIG) this.timers.push(setInterval(() => this.dig(), DIG_EVERY))
     // Keep-alive ping so idle proxies don't reap the socket.
     this.timers.push(setInterval(() => this.send({ t: 'ping' }), 10_000))
     if (CHAT) this.timers.push(setInterval(() => {
@@ -169,10 +207,25 @@ class Bot {
   // we arrive (or after idling), and hop/dash now and then for signs of life.
   wander() {
     if (!this.pos) return
+    // Digging bots first walk clear of the town footprint, then settle down and
+    // wander where the ground is theirs to move.
+    if (this.trekking) {
+      if (this.pos.y >= MEADOW_Y || (!isProtectedTile(this.pos.x, this.pos.y) && this.pos.y > 142)) {
+        this.trekking = false
+        this.home = { ...this.pos }
+        this.target = null
+      }
+      else {
+        this.drive(Math.atan2(MEADOW_Y - this.pos.y, (this.home?.x ?? this.pos.x) - this.pos.x), true)
+        if (Math.random() < 0.15) this.send({ t: 'action', kind: 'jump' })
+        this.trackStuck()
+        return
+      }
+    }
     const anchor = this.home ?? this.pos
 
     if (!this.target || Math.hypot(this.target.x - this.pos.x, this.target.y - this.pos.y) < ARRIVE) {
-      this.target = randomWaypoint(anchor.x, anchor.y, RADIUS)
+      this.target = randomWaypoint(this.world, anchor.x, anchor.y, RADIUS)
       // Pause on arrival every so often, so bots aren't all in constant motion.
       if (Math.random() < 0.25) {
         this.drive(this.angle, false)
@@ -189,6 +242,24 @@ class Bot {
     else if (r < 0.1) this.send({ t: 'action', kind: 'dash' })
 
     this.trackStuck()
+  }
+
+  // Move a corner of the ground near our feet. The server refuses anything
+  // inside the walls, out of reach, or faster than its rate limit, so this is a
+  // load test of the validation path as much as of the apply path.
+  dig() {
+    if (!this.pos || this.trekking) return
+    const gx = Math.round(this.pos.x + rand(-3, 3))
+    const gy = Math.round(this.pos.y + rand(-3, 3))
+    if (isProtectedTile(gx, gy)) return
+    this.edits++
+    this.send({
+      t: 'terraform',
+      x: gx,
+      y: gy,
+      mode: pick(['raise', 'raise', 'lower', 'flatten']),
+      size: pick([1, 1, 2, 3]),
+    })
   }
 
   // Send a move only when the heading turned or the throttle toggled: the server
@@ -240,7 +311,7 @@ class Bot {
 
 /* ------------------------------- main --------------------------------- */
 
-console.log(`Spawning ${COUNT} bot${COUNT > 1 ? 's' : ''} on ${BASE} (radius ${RADIUS}${CHAT ? ', chatty' : ''})`)
+console.log(`Spawning ${COUNT} bot${COUNT > 1 ? 's' : ''} on ${BASE} (radius ${RADIUS}${CHAT ? ', chatty' : ''}${DIG ? ', digging' : ''})`)
 
 const bots = []
 for (let i = 0; i < COUNT; i++) {
@@ -267,4 +338,9 @@ function shutdown() {
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 
-setInterval(() => console.log(`— ${alive}/${COUNT} bots connected —`), 15_000)
+setInterval(() => {
+  const edits = bots.reduce((n, b) => n + b.edits, 0)
+  const refused = bots.reduce((n, b) => n + b.refused, 0)
+  const outside = bots.filter(b => b.started && !b.trekking).length
+  console.log(`— ${alive}/${COUNT} bots connected${DIG ? `, ${outside} digging, ${edits} edits (${refused} refused)` : ''} —`)
+}, 15_000)

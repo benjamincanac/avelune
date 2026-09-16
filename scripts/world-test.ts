@@ -1,9 +1,8 @@
-// Run with: pnpm exec jiti scripts/world-test.ts
+// Run with: pnpm test (vitest), or pnpm exec vitest run scripts/world-test.ts
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   DASH_MULTIPLIER,
-  generateHub,
   JUMP_VELOCITY,
   PLAYER_SPEED,
   PLAYER_RADIUS,
@@ -12,15 +11,36 @@ import {
   stepBody,
   surfaceHeight,
 } from '../shared/utils/maze'
-import type { FloorPlan, KinematicBody } from '../shared/utils/maze'
+import type { KinematicBody } from '../shared/utils/maze'
+import type { PropSpec } from '../shared/utils/props'
+import { applyPlace, createWorld, encodeChunk, worldProps, WORLD_TILE_MAX, WORLD_TILE_MIN } from '../shared/utils/world'
+import type { World } from '../shared/utils/world'
 import oraclePosition from '../shared/data/courtyard-oracle.json'
 import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN, FORTIFICATIONS, TOWN_DISTRICTS, TOWN_STREETS } from '../shared/utils/courtyard'
 
-const plan = generateHub()
+const plan = createWorld()
+/** Every piece the town seeded, the way the old flat `plan.props` read. */
+const townProps = [...worldProps(plan)]
+/** A world holding a single piece, for footprint tests that need no neighbours.
+ *  Town coordinates keep the terrain under it level, exactly as before. */
+function soloWorld(prop: PropSpec): World {
+  const world = createWorld({ town: false })
+  applyPlace(world, {
+    id: 'solo',
+    kind: prop.kind,
+    x: prop.x,
+    y: prop.y,
+    rot: prop.rot,
+    scale: prop.scale,
+    ...(prop.z != null ? { z: prop.z } : {}),
+    ...(prop.s3 ? { s3: prop.s3 } : {}),
+  })
+  return world
+}
 const dt = 1 / 20
 const bodyAt = (x: number, y: number): KinematicBody => ({ x, y, z: 0, vz: 0, grounded: true })
 
-function walk(body: KinematicBody, x: number, y: number, steps = 100, speed = PLAYER_SPEED, world: FloorPlan = plan) {
+function walk(body: KinematicBody, x: number, y: number, steps = 100, speed = PLAYER_SPEED, world: World = plan) {
   for (let i = 0; i < steps; i++) stepBody(world, body, x * speed * dt, y * speed * dt, dt)
   return body
 }
@@ -35,18 +55,21 @@ test('spawn has ground and clearance in all eight directions', () => {
   }
 })
 
-test('all four perimeter sides contain walking and dashing players', () => {
-  const approaches = [[72, 137, 0, 1], [72, 7, 0, -1], [7, 72, -1, 0], [137, 72, 1, 0]] as const
+// The old fortification exterior is no longer the edge of the world: the meadow
+// outside the walls is real terrain now. The hard wall is the world bound.
+test('all four world edges contain walking and dashing players', () => {
+  const near = 6
+  const approaches = [[72, WORLD_TILE_MAX - near, 0, 1], [72, WORLD_TILE_MIN + near, 0, -1], [WORLD_TILE_MIN + near, 72, -1, 0], [WORLD_TILE_MAX - near, 72, 1, 0]] as const
   for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
     for (const [x, y, dx, dy] of approaches) {
       const body = walk(bodyAt(x, y), dx, dy, 100, speed)
-      assert.ok(body.x >= FORTIFICATIONS.exteriorMin + PLAYER_RADIUS && body.x <= FORTIFICATIONS.exteriorMax - PLAYER_RADIUS && body.y >= FORTIFICATIONS.exteriorMin + PLAYER_RADIUS && body.y <= FORTIFICATIONS.exteriorMax - PLAYER_RADIUS)
+      assert.ok(body.x >= WORLD_TILE_MIN + PLAYER_RADIUS && body.x <= WORLD_TILE_MAX - PLAYER_RADIUS && body.y >= WORLD_TILE_MIN + PLAYER_RADIUS && body.y <= WORLD_TILE_MAX - PLAYER_RADIUS)
     }
   }
 })
 
 test('placed buildings block their front approach, including rotated facades', () => {
-  for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
+  for (const prop of townProps.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
     const dx = Math.sin(prop.rot)
     const dy = Math.cos(prop.rot)
     const body = bodyAt(prop.x + dx * (prop.by! + 1), prop.y + dy * (prop.by! + 1))
@@ -57,10 +80,10 @@ test('placed buildings block their front approach, including rotated facades', (
 })
 
 test('diagonal building collision follows the visible Three.js Y rotation', () => {
-  const inn = plan.props.find(p => p.kind === 'Courtyard_Inn')!
+  const inn = townProps.find(p => p.kind === 'Courtyard_Inn')!
   for (const rot of [Math.PI / 4, -Math.PI / 4]) {
     const prop = { ...inn, x: 52, y: 52, rot }
-    const world = { ...plan, props: [prop] }
+    const world = soloWorld(prop)
     const c = Math.cos(rot)
     const s = Math.sin(rot)
     const point = (x: number, y: number) => ({ x: prop.x + x * c + y * s, y: prop.y - x * s + y * c })
@@ -78,7 +101,7 @@ test('diagonal building collision follows the visible Three.js Y rotation', () =
 })
 
 test('tree trunks stop centered walking and dashing players', () => {
-  for (const prop of plan.props.filter(p => p.kind === 'Courtyard_Tree')) {
+  for (const prop of townProps.filter(p => p.kind === 'Courtyard_Tree')) {
     for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
       const body = walk(bodyAt(prop.x - prop.r - 1, prop.y), 1, 0, 100, speed)
       assert.ok(body.x <= prop.x - prop.r)
@@ -88,14 +111,14 @@ test('tree trunks stop centered walking and dashing players', () => {
 })
 
 test('fountain has a large stepped basin and a solid central pedestal', () => {
-  const prop = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
+  const prop = townProps.find(p => p.kind === 'Courtyard_Fountain')!
   assert.deepEqual(COURTYARD.fountain, { x: prop.x, y: prop.y })
   assert.equal(prop.scale, 1.4)
   assert.equal(prop.r, COURTYARD_ASSETS.Courtyard_Fountain.radius * 1.4)
   for (const [radius, height] of [[3.9, 0], [3.65, 0.18], [3.4, 0.36], [3.15, 0.54], [2.95, 0.30], [2, 0.12], [0.4, 2.7]]) {
     assert.equal(surfaceHeight(plan, prop.x + radius! * prop.scale, prop.y), height! * prop.scale)
   }
-  const world = { ...plan, props: [prop] }
+  const world = soloWorld(prop)
   for (let i = 0; i < 8; i++) {
     const a = Math.PI / 4 * i
     const dx = Math.cos(a)
@@ -116,8 +139,8 @@ test('fountain has a large stepped basin and a solid central pedestal', () => {
 })
 
 test('the pedestal blocks a grounded jump from inside the basin', () => {
-  const prop = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
-  const world = { ...plan, props: [prop] }
+  const prop = townProps.find(p => p.kind === 'Courtyard_Fountain')!
+  const world = soloWorld(prop)
   const body = { ...bodyAt(prop.x + 1.4, prop.y), z: FOUNTAIN.floorHeight * prop.scale, vz: JUMP_VELOCITY, grounded: false }
   walk(body, -1, 0, 50, PLAYER_SPEED, world)
   assert.ok(body.x > prop.x + FOUNTAIN.pedestalRadius * prop.scale)
@@ -125,8 +148,8 @@ test('the pedestal blocks a grounded jump from inside the basin', () => {
 })
 
 test('water slows wading, releases jumping feet, and leaves dry movement unchanged', () => {
-  const prop = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
-  const world = { ...plan, props: [prop] }
+  const prop = townProps.find(p => p.kind === 'Courtyard_Fountain')!
+  const world = soloWorld(prop)
   const body = { ...bodyAt(prop.x + 2, prop.y), z: FOUNTAIN.floorHeight * prop.scale }
   const contact = getFountainWaterContact(prop, body)!
   assert.ok(contact.depth > 0.5)
@@ -147,9 +170,9 @@ test('water slows wading, releases jumping feet, and leaves dry movement unchang
 })
 
 test('fountain footprints and water contact follow rotated per-axis scale', () => {
-  const source = plan.props.find(p => p.kind === 'Courtyard_Fountain')!
+  const source = townProps.find(p => p.kind === 'Courtyard_Fountain')!
   const prop = { ...source, s3: [1.8, 1.4, 0.8] as [number, number, number], rot: Math.PI / 3, r: FOUNTAIN.outerRadius * 1.8, z: 20 }
-  const world = { ...plan, props: [prop] }
+  const world = soloWorld(prop)
   const point = (x: number, y: number) => ({
     x: prop.x + x * 1.8 * Math.cos(prop.rot) + y * 0.8 * Math.sin(prop.rot),
     y: prop.y - x * 1.8 * Math.sin(prop.rot) + y * 0.8 * Math.cos(prop.rot),
@@ -163,20 +186,21 @@ test('fountain footprints and water contact follow rotated per-axis scale', () =
     assert.equal(contact.surfaceHeight, FOUNTAIN.waterHeight * 1.4)
   }
   const start = point(4, 0)
+  const mirror = soloWorld(prop)
   const a = bodyAt(start.x, start.y)
   const b = { ...a }
   for (let i = 0; i < 80; i++) {
     const dx = -Math.cos(prop.rot) * PLAYER_SPEED * dt
     const dy = Math.sin(prop.rot) * PLAYER_SPEED * dt
     stepBody(world, a, dx, dy, dt)
-    stepBody(structuredClone(world), b, dx, dy, dt)
+    stepBody(mirror, b, dx, dy, dt)
     assert.deepEqual(a, b)
   }
   assert.ok(getFountainWaterContact(prop, a))
 })
 
 test('bench blocks walking, supports jump landings, and allows walking off', () => {
-  const prop = plan.props.find(p => p.kind === 'Courtyard_Bench')!
+  const prop = townProps.find(p => p.kind === 'Courtyard_Bench')!
   const body = bodyAt(prop.x, prop.y - prop.by! - 0.2)
   walk(body, 0, 1, 10)
   assert.ok(body.y < prop.y - prop.by!)
@@ -193,8 +217,10 @@ test('bench blocks walking, supports jump landings, and allows walking off', () 
 })
 
 test('independently generated worlds produce identical movement', () => {
-  const secondPlan = generateHub()
-  assert.deepEqual(secondPlan, plan)
+  const firstPlan = createWorld()
+  const secondPlan = createWorld()
+  assert.deepEqual([...secondPlan.chunks.keys()].sort(), [...firstPlan.chunks.keys()].sort())
+  for (const key of firstPlan.chunks.keys()) assert.deepEqual(encodeChunk(secondPlan.chunks.get(key)!), encodeChunk(firstPlan.chunks.get(key)!))
   const a = bodyAt(plan.start.x, plan.start.y)
   const b = { ...a }
   for (let i = 0; i < 2000; i++) {
@@ -204,14 +230,14 @@ test('independently generated worlds produce identical movement', () => {
       a.vz = JUMP_VELOCITY
       b.vz = JUMP_VELOCITY
     }
-    stepBody(plan, a, x, y, dt)
+    stepBody(firstPlan, a, x, y, dt)
     stepBody(secondPlan, b, x, y, dt)
     assert.deepEqual(a, b)
   }
 })
 
 test('town buildings have separate footprints inside the playable boundary', () => {
-  const buildings = plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))
+  const buildings = townProps.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))
   assert.equal(COURTYARD.max - COURTYARD.min, 80)
   assert.ok(buildings.length >= 30)
   const axes = (rot: number) => [[Math.cos(rot), -Math.sin(rot)], [Math.sin(rot), Math.cos(rot)]] as const
@@ -234,7 +260,7 @@ test('town buildings have separate footprints inside the playable boundary', () 
 })
 
 test('building footprints leave the fountain stone border and walking space clear', () => {
-  for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)$/.test(p.kind))) {
+  for (const prop of townProps.filter(p => /Courtyard_(Inn|Shop|Tower)$/.test(p.kind))) {
     const dx = COURTYARD.arena.x - prop.x
     const dy = COURTYARD.arena.y - prop.y
     const c = Math.cos(prop.rot)
@@ -285,7 +311,7 @@ test('town streets and every building frontage remain connected to spawn', () =>
   for (const [x, y] of [[72, 84], [64, 72], [80, 72], [72, 62], [46, 72], [89, 72], [72, 56], [72, 100], [72, 109], [12, 12], [132, 12], [12, 132], [132, 132], ...TOWN_DISTRICTS.filter(d => d.name !== 'Fountain Square').map(d => [d.x, d.z]), oracleNode]) {
     assert.ok(reached.has(key(x!, y!)), `street at ${x},${y} is disconnected from spawn`)
   }
-  for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
+  for (const prop of townProps.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
     const doorOffset = prop.kind === 'Courtyard_Shop' ? -1.61 * (prop.s3?.[0] ?? prop.scale) : 0
     const x = prop.x + Math.sin(prop.rot) * (prop.by! + 1) + Math.cos(prop.rot) * doorOffset
     const y = prop.y + Math.cos(prop.rot) * (prop.by! + 1) - Math.sin(prop.rot) * doorOffset
@@ -339,7 +365,7 @@ test('bridge parapets contain walking and dashing players', () => {
 })
 
 test('house doors face connected streets and leave the defensive perimeter clear', () => {
-  const houses = plan.props.filter(p => /Courtyard_(Inn|Shop)$/.test(p.kind))
+  const houses = townProps.filter(p => /Courtyard_(Inn|Shop)$/.test(p.kind))
   for (const prop of houses) {
     const frontX = Math.sin(prop.rot)
     const frontY = Math.cos(prop.rot)
@@ -362,7 +388,7 @@ test('house doors face connected streets and leave the defensive perimeter clear
   // Stair access stays clear even when surrounding buildings or furniture move.
   for (const x of [40, 104]) {
     for (let z = 90; z <= 105; z += 0.5) {
-      for (const prop of plan.props.filter(p => /Courtyard_(Inn|Shop|Tree|Bench|Planter|Stall|Lantern)$/.test(p.kind))) {
+      for (const prop of townProps.filter(p => /Courtyard_(Inn|Shop|Tree|Bench|Planter|Stall|Lantern)$/.test(p.kind))) {
         const dx = Math.abs(prop.x - x)
         const dz = Math.abs(prop.y - z)
         assert.ok(dx > (prop.bx ?? prop.r) + 1.5 || dz > (prop.by ?? prop.r) + 0.25,

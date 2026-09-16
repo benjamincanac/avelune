@@ -1,0 +1,110 @@
+[
+  {
+    "kind": "Kit_Wall",
+    "file": "Kit_Wall.glb",
+    "width": 2.0,
+    "depth": 0.3,
+    "height": 2.5,
+    "solid": true,
+    "stackable": true
+  },
+  {
+    "kind": "Kit_WallWindow",
+    "file": "Kit_WallWindow.glb",
+    "width": 2.0,
+    "depth": 0.3,
+    "height": 2.5,
+    "solid": true,
+    "stackable": true
+  },
+  {
+    "kind": "Kit_WallDoor",
+    "file": "Kit_WallDoor.glb",
+    "width": 2.0,
+    "depth": 0.3,
+    "height": 2.5,
+    "solid": true,
+    "stackable": true
+  },
+  {
+    "kind": "Kit_Floor",
+    "file": "Kit_Floor.glb",
+    "width": 2.0,
+    "depth": 2.0,
+    "height": 0.2,
+    "solid": true,
+    "stackable": true
+  },
+  {
+    "kind": "Kit_Roof",
+    "file": "Kit_Roof.glb",
+    "width": 2.0,
+    "depth": 2.0,
+    "height": 1.2,
+    "solid": true,
+    "stackable": false
+  },
+  {
+    "kind": "Kit_RoofCorner",
+    "file": "Kit_RoofCorner.glb",
+    "width": 2.0,
+    "depth": 2.0,
+    "height": 1.2,
+    "solid": true,
+    "stackable": false
+  },
+  {
+    "kind": "Kit_Stairs",
+    "file": "Kit_Stairs.glb",
+    "width": 2.0,
+    "depth": 2.0,
+    "height": 2.5,
+    "solid": true,
+    "stackable": true
+  },
+  {
+    "kind": "Kit_Fence",
+    "file": "Kit_Fence.glb",
+    "width": 2.0,
+    "depth": 0.15,
+    "height": 1.0,
+    "solid": true,
+    "stackable": false
+  },
+  {
+    "kind": "Kit_Gate",
+    "file": "Kit_Gate.glb",
+    "width": 2.0,
+    "depth": 0.15,
+    "height": 1.0,
+    "solid": true,
+    "stackable": false
+  },
+  {
+    "kind": "Kit_Torch",
+    "file": "Kit_Torch.glb",
+    "width": 0.4,
+    "depth": 0.4,
+    "height": 1.6,
+    "solid": true,
+    "stackable": false
+  },
+  {
+    "kind": "Kit_Path",
+    "file": "Kit_Path.glb",
+    "width": 2.0,
+    "depth": 2.0,
+    "height": 0.05,
+    "solid": true,
+    "stackable": false
+  },
+  {
+    "kind": "Kit_Crate",
+    "file": "Kit_Crate.glb",
+    "width": 1.0,
+    "depth": 1.0,
+    "height": 1.0,
+    "solid": true,
+    "stackable": true
+  }
+]

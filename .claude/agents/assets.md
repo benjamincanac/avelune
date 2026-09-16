@@ -20,16 +20,19 @@ files the game loads, and the scripts that do it.
   Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
   `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start/Loop/Land`, `Roll`, …), one NLA
   track per clip so the exporter emits one animation each.
-- `scripts/build_sprint_animation.py` rebuilds `Sprint_Loop` in `sprinting.glb`
-  from the bundled jog cycle. Preserve normalized jog footfall phase for
-  runtime gait blending, universal bone names, and zero horizontal root motion.
-- `scripts/build_swim_animations.py` exports `swimming.glb` with `Swim_Loop`
-  and `Swim_Idle` on the bundled universal skeleton. Breaststroke uses paired
-  hand and ankle targets with two-bone IK. Armature-space bone orientations
-  must compensate for posed parents to avoid double-rotating elbows and knees.
-  Keep clip names, seamless endpoints and zero root translation stable. Rebuild
-  the preview after exporting; replacing `.output/public` assets directly leaves
-  Nitro serving stale content lengths and breaks character loading.
+- `animations.glb` is the only clip file the client loads. `rebuild_animations.py`
+  also exports the library's `Swim_Fwd_Loop` / `Swim_Idle_Loop` renamed to
+  `Swim_Loop` / `Swim_Idle` (`RENAMED`). The library poses the swimmer around
+  the feet origin, so the script lifts the pelvis keys (`LIFT`, world metres)
+  to sit the stroke on the waterline (`MOAT.swimDraft` above the feet) and keep
+  the treading head above it. Keep clip names, seamless endpoints and zero root
+  translation stable. Rebuild the preview after exporting; replacing
+  `.output/public` assets directly leaves Nitro serving stale content lengths
+  and breaks character loading.
+- Prefer a library clip over a hand-posed one. Every runtime clip now comes
+  straight from UAL1/UAL2; `Sprint_Loop` and `Jog_Fwd_Loop` already share
+  footfall phase (left foot down at ~0.0 / 0.05 of the cycle), so no sprint
+  rebuild is needed for gait blending. The packs live in `~/GitHub/quaternius`.
 - `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`,
   `scripts/convert_new_kits.py` — batch conversion entry points.
 - `scripts/make_door.py` / `scripts/make_portal.py` — built the arena's great
@@ -57,8 +60,19 @@ files the game loads, and the scripts that do it.
 - `scripts/build_courtyard_fountain.py` builds the original courtyard fountain
   at `public/models/courtyard/fountain.glb`. Run it headless without arguments;
   optional `--render` creates a studio preview after exporting.
+- `scripts/build_kit.py` builds the twelve player build-kit pieces into
+  `public/models/kit/*.glb` plus `manifest.json`, then `scripts/convert_kit.sh`
+  Meshopt-compresses them (`optimize --simplify false --palette false`: the
+  decimator rounds off grid-critical edges and a palette texture would defeat the
+  triplanar overlay, which skips any material carrying a map). Conventions: 2 unit
+  grid, origin at the bottom centre of the footprint, front is Blender +Y
+  (exported glTF -Z), depth-wise rises (roof pitch, stair climb) run toward glTF
+  +Z like `Courtyard_Stairs`, and the palette is the courtyard one so the town
+  overlay picks the pieces up by material name. Every painted material needs its
+  own roughness: COLOR_0 carries base colour, so materials sharing a roughness are
+  byte-identical and `optimize`'s dedup collapses their names into one.
 - `public/models/**` — the shipped `.glb` output: character models and shared
-  animations, the Oracle monster, and the original courtyard models.
+  animations, the Oracle monster, the original courtyard models, and the build kit.
 
 ## Environment (cold-start facts)
 - **Blender 5.1.2** at `/Applications/Blender.app/Contents/MacOS/Blender`. Scripts

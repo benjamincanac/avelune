@@ -62,11 +62,49 @@ check(
   `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`,
 )
 
+check('welcome carries the owned-piece total', a.welcome.pieces === 0, `pieces=${a.welcome.pieces}`)
+check('welcome names its realm', typeof a.welcome.world.realm === 'string' && a.welcome.world.realm.length > 0, `realm=${a.welcome.world.realm}`)
+check('welcome says whether the world persists', typeof a.welcome.world.persistent === 'boolean', `persistent=${a.welcome.world.persistent}`)
+
+check(
+  'welcome describes the world',
+  a.welcome.world?.chunkSize === 32
+  && Number.isFinite(a.welcome.world?.seed)
+  && a.welcome.world?.bounds?.minCx < 0 && a.welcome.world?.bounds?.maxCx > 0,
+  JSON.stringify(a.welcome.world),
+)
+
 check('self receives saved character', self.character === characters.A)
 const b = await connect('B', await auth('B'))
 check('welcome includes other player character', b.welcome.players.find(p => p.id === self.id)?.character === characters.A)
 await sleep(100)
 check('join includes new player character', a.frames.find(f => f.t === 'join' && f.player.id === b.welcome.self.id)?.player.character === characters.B)
+// The ground arrives before anyone can be standing on it: the 5×5 around the
+// spawn chunk is on the wire before the first `state` frame.
+const spawnChunk = { cx: Math.floor(self.x / 32), cy: Math.floor(self.y / 32) }
+const chunkAt = new Map()
+a.frames.forEach((f, i) => f.t === 'chunk' && chunkAt.set(`${f.cx},${f.cy}`, i))
+let missing = 0
+let lastChunk = -1
+for (let dy = -2; dy <= 2; dy++) {
+  for (let dx = -2; dx <= 2; dx++) {
+    const at = chunkAt.get(`${spawnChunk.cx + dx},${spawnChunk.cy + dy}`)
+    if (at === undefined) missing++
+    else lastChunk = Math.max(lastChunk, at)
+  }
+}
+const firstState = a.frames.findIndex(f => f.t === 'state')
+check('spawn neighbourhood streams on welcome', missing === 0, `${25 - missing}/25 chunks`)
+check('chunks arrive before the first state', firstState === -1 || lastChunk < firstState, `chunks ≤ ${lastChunk}, state ${firstState}`)
+const sample = a.frames.find(f => f.t === 'chunk')
+check(
+  'chunk frames carry encoded terrain',
+  typeof sample?.h === 'string' && sample.h.length > 2000 && typeof sample.s === 'string' && Array.isArray(sample.props),
+  `h=${sample?.h?.length}b64 s=${sample?.s?.length}b64 props=${sample?.props?.length}`,
+)
+const town = a.frames.filter(f => f.t === 'chunk').reduce((n, f) => n + f.props.length, 0)
+check('the authored town streams as placements', town > 100, `${town} pieces across the spawn neighbourhood`)
+
 const statesOf = (client, id, since = 0) =>
   client.frames.slice(since).filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === id)
 const lastState = () => statesOf(b, self.id).at(-1) ?? self
@@ -106,6 +144,160 @@ send(a, { t: 'chat', text: 'well met' })
 await sleep(300)
 const chat = b.frames.find(f => f.t === 'chat' && f.id === self.id)
 check('chat reaches the arena', chat?.text === 'well met' && chat?.f === undefined)
+
+/* -------------------------------------------------------------------------- */
+/* World editing                                                              */
+/* -------------------------------------------------------------------------- */
+
+const positionOf = client => statesOf(client, client.welcome.self.id).at(-1) ?? client.welcome.self
+/** A corner height as the client holds it, from the chunk frame it was sent. */
+function cornerFrom(client, cx, cy, index) {
+  const frame = client.frames.findLast(f => f.t === 'chunk' && f.cx === cx && f.cy === cy)
+  if (!frame) return null
+  const bytes = Buffer.from(frame.h, 'base64')
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt16(index * 2, true)
+}
+
+// The town is protected: an edit inside the walls is refused, and refused only
+// to the player who asked for it.
+let bMark = b.frames.length
+send(a, { t: 'terraform', x: Math.round(self.x), y: Math.round(self.y), mode: 'raise', size: 1 })
+await sleep(200)
+const refusal = a.frames.findLast(f => f.t === 'reject')
+check('terraform inside the walls is refused', refusal?.reason === 'the town is protected', refusal?.reason)
+check('a refusal stays private', !b.frames.slice(bMark).some(f => f.t === 'reject' || f.t === 'terrain'))
+
+// Protection is a tile footprint now, not a chunk band: the gate road is
+// refused, and the grass beside it — six tiles away, still inside the chunks
+// that used to be off limits — is editable without walking anywhere.
+const onRoad = positionOf(a)
+send(a, { t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y) + 5, mode: 'raise', size: 1 })
+await sleep(200)
+const roadRefusal = a.frames.findLast(f => f.t === 'reject')
+check('the gate road is protected', roadRefusal?.reason === 'the town is protected', roadRefusal?.reason)
+let beside = null
+for (const dx of [-6, 6, -5, 5]) {
+  const aMark = a.frames.length
+  send(a, { t: 'terraform', x: Math.round(onRoad.x) + dx, y: Math.round(onRoad.y), mode: 'raise', size: 1 })
+  await sleep(250)
+  beside = a.frames.slice(aMark).find(f => f.t === 'terrain')
+  if (beside) break
+}
+check('the grass beside the road is editable from spawn', !!beside, beside ? undefined : a.frames.findLast(f => f.t === 'reject')?.reason)
+
+// Walk A out into the open meadow. The road ends at 140 and everything past it
+// is buildable now, but the nearest wild piece is further out — A ends up
+// wedged against the first one, which is the one it fells below.
+const deadline = Date.now() + 30_000
+let previous = positionOf(a)
+while (Date.now() < deadline) {
+  const here = positionOf(a)
+  if (here.y >= 163.5) break
+  send(a, { t: 'move', ...noMove, forward: true, a: Math.PI / 2 })
+  if (Math.hypot(here.x - previous.x, here.y - previous.y) < 0.05) send(a, { t: 'action', kind: 'jump' })
+  previous = here
+  await sleep(250)
+}
+send(a, { t: 'move', ...noMove, a: Math.PI / 2 })
+const outside = positionOf(a)
+check('A reaches open ground outside the walls', outside.y >= 163.5, `(${outside.x.toFixed(1)}, ${outside.y.toFixed(1)})`)
+
+// Raising a corner out here reaches both clients, because B still holds the
+// chunk: it is two chunks south of the one B is standing in.
+const editChunk = { cx: Math.floor(outside.x / 32), cy: Math.floor(outside.y / 32) }
+let applied = null
+for (const [dx, dy] of [[0, 1], [1, 1], [-1, 1], [0, 2], [2, 1], [-2, 2]]) {
+  const gx = Math.round(outside.x) + dx
+  const gy = Math.round(outside.y) + dy
+  const index = (gy - editChunk.cy * 32) * 33 + (gx - editChunk.cx * 32)
+  const before = cornerFrom(a, editChunk.cx, editChunk.cy, index)
+  const aMark = a.frames.length
+  bMark = b.frames.length
+  send(a, { t: 'terraform', x: gx, y: gy, mode: 'raise', size: 1 })
+  await sleep(250)
+  const mine = a.frames.slice(aMark).find(f => f.t === 'terrain')
+  if (!mine) continue
+  applied = { gx, gy, index, before, mine, theirs: b.frames.slice(bMark).find(f => f.t === 'terrain' && f.cx === editChunk.cx && f.cy === editChunk.cy) }
+  break
+}
+check('a terraform outside the walls is applied', !!applied, applied ? `(${applied.gx}, ${applied.gy})` : 'every candidate corner was refused')
+if (applied) {
+  const raised = applied.mine.edits.find(([i]) => i === applied.index)
+  // Heights ride the wire quantised in 0.05 units, so one 0.25 click is five.
+  check('the delta raises the requested corner by one step', raised?.[1] === applied.before + 5, `${applied.before} → ${raised?.[1]}`)
+  check('the delta names its chunk and version', applied.mine.cx === editChunk.cx && applied.mine.cy === editChunk.cy && Number.isFinite(applied.mine.v))
+  check('B receives the same delta for the chunk it holds', JSON.stringify(applied.theirs) === JSON.stringify(applied.mine), JSON.stringify(applied.theirs?.edits))
+}
+
+// Clearing a generated wild piece (tree, rock or bush): it belongs to nobody,
+// so anyone standing next to it may remove it, and everyone holding the chunk
+// sees it go. The meadow is sparse, so take whichever wild piece is nearest.
+const held = new Map()
+for (const frame of a.frames) {
+  if (frame.t === 'chunk') held.set(`${frame.cx},${frame.cy}`, frame)
+  if (frame.t === 'unchunk') held.delete(`${frame.cx},${frame.cy}`)
+}
+const trees = [...held.values()]
+  .flatMap(f => f.props.map(p => ({ ...p, cx: f.cx, cy: f.cy })))
+  .filter(p => p.id.startsWith('wild:') && !p.owner)
+  .map(p => ({ ...p, d: Math.hypot(p.x - outside.x, p.y - outside.y) }))
+  .sort((p, q) => p.d - q.d)
+const tree = trees[0]
+check('generated wild pieces stand in the streamed meadow', !!tree && tree.d < 6, tree ? `${tree.kind} ${tree.id} at ${tree.d.toFixed(2)} tiles` : 'none within reach')
+if (tree) {
+  bMark = b.frames.length
+  const aMark = a.frames.length
+  send(a, { t: 'demolish', id: tree.id })
+  await sleep(250)
+  const mine = a.frames.slice(aMark).find(f => f.t === 'remove')
+  const theirs = b.frames.slice(bMark).find(f => f.t === 'remove')
+  check('the wild piece is removed for the feller', mine?.id === tree.id && mine?.cx === tree.cx && mine?.cy === tree.cy, JSON.stringify(mine))
+  check('the other client sees the same removal', theirs?.id === tree.id && theirs?.v === mine?.v)
+  // A wild tree belongs to nobody, so felling it spends none of A's budget.
+  check('felling a wild piece leaves the owned total alone', mine?.pieces === 0, `pieces=${mine?.pieces}`)
+  check('the other client is told nothing about A\'s total', theirs?.pieces === undefined)
+  const aMark2 = a.frames.length
+  send(a, { t: 'demolish', id: tree.id })
+  await sleep(200)
+  check('removing it twice is refused', a.frames.slice(aMark2).find(f => f.t === 'reject')?.reason === 'nothing to remove')
+  const aMark3 = a.frames.length
+  send(a, { t: 'demolish', id: 'town:0' })
+  await sleep(200)
+  check('town pieces cannot be demolished', a.frames.slice(aMark3).find(f => f.t === 'reject')?.reason === 'the town is protected')
+}
+
+// Building a kit piece out here is the one thing that moves the owned total,
+// and only for the player who placed it.
+let built = null
+for (const [dx, dy] of [[0, 2], [2, 0], [-2, 0], [0, 4], [2, 2], [-2, 2], [4, 0], [-4, 0]]) {
+  const aMark = a.frames.length
+  bMark = b.frames.length
+  send(a, { t: 'build', kind: 'Kit_Crate', x: outside.x + dx, y: outside.y + dy, rot: 0 })
+  await sleep(250)
+  const mine = a.frames.slice(aMark).find(f => f.t === 'place')
+  if (!mine) continue
+  built = { mine, theirs: b.frames.slice(bMark).find(f => f.t === 'place') }
+  break
+}
+check('a kit piece is placed outside the walls', !!built, built ? `${built.mine.piece.kind} ${built.mine.piece.id}` : 'every candidate spot was refused')
+if (built) {
+  check('the placed piece belongs to its builder', built.mine.piece.owner === self.id, built.mine.piece.owner)
+  check('the place frame carries the new owned total', built.mine.pieces === 1, `pieces=${built.mine.pieces}`)
+  check('the other client sees the piece without a total', built.theirs?.piece?.id === built.mine.piece.id && built.theirs.pieces === undefined)
+  const aMark = a.frames.length
+  send(a, { t: 'demolish', id: built.mine.piece.id })
+  await sleep(250)
+  const gone = a.frames.slice(aMark).find(f => f.t === 'remove')
+  check('removing your own piece gives the budget back', gone?.id === built.mine.piece.id && gone?.pieces === 0, `pieces=${gone?.pieces}`)
+}
+
+// Anything but a tool the server knows is refused outright.
+const badMark = a.frames.length
+send(a, { t: 'terraform', x: outside.x, y: outside.y, mode: 'nuke', size: 9 })
+send(a, { t: 'build', kind: 'Courtyard_Tower', x: outside.x, y: outside.y, rot: 0 })
+await sleep(250)
+const refusals = a.frames.slice(badMark).filter(f => f.t === 'reject').map(f => f.reason)
+check('an unknown tool and an unbuildable kind are both refused', refusals.length === 2, refusals.join(' / '))
 
 // Weather commands are server-owned, shared, and never enter public chat.
 for (const mode of ['clear', 'overcast', 'rain']) {

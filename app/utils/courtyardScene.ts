@@ -1,20 +1,35 @@
 import {
-  BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry,
-  DoubleSide, Group, IcosahedronGeometry, InstancedMesh, Mesh,
+  Box3, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry,
+  DoubleSide, Group, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh,
   MeshBasicMaterial, MeshStandardMaterial, Object3D, PlaneGeometry,
   RingGeometry, TorusGeometry, Vector3,
 } from 'three'
+import type { Texture } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
-import type { HubPropPlacement } from '#shared/utils/maze'
+import type { HubPropPlacement } from '#shared/utils/props'
 import type { TownMaterials } from './townMaterials'
-import { createCourtyardLandscape } from './courtyardLandscape'
+import { createGrassBank } from './courtyardLandscape'
+import type { GrassBlade } from './courtyardLandscape'
+import { applyFoliage } from './foliage'
 import { createFountainWater } from './fountainWater'
 import { createCityMoat } from './cityMoat'
 import { createFortifiedGate } from './fortifications'
 import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
+
+/**
+ * The pale flagstone the gate approach is paved with. Exported because the
+ * `path` surface players paint is the same road: `chunkProps`'s paving mesh
+ * builds its material through here so the two can never drift into reading as
+ * two different stones where they meet.
+ */
+export function createPaleStone(materials: TownMaterials, map: Texture): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({ color: '#e5dcc4', map, roughness: 0.95 })
+  materials.apply(material, 'stone', 1.2, 0.45, true)
+  return material
+}
 
 /** Ground and distant scenery. All walkable elevations stay at ground level;
  * buildings, furniture and tree trunks are authored props in the shared plan. */
@@ -27,9 +42,8 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   group.add(moat.group)
   const plazaMap = makePlazaSurface()
   const stone = new MeshStandardMaterial({ color: '#b8c4c7', map: stoneMap, roughness: 0.95 })
-  const paleStone = new MeshStandardMaterial({ color: '#e5dcc4', map: stoneMap, roughness: 0.95 })
+  const paleStone = createPaleStone(materials, stoneMap)
   materials.apply(stone, 'stone', 1.2, 0.55)
-  materials.apply(paleStone, 'stone', 1.2, 0.45, true)
   group.add(createFortifiedGate(stone, paleStone))
   const grass = new MeshStandardMaterial({ color: '#7a9d58', roughness: 1 })
   const soil = new MeshStandardMaterial({ color: '#7f745b', roughness: 1 })
@@ -52,7 +66,21 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   flat(new PlaneGeometry(extent, extent), soil, center, center, -0.01)
 
   const approachLength = FORTIFICATIONS.exteriorMax - FORTIFICATIONS.bridgeEnd
-  flat(new PlaneGeometry(FORTIFICATIONS.bridgeWidth, approachLength), paleStone, FORTIFICATIONS.gateX, FORTIFICATIONS.bridgeEnd + approachLength / 2, -0.025)
+  const approachZ = FORTIFICATIONS.bridgeEnd + approachLength / 2
+  const approach = new PlaneGeometry(FORTIFICATIONS.bridgeWidth, approachLength)
+  // World-space UVs at the same 8-tile repeat the painted paving uses
+  // (`ROAD_UV_SCALE` in chunkProps), so a road a player continues past the end
+  // of this one carries the same grain across the join. `flat()` rotates the
+  // plane by -90° about X, which maps local +y onto world -z.
+  {
+    const pos = approach.attributes.position!
+    const uv = approach.attributes.uv!
+    for (let i = 0; i < pos.count; i++) {
+      uv.setXY(i, (FORTIFICATIONS.gateX + pos.getX(i)) / 8, (approachZ - pos.getY(i)) / 8)
+    }
+    uv.needsUpdate = true
+  }
+  flat(approach, paleStone, FORTIFICATIONS.gateX, approachZ, -0.025)
 
   const gardens = TOWN_GARDENS
   const inGarden = (x: number, z: number) => gardens.some(g => ((x - g.x) / g.rx) ** 2 + ((z - g.z) / g.rz) ** 2 < 1)
@@ -155,8 +183,89 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     }
   }
 
-  const landscape = createCourtyardLandscape(templates, placements, materials)
-  group.add(landscape.group)
+  /* ---------------------------------------------------------------------- */
+  /* Garden planting                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  // The meadow outside the walls is chunk terrain and chunk props now; what the
+  // world generator will not seed is the town's own beds, because the protected
+  // chunks carry no generated vegetation. They are dressed here, with the same
+  // grass bank the chunks use.
+  const foliageClock = { value: 0 }
+  const grassBank = createGrassBank(foliageClock)
+  // Borrowed geometry and materials (the bank's blades, the kit's leaf cards)
+  // live in their own group: the generic dispose below walks `group` and frees
+  // everything it finds, which must never reach a shared template.
+  const planting = new Group()
+  group.add(planting)
+  const ownedMaterials: MeshStandardMaterial[] = []
+  const blades: GrassBlade[] = []
+  const planted = new Map<string, { x: number, z: number, y: number, size: number, angle: number }[]>()
+  const plant = (name: string, x: number, z: number, y: number, size: number) => {
+    const list = planted.get(name) ?? []
+    list.push({ x, z, y, size, angle: rng() * Math.PI * 2 })
+    planted.set(name, list)
+  }
+  for (const garden of gardens) {
+    for (let i = 0; i < Math.min(1000, garden.rx * garden.rz * 32); i++) {
+      const angle = rng() * Math.PI * 2
+      const radius = Math.sqrt(rng())
+      const x = garden.x + Math.cos(angle) * garden.rx * radius
+      const z = garden.z + Math.sin(angle) * garden.rz * radius
+      if (inBuilding(x, z, 0.35)) continue
+      blades.push({ x, z, y: 0.025, size: 0.55 + rng() * 0.6, angle: rng() * Math.PI * 2 })
+      if (i % 90 === 0) plant(rng() < 0.5 ? 'flowers1' : 'flowers2', x, z, 0.015, 0.30 + rng() * 0.16)
+      else if (i % 137 === 0) plant(rng() < 0.3 ? 'bush2' : 'bush1', x, z, 0.01, 0.26 + rng() * 0.1)
+    }
+  }
+  const gardenGrass = grassBank.patch(blades)
+  if (gardenGrass) planting.add(gardenGrass)
+
+  // Bed plants are normalized to the authored height rather than instanced at
+  // the GLB's own scale, so a bed reads the same whichever variant it picked.
+  const plantSize = new Vector3()
+  const plantSource = new Matrix4()
+  const plantMatrix = new Matrix4()
+  for (const [name, list] of planted) {
+    const template = templates.get(name)
+    if (!template || !list.length) continue
+    template.updateWorldMatrix(true, true)
+    const bounds = new Box3().setFromObject(template)
+    bounds.getSize(plantSize)
+    if (plantSize.y < 0.001) continue
+    plantSource.makeTranslation(-(bounds.min.x + bounds.max.x) / 2, -bounds.min.y, -(bounds.min.z + bounds.max.z) / 2)
+    template.traverse((child) => {
+      if (!(child instanceof Mesh) || Array.isArray(child.material)) return
+      let material = child.material as MeshStandardMaterial
+      if (material.alphaTest > 0) {
+        material = material.clone()
+        // Cloning copies `userData` but not the hooks it marks, so the guards
+        // would report shaders this clone does not carry.
+        delete material.userData.foliageShader
+        delete material.userData.characterRim
+        materials.reapply(material)
+        applyFoliage(material, foliageClock)
+        ownedMaterials.push(material)
+      }
+      const batch = new InstancedMesh(child.geometry, material, list.length)
+      const source = new Matrix4().multiplyMatrices(plantSource, child.matrixWorld)
+      list.forEach((p, i) => {
+        const scale = p.size / plantSize.y
+        dummy.position.set(p.x, p.y, p.z)
+        dummy.rotation.set(0, p.angle, 0)
+        dummy.scale.setScalar(scale)
+        dummy.updateMatrix()
+        plantMatrix.multiplyMatrices(dummy.matrix, source)
+        batch.setMatrixAt(i, plantMatrix)
+      })
+      if (material.alphaTest > 0) batch.userData.foliage = true
+      batch.castShadow = !name.startsWith('flowers')
+      batch.receiveShadow = true
+      batch.userData.shadowTagged = true
+      batch.computeBoundingSphere()
+      planting.add(batch)
+    })
+  }
 
   // Ropes follow authored tree transforms, including editor moves and scaling.
   const trees = placements.filter(p => p.kind === 'Courtyard_Tree')
@@ -293,7 +402,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
      * the absolute clock, since it integrates deltas across frames.
      */
     update(time: number, shaderTime: number, players: readonly FountainInteractor[] = []) {
-      landscape.update(shaderTime)
+      foliageClock.value = shaderTime
       moat.update(shaderTime, players)
       pennants.forEach((flag, i) => {
         flag.rotation.x = Math.sin(shaderTime * 1.5 + i * 0.65) * 0.16
@@ -321,8 +430,13 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       }
       group.remove(moat.group)
       moat.dispose()
-      group.remove(landscape.group)
-      landscape.dispose()
+      group.remove(planting)
+      planting.traverse((o) => {
+        if (o instanceof InstancedMesh) o.dispose()
+      })
+      planting.clear()
+      grassBank.dispose()
+      for (const material of ownedMaterials) material.dispose()
       stoneMap.dispose()
       plazaMap.dispose()
       const geometries = new Set<BufferGeometry>()

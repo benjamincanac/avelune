@@ -1,7 +1,8 @@
-// Run with: pnpm exec jiti scripts/character-animation-test.ts
+// Run with: pnpm test (vitest), or pnpm exec vitest run scripts/character-animation-test.ts
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { bodySurfaceHeight, DASH_DURATION, generateHub } from '../shared/utils/maze'
+import { test } from 'vitest'
+import { bodySurfaceHeight, DASH_DURATION } from '../shared/utils/maze'
+import { createWorld } from '../shared/utils/world'
 import { animationBlendDuration, locomotionTransitionTime, updateDashAnimation } from '../app/utils/characterAnimation'
 
 test('dash starts immediately and ends with movement, not a half-second latch', () => {
@@ -25,7 +26,7 @@ test('dash blend reaches full weight early in the burst and recovers quickly', (
 })
 
 test('elevated ground does not make remote players appear airborne', () => {
-  const plan = generateHub()
+  const plan = createWorld()
   assert.equal(bodySurfaceHeight(plan, 72, 108, 6), 6)
   assert.equal(bodySurfaceHeight(plan, 72, 108, 0), 0)
   const stair = bodySurfaceHeight(plan, 40, 99, 4)

@@ -1,15 +1,17 @@
-// Run with: pnpm exec jiti scripts/rampart-test.ts
+// Run with: pnpm test (vitest), or pnpm exec vitest run scripts/rampart-test.ts
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { generateHub, stepBody, JUMP_VELOCITY, DASH_DURATION, DASH_MULTIPLIER, PLAYER_SPEED } from '../shared/utils/maze'
+import { test } from 'vitest'
+import { isRampartCameraBlocked, stepBody, JUMP_VELOCITY, DASH_DURATION, DASH_MULTIPLIER, PLAYER_SPEED } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
-import { isRampartCameraBlocked, rampartIndex } from '../shared/utils/ramparts'
+import { applyPlace, applyRemove, createWorld, worldPlacements, worldProps } from '../shared/utils/world'
+import type { World } from '../shared/utils/world'
 import { COURTYARD_ASSETS } from '../shared/utils/courtyard'
 
-const plan = generateHub()
+const plan = createWorld()
+const townProps = [...worldProps(plan)]
 // Deck edges read back off the authored gallery placements: the outer rail sits
 // on the curtain wall's inner face; the inner strip (36/108) clears the bastions.
-const decks = plan.props.filter(p => p.kind === 'Courtyard_Gallery')
+const decks = townProps.filter(p => p.kind === 'Courtyard_Gallery')
 const deckMin = Math.min(...decks.map(p => p.y))
 const deckMax = Math.max(...decks.map(p => p.y))
 const deckWidth = COURTYARD_ASSETS.Courtyard_Gallery.depth
@@ -18,7 +20,7 @@ const innerMin = deckMin + deckWidth / 2
 const railMax = deckMax + deckWidth / 2
 // Stair flights are placements too, so the tests describe them the same way.
 const flight = COURTYARD_ASSETS.Courtyard_Stairs
-const stairs = plan.props.filter(p => p.kind === 'Courtyard_Stairs')
+const stairs = townProps.filter(p => p.kind === 'Courtyard_Stairs')
   .map(p => ({ x: p.x, zStart: p.y - flight.depth / 2, zEnd: p.y + flight.depth / 2, width: flight.width, height: flight.height }))
 function body(x: number, y: number, z = 0): KinematicBody {
   return { x, y, z, vz: 0, grounded: true }
@@ -153,9 +155,13 @@ test('moving a gallery placement moves its deck with it', () => {
   // The deck is data now: shift the southern gallery 10 tiles north in a copy
   // of the plan and the walkable surface has to follow it there.
   const shift = 10
-  const props = plan.props.map(p => (p.kind === 'Courtyard_Gallery' && p.y === deckMax ? { ...p, y: p.y - shift } : p))
-  const moved = { ...plan, props, ramparts: rampartIndex(props) }
-  const settle = (world: typeof plan, y: number) => {
+  const moved = createWorld()
+  for (const placement of [...worldPlacements(moved)]) {
+    if (placement.kind !== 'Courtyard_Gallery' || placement.y !== deckMax) continue
+    applyRemove(moved, placement.id)
+    applyPlace(moved, { ...placement, y: placement.y - shift })
+  }
+  const settle = (world: World, y: number) => {
     const b = body(72, y, 6)
     b.grounded = false
     for (let i = 0; i < 60; i++) stepBody(world, b, 0, 0, 0.05)

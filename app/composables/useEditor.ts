@@ -1,4 +1,4 @@
-import type { HubPropPlacement } from '#shared/utils/maze'
+import type { HubPropPlacement } from '#shared/utils/props'
 import { HUB_LAYOUT } from '#shared/utils/maze'
 import propsSeed from '#shared/data/courtyard-props.json'
 import structureSeed from '#shared/data/courtyard-structure.json'

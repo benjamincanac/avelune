@@ -1,11 +1,23 @@
 # Avelune Roadmap
 
-> A 3D MMO on Vercel, starting with a shared fantasy town and an AI Oracle NPC.
+> A 3D MMO on Vercel: a shared fantasy town at the centre of a persistent world
+> players terraform and build in, plus an AI Oracle NPC.
 > Nuxt + TresJS + Vercel WebSockets. It exists to demo the Vercel WebSocket upgrade
 > under a real authoritative game loop, plus an AI NPC reading live game state.
 > This file is the source of truth for what's done and what's next — update it as work lands.
 
 ## Status: done ✓
+
+### Open world (plan: `.claude/OPEN-WORLD.md`)
+- [x] Chunked `World` (32×32 chunks of 32 tiles, 1024² world, corner heightmap + surface raster + placements) replaces the flat 144² plan; physics reads the 3×3 chunk neighbourhood, slope rule for cliffs, world edge is a wall (`shared/utils/world.ts`, `maze.ts`, `terrain.ts`)
+- [x] The town is a protected region at its old coordinates: flat, seeded from the committed JSON, refuses edits; the dev editor is unchanged
+- [x] Terrain chunk meshes, per-chunk instanced props, deterministic meadow-with-copses vegetation as removable wild props (`app/utils/terrainChunk.ts`, `chunkProps.ts`, `shared/utils/vegetation.ts`)
+- [x] Streaming: `welcome.world`, `chunk`/`unchunk` for the 5×5 around each player, `terrain`/`place`/`remove` deltas, `state` filtered to 96 tiles (`server/utils/world.ts`, `app/composables/useWorld.ts`)
+- [x] Terraform (raise/lower/flatten/paint, brush 1..3) and build (12-piece kit on a 2 unit grid, stacking, ramps, ownership, 500 piece budget) with every rule in `shared/utils/building.ts` and enforced server-side; pointer-locked crosshair targeting, hotbar, ghost preview
+- [x] Elevation bands: non-town placements carry `z` as base elevation, walk under a raised floor, stand on it, climb `Kit_Stairs`
+- [x] Persistence: Upstash Redis, one key per chunk, write-behind with CAS on `version`, drain on shutdown, in-memory store when unset; `scripts/world-admin.mjs`
+- [x] Tests: `pnpm test` runs world, rampart, terrain, building and chunk-store suites; `ws-test.mjs` covers streaming, terraform, felling, refusals; `spawn-bots.mjs --dig` load test (30 bots, ~1 ms average tick)
+- [ ] Ownership plots (`Kit_Deed`), Oracle sees nearby builds, building bots (plan phase 6)
 
 ### Core loop & simulation
 - [x] Shared `/time dawn|day|sunset|night|auto` command, independent of weather and synchronized on join.
@@ -92,7 +104,7 @@ both sides share.
 
 ### 4. Stretch
 - [ ] Proximity voice chat — WebRTC, signaling over the game socket
-- [ ] Multi-instance sharding once one function instance isn't enough (the roster is in-process memory today)
+- [ ] Multi-instance sharding once one function instance isn't enough (the roster and chunk cache are in-process memory today; Redis CAS keeps the store consistent but players on two instances would not see each other)
 
 ## Known issues / verify-me
 
@@ -111,7 +123,9 @@ both sides share.
 - Oracle needs `AI_GATEWAY_API_KEY` locally **and on Vercel** (OIDC is request-scoped — absent in the WS/game-loop context); model id is a Gateway string (`anthropic/claude-haiku-4.5` for both classifier and responder); identity secret is `NUXT_SESSION_PASSWORD`
 - Blender 5.1.2 at `/Applications/Blender.app/Contents/MacOS/Blender` — asset scripts run headless (`--background --python scripts/<x>.py -- <args>`); kit conversion uses `npx @gltf-transform/cli optimize`
 - Quaternius packs download from Google Drive folders linked on quaternius.com pack pages (`gdown --folder`); the Universal characters + Modular Fantasy Outfits are itch.io-only behind Cloudflare (manual download, then run `convert_universal_characters.py`)
+- World persistence is Upstash Redis through the Vercel marketplace: `NUXT_UPSTASH_REDIS_REST_URL` and `NUXT_UPSTASH_REDIS_REST_TOKEN` (the bare `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` a linked store sets are read too). Both unset means the in-memory store, which is what local dev and every test run on — the world simply resets with the process. Every key is scoped by realm (`AVELUNE_REALM`, else `VERCEL_REGION`, else `local`): one stored world per region. Chunks are administered with `pnpm exec jiti scripts/world-admin.mjs <export|import|wipe|reset> [--realm fra1]`
 - Protocol testing: `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
 - Repo: `github.com/benjamincanac/avelune` (branch `main`)
-- **Shared-code invariant:** anything affecting gameplay position/collision must live in `shared/utils/maze.ts` so server and prediction agree; client-only code renders it
+- **Shared-code invariant:** anything affecting gameplay position/collision/elevation or edit validation must live in `shared/utils/` (`maze.ts`, `world.ts`, `building.ts`) so server and prediction agree; client-only code renders it
+- Headless verification: `pnpm build` then `NUXT_SESSION_PASSWORD=x PORT=<port> node .output/server/index.mjs`; the run-mmo driver has `arena`, `walk`, `meadow` and `build` modes
 - Domain subagents live in `.claude/agents/` (`world-sim`, `server-net`, `scene-3d`, `game-ui`, `oracle-ai`, `assets`); see `CLAUDE.md`

@@ -17,6 +17,14 @@ import type { UseGame } from '~/composables/useGame'
 
 const props = defineProps<{ game: UseGame, editor?: boolean }>()
 
+/** The hotbar's state. Input owns the keys and the wheel; `MazeScene` reads the
+ *  armed slot when it aims and sends. */
+const build = useBuild()
+
+/** The full-screen world map. While it is up the game takes no input: no
+ *  movement, no mouse-look, no tool. */
+const map = useWorldMap()
+
 /**
  * Fired when pointer lock is lost without us initiating it (Alt-cursor mode).
  * While locked the browser swallows the Escape keydown entirely, so this
@@ -49,6 +57,8 @@ const view = {
 
 const root = ref<HTMLDivElement | null>(null)
 const pointerLocked = ref(false)
+/** Set once a lock request fails, so clicks act instead of retrying forever. */
+let lockDenied = false
 
 /**
  * Hold Alt to surface the OS cursor and freeze mouse-look, so the HUD buttons
@@ -89,10 +99,34 @@ function triggerDash() {
   view.dashQueued = true
 }
 
+/**
+ * Open or close the world map. Opening drops the pointer lock (the map is a
+ * cursor surface) and releases every held key so nobody walks on blind; closing
+ * takes the lock back the way the Escape menu's resume does.
+ */
+function toggleMap() {
+  if (map.open.value) {
+    map.open.value = false
+    requestLock()
+    return
+  }
+  map.open.value = true
+  releaseAll()
+  document.exitPointerLock?.()
+}
+
 function onKeyDown(event: KeyboardEvent) {
   // Editor mode owns keyboard/mouse (fly camera, placement) via its controller.
   if (props.editor) return
   if (isTyping()) return
+  if (event.code === 'KeyM') {
+    event.preventDefault()
+    toggleMap()
+    return
+  }
+  // The map is modal over the game: only `M` (above) and Escape (the page's
+  // own handler) get through.
+  if (map.open.value) return
   if (event.code === 'AltLeft' || event.code === 'AltRight') {
     // Prevent the OS menu-bar focus that a bare Alt tap triggers on some
     // platforms, then free the cursor for the HUD.
@@ -114,6 +148,37 @@ function onKeyDown(event: KeyboardEvent) {
   }
   if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
     if (!event.repeat) triggerDash()
+    return
+  }
+  // Hotbar. Digits arm a slot, Tab turns the page, and the modifiers belong to
+  // whichever tool is armed: Q cycles the paint surface, R turns the ghost a
+  // quarter turn, and the brackets widen or narrow the terraform brush.
+  if (event.code.startsWith('Digit')) {
+    const index = Number(event.code.slice(5)) - 1
+    if (index >= 0 && index < 9) {
+      event.preventDefault()
+      build.select(index)
+      return
+    }
+  }
+  if (event.code === 'Tab') {
+    event.preventDefault()
+    build.turnPage()
+    return
+  }
+  if (event.code === 'KeyQ') {
+    event.preventDefault()
+    build.cycleSurface()
+    return
+  }
+  if (event.code === 'KeyR') {
+    event.preventDefault()
+    build.rotate()
+    return
+  }
+  if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+    event.preventDefault()
+    build.nudgeSize(event.code === 'BracketLeft' ? -1 : 1)
     return
   }
   if (event.code === 'ArrowUp') {
@@ -142,7 +207,7 @@ function onKeyDown(event: KeyboardEvent) {
 }
 
 function onKeyUp(event: KeyboardEvent) {
-  if (props.editor) return
+  if (props.editor || map.open.value) return
   if (event.code === 'AltLeft' || event.code === 'AltRight') {
     if (altHeld.value) {
       altHeld.value = false
@@ -176,9 +241,69 @@ function onKeyUp(event: KeyboardEvent) {
  * Click the world to capture the mouse; Escape releases it (browser UI).
  * Pointer lock is unavailable in some embeds (e.g. iframes without the
  * `pointer-lock` permission) — there, cursor-position steering takes over.
+ *
+ * The same click also applies the armed hotbar tool. Queue it rather than act:
+ * the scene aims from the camera *after* it has moved this frame, so it is the
+ * one that knows where the crosshair actually points.
  */
-function onClick() {
-  if (props.editor || altHeld.value || pointerLocked.value) return
+function onClick(event: MouseEvent) {
+  if (props.editor || map.open.value || altHeld.value || event.button !== 0) return
+  // Only a click while already looking around fires the armed tool. The click
+  // that captures the mouse is a lock request, not an edit.
+  // Where pointer lock is unavailable or was refused (embeds, headless
+  // browsers), cursor steering takes over and every click is an edit.
+  const lockable = typeof HTMLElement !== 'undefined' && 'requestPointerLock' in HTMLElement.prototype
+  if (pointerLocked.value || !lockable || lockDenied) {
+    build.fire()
+    return
+  }
+  try {
+    const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
+    request?.catch?.(() => {
+      lockDenied = true
+    })
+  }
+  catch {
+    // Pointer lock not available here; cursor steering still works.
+    lockDenied = true
+  }
+}
+
+/** The wheel walks the hotbar, as it does in every game that has one. */
+function onWheel(event: WheelEvent) {
+  if (props.editor || map.open.value || isTyping()) return
+  event.preventDefault()
+  build.cycleSlot(event.deltaY > 0 ? 1 : -1)
+}
+
+/** Right-click dashes; the context menu is suppressed below so it can. */
+function onMouseDown(event: MouseEvent) {
+  if (props.editor || map.open.value || event.button !== 2 || isTyping()) return
+  event.preventDefault()
+  triggerDash()
+}
+
+function onContextMenu(event: MouseEvent) {
+  event.preventDefault()
+}
+
+function onPointerLockError() {
+  lockDenied = true
+}
+
+function onPointerLockChange() {
+  const locked = document.pointerLockElement != null
+  const wasLocked = pointerLocked.value
+  pointerLocked.value = locked
+  // Opening the map releases the lock on purpose — that is not the player
+  // reaching for the menu.
+  if (wasLocked && !locked && !altHeld.value && !map.open.value && document.hasFocus()) emit('unlock')
+}
+
+/** Exposed so the page can chain a lock attempt onto fullscreen toggles. This
+ *  is a lock request, not a click — it must not fire the armed tool. */
+function requestLock() {
+  if (props.editor || map.open.value || altHeld.value || pointerLocked.value) return
   try {
     const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
     request?.catch?.(() => {})
@@ -188,31 +313,8 @@ function onClick() {
   }
 }
 
-/** Right-click dashes; the context menu is suppressed below so it can. */
-function onMouseDown(event: MouseEvent) {
-  if (props.editor || event.button !== 2 || isTyping()) return
-  event.preventDefault()
-  triggerDash()
-}
-
-function onContextMenu(event: MouseEvent) {
-  event.preventDefault()
-}
-
-function onPointerLockChange() {
-  const locked = document.pointerLockElement != null
-  const wasLocked = pointerLocked.value
-  pointerLocked.value = locked
-  if (wasLocked && !locked && !altHeld.value && document.hasFocus()) emit('unlock')
-}
-
-/** Exposed so the page can chain a lock attempt onto fullscreen toggles. */
-function requestLock() {
-  onClick()
-}
-
 function onMouseMove(event: MouseEvent) {
-  if (props.editor) return
+  if (props.editor || map.open.value) return
   // Alt frees the cursor for the HUD — don't steer while it's held.
   if (altHeld.value) return
   // Same raw-delta look in both modes; without pointer lock, only while the
@@ -247,6 +349,7 @@ function onWindowBlur() {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('pointerlockerror', onPointerLockError)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('focusin', onFocusIn)
@@ -256,9 +359,12 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  // The map is shared state; leaving the arena must not leave it up.
+  map.open.value = false
   disposeScene?.()
   disposeScene = undefined
   window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('pointerlockerror', onPointerLockError)
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('focusin', onFocusIn)
@@ -267,15 +373,16 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
-defineExpose({ pointerLocked, requestLock })
+defineExpose({ pointerLocked, requestLock, toggleMap })
 </script>
 
 <template>
   <div
     ref="root"
     class="size-full select-none"
-    :class="editor || altHeld ? 'cursor-default' : 'cursor-none'"
+    :class="editor || altHeld || map.open.value ? 'cursor-default' : 'cursor-none'"
     @click="onClick"
+    @wheel="onWheel"
     @mousedown="onMouseDown"
     @contextmenu="onContextMenu"
   >

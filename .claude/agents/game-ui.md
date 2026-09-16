@@ -25,7 +25,25 @@ isn't the 3D world.
 - `app/components/CharacterGate.vue` + the character preview wrappers
   (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
 - `app/composables/useGame.ts` — the client-side game/socket state composable the
-  UI binds to.
+  UI binds to. It also hands every frame to `useWorld` before reading it itself.
+- `app/composables/useWorld.ts` — the streamed world. A non-reactive `World`
+  (`createWorld({ generate: false, town: false })`) fed entirely by `chunk` /
+  `unchunk` / `terrain` / `place` / `remove`, plus `onChunk` / `onUnchunk` /
+  `onTerrain` / `onProps` listeners the 3D scene and the minimap subscribe to,
+  `info` from `welcome.world`, and `predictTerrain` for the optimistic local
+  edit. `reject` surfaces as a throttled Nuxt UI toast. Nothing is generated
+  client-side; a chunk that has not arrived simply is not there.
+- `app/components/Hotbar.vue` + `app/composables/useBuild.ts` — the nine-slot
+  build bar and its shared state (armed slot, page, brush size, ghost rotation,
+  paint surface, piece count, target verdict). Presentation and state only:
+  `GameScene` writes the keys and the wheel into it, `MazeScene` reads the armed
+  slot when it aims and sends.
+- `app/components/WorldMap.vue` + `app/composables/useWorldMap.ts` — the
+  full-screen map, toggled with `M` and closed with `M` or Escape. `GameScene`
+  owns the key: opening drops the pointer lock and freezes movement and
+  mouse-look, closing re-takes it, and the `unlock` emit is suppressed while the
+  map is up so it never opens the Escape menu underneath. The drawing itself is
+  `app/utils/mapDraw.ts`, shared with `MiniMap.vue` so the two can never drift.
 - `app/components/EditorPanel.vue` + `app/composables/useEditor.ts` — the dev-only
   world editor's 2D overlay (palette / inspector w/ X·Y·Height·rot·scale /
   undo-redo / save-exit) and its shared state. There is one map, so there is one
@@ -46,19 +64,26 @@ agent — hand oracle work there.
 1. **This project uses Nuxt UI (v4) + Tailwind.** Prefer its components and the
    app theme (`app/app.config.ts`) over hand-rolled markup. Follow the project's
    Vue style: `<script setup>` + Composition API + TypeScript.
-2. **`useGame.ts` is the boundary to the network.** UI reads reactive state and
+2. **The world is streamed, never generated.** `useWorld` is the client's only
+   copy of it; `MazeScene` and `MiniMap` both read that one. Deltas are applied
+   when their `v` is *newer* than the chunk's version — not `version + 1`: a
+   single `applyPlace` bumps the owning chunk twice (once bucketing, once for
+   the placement), so the test is ordering, not arithmetic. An optimistic
+   terraform deliberately leaves the version alone so the server's own delta
+   still reads as newer and overwrites it with absolute heights.
+3. **`useGame.ts` is the boundary to the network.** UI reads reactive state and
    sends intents through it; it speaks the `t`-keyed protocol. Don't open sockets
    or parse frames in components — go through the composable. Protocol shape is
    owned by `world-sim` (`shared/types/game.ts`); the socket wiring server-side is
    `server-net`. Note `players` is a plain non-reactive `Map` (the 3D scene reads
    it every frame); UI-facing bits are mirrored into refs (`status`, `count`,
    `selfId`, `kicked`, `chatLog`), so bind to those.
-3. **Chat is one arena-wide channel.** Frames carry only `{id, text}` — no
+4. **Chat is one arena-wide channel.** Frames carry only `{id, text}` — no
    scoping to filter on. The Oracle arrives under the reserved `ORACLE_ID` and is
    styled apart (`npc`), and `announce()` pushes local system lines (`system`)
    that never touch the wire.
-4. `.client.vue` / `<ClientOnly>` for anything browser-only.
-5. **Entry flow is a view state machine in `index.vue`**: `checking →
+5. `.client.vue` / `<ClientOnly>` for anything browser-only.
+6. **Entry flow is a view state machine in `index.vue`**: `checking →
    creating | playing | editing` (`editing` is the dev-only world editor: same
    never-connected `game`, `<GameScene editor>` + `LazyEditorPanel`,
    gated behind `import.meta.dev`; a save reloads the dev server, and a
@@ -68,7 +93,7 @@ agent — hand oracle work there.
    `CharacterGate` — on `done` the page enters the arena directly. The socket
    opens only for `playing`. There is **no logout** — the character is permanent,
    so a returning cookie always resumes the same person.
-6. **In-game session actions live in the Escape menu** (WoW-style overlay in
+7. **In-game session actions live in the Escape menu** (WoW-style overlay in
    `index.vue`: controls reference, fullscreen, a dev-only "World editor" entry,
    return-to-game) — not in HUD buttons. Two open paths, both needed: a bare
    Escape keydown covers every unlocked state (and keyboard-locked fullscreen),
@@ -78,6 +103,25 @@ agent — hand oracle work there.
    must check `event.target`, NOT `document.activeElement` — `ChatPanel` blurs
    its input on the same keydown, so focus may already be gone by the time the
    event reaches another listener.
+
+## Building and terraforming
+
+The hotbar is armed at all times and a left click in the world uses it, so
+`GameScene`'s click handler both requests pointer lock and queues `build.fire()`
+— `requestLock()` is the separate path that must NOT fire the tool. Keys: 1-9
+arm a slot, the wheel walks them, `Tab` turns the page (tools + four kit pieces,
+then the rest of the kit), `Q` cycles the paint surface, `R` turns the ghost a
+quarter turn, `[` and `]` size the brush.
+
+Aiming is not a cursor: the target is a ray from the camera down its own forward
+axis, which is where the crosshair sits, marched against the shared heightfield
+and bounding-box-picked against placements (`app/utils/buildTools.ts`, driven
+from `MazeScene`'s render loop *after* the camera has moved). The ghost is the
+kit template cloned with a flat translucent material, green or red from
+`resolveBuild` — the same predicate the server decides with. A red ghost still
+sends its verb; the server is the authority and may see a frame we do not.
+Reach and the piece budget in the bar come from `shared/utils/building.ts`, so
+the HUD can never claim a limit the server does not enforce.
 
 ## Working style
 - Keep gameplay logic out of components — position/collision/elevation logic

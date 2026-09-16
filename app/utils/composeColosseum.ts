@@ -1,11 +1,11 @@
-import type { HubPropPlacement } from '#shared/utils/maze'
+import type { HubPropPlacement } from '#shared/utils/props'
 import { HUB_LAYOUT } from '#shared/utils/maze'
 
 /**
  * The procedural colosseum composition, as a flat list of kit-piece placements
  * (`{kind, x, y (world Z), z (elevation), rot, scale, s3?}`). This is both the
  * pre-bake visual fallback and the seed the dev editor bakes into
- * `hub-structure.json`; after baking, pieces flow through `plan.props` instead.
+ * `courtyard-structure.json`; after baking, pieces flow through the world's chunks instead.
  *
  * A gigantic ring colosseum centred on the arena: a ground-level arcade of
  * arches + columns around the sand, a continuous rake of stepped seating rising

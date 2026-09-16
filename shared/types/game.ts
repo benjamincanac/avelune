@@ -8,6 +8,14 @@
  * integrated server-side).
  */
 
+import type { WorldPlacement } from '../utils/props'
+
+/**
+ * A surface raster value — the numeric codes in `SURFACE` (shared/utils/world.ts):
+ * 0 grass, 1 dirt, 2 stone, 3 sand, 4 path, 5 water.
+ */
+export type Surface = 0 | 1 | 2 | 3 | 4 | 5
+
 /** A connected character. Identity and position are owned by the server. */
 export interface Player {
   id: string
@@ -53,6 +61,13 @@ export type ClientMessage
     /** One-shot actions; the server validates grounded/cooldown state. */
     | { t: 'action', kind: 'jump' | 'dash' }
     | { t: 'chat', text: string }
+    /** Move terrain under the brush. The server validates reach, protection,
+     *  rate and the step; it never trusts the resulting height. */
+    | { t: 'terraform', x: number, y: number, mode: 'raise' | 'lower' | 'flatten' | 'paint', size: 1 | 2 | 3, surface?: Surface }
+    /** Place a piece. The server snaps it, computes its `z` and assigns its id. */
+    | { t: 'build', kind: string, x: number, y: number, rot: number }
+    /** Remove a piece by id — the owner's own, or an unowned generated one. */
+    | { t: 'demolish', id: string }
     | { t: 'ping' }
 
 /** Shared weather override; auto follows the synchronized weather cycle. */
@@ -61,9 +76,25 @@ export type WeatherMode = 'auto' | 'clear' | 'overcast' | 'rain'
 /** Shared daylight override; auto follows the synchronized day/night cycle. */
 export type TimeOfDayMode = 'auto' | 'dawn' | 'day' | 'sunset' | 'night'
 
+/** Everything a client needs to build its own empty `World` before the first
+ *  chunk lands. Geometry itself only ever arrives as `chunk` frames. */
+export interface WorldInfo {
+  chunkSize: number
+  bounds: { minCx: number, maxCx: number, minCy: number, maxCy: number }
+  seed: number
+  /** The stored world this server owns, one per deployment region (see
+   *  `shared/utils/realm.ts`). */
+  realm: string
+  /** Whether edits outlive the server process. False means the in-memory
+   *  store: the world resets on every restart, and the HUD says so. */
+  persistent: boolean
+}
+
 /** Messages the server sends to the client. */
 export type ServerMessage
-  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode }
+  /** `pieces` is how many pieces this identity owns in the whole world, which
+   *  only the server can count: a client holds twenty-five chunks of it. */
+  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
@@ -72,6 +103,23 @@ export type ServerMessage
     | { t: 'weather', mode: WeatherMode }
     | { t: 'time', mode: TimeOfDayMode }
     | { t: 'system', text: string }
+    /** A whole chunk, sent as the player's loaded set grows. `h` is base64 of
+     *  the 33×33 `Int16Array` corner heights (little-endian, `HEIGHT_STEP`
+     *  units) and `s` base64 of the 32×32 surface raster — `encodeChunk`. */
+    | { t: 'chunk', cx: number, cy: number, v: number, h: string, s: string, props: WorldPlacement[] }
+    /** That chunk left the player's interest radius; drop it. */
+    | { t: 'unchunk', cx: number, cy: number }
+    /** Terrain delta: `edits` are `[cornerIndex, quantised height]` into the
+     *  chunk's 33×33 heights, `surface` `[tileIndex, value]` into its raster. */
+    | { t: 'terrain', cx: number, cy: number, v: number, edits: [number, number][], surface?: [number, number][] }
+    /** A piece was placed in a chunk the player holds. `pieces` rides only on
+     *  the copy sent to the player who asked for the edit, and is their new
+     *  owned total; every other viewer gets the frame without it. */
+    | { t: 'place', cx: number, cy: number, v: number, piece: WorldPlacement, pieces?: number }
+    /** A piece was removed from a chunk the player holds. `pieces` as above. */
+    | { t: 'remove', cx: number, cy: number, v: number, id: string, pieces?: number }
+    /** An edit request the server refused, sent only to the requester. */
+    | { t: 'reject', reason: string }
     /** This identity connected from another tab/window and that newer socket
      *  took over — only one live session per player is allowed. The client
      *  shows the reason and stops reconnecting (a reconnect would kick the new

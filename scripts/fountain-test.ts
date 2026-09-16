@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { FOUNTAIN_FLOW, sampleFountainFlow } from '../app/utils/fountainFlow.ts'
 import { createFountainInteractions, createFountainSimulation } from '../app/utils/fountainSimulation.ts'
 

@@ -15,8 +15,8 @@
  *   carries a side rail along each long edge;
  * - a rail blocks the band `[z, z + height]` and nothing else.
  *
- * `generateHub` pre-filters them into `plan.ramparts` so the 20 Hz step never
- * rescans every prop. All geometry works in the piece's rotated frame,
+ * `world.ts` pre-filters them into each chunk's `ramparts` index so the 20 Hz
+ * step never rescans every prop. All geometry works in the piece's rotated frame,
  * inverting the Three.js Y rotation exactly like boxed prop collision in
  * `maze.ts`: `localX = dx*cos - dy*sin`, `localY = dx*sin + dy*cos`.
  *
@@ -25,8 +25,9 @@
  * same arrangement `moat.ts` uses.
  */
 
-import type { FloorPlan, PropSpec } from './maze'
+import type { PropSpec } from './props'
 import { COURTYARD_ASSETS } from './courtyard'
+import { KIT_ASSETS } from './kit'
 
 /** Kinds whose `z` is a gameplay surface, and whose collision is height-aware
  *  instead of the ground-based footprint every other solid kind uses. */
@@ -36,6 +37,30 @@ const RAMPART_KIND_SET: ReadonlySet<string> = new Set(RAMPART_KINDS)
 
 export function isRampartKind(kind: string): kind is RampartKind {
   return RAMPART_KIND_SET.has(kind)
+}
+
+/**
+ * Stepped ramps, by kind. The town's rampart flight and the build kit's stairs
+ * are the same shape at different scales, so they share one code path instead
+ * of `maze.ts` growing a second one: the tread height comes from
+ * `rampartStairHeight` for both, and both are skipped by the footprint
+ * collision in `maze.ts` — a ramp blocks by being too tall to step onto, never
+ * by its box.
+ */
+const STAIR_SPECS: Record<string, { height: number, steps: number, rails: boolean }> = {
+  Courtyard_Stairs: { height: COURTYARD_ASSETS.Courtyard_Stairs.height, steps: COURTYARD_ASSETS.Courtyard_Stairs.steps, rails: true },
+  Kit_Stairs: { height: KIT_ASSETS.Kit_Stairs.height, steps: 8, rails: false },
+}
+
+/** Whether a kind's surface is a stepped ramp rather than a flat top. */
+export function isStairKind(kind: string): boolean {
+  return kind in STAIR_SPECS
+}
+
+/** Kinds whose collision `maze.ts` must not resolve through the ordinary
+ *  footprint path, because `ramparts.ts` owns their height-aware surfaces. */
+export function isHeightAwareKind(kind: string): boolean {
+  return isRampartKind(kind) || isStairKind(kind)
 }
 
 /** A placement resolved into world-space collision terms, once, at plan build. */
@@ -63,7 +88,7 @@ export interface RampartIndex {
   rails: RampartPiece[]
 }
 
-function toPiece(prop: PropSpec, height: number, steps = 0): RampartPiece {
+function toPiece(prop: PropSpec, height: number, steps = 0, rails = true): RampartPiece {
   const [sx, sy] = prop.s3 ?? [prop.scale, prop.scale, prop.scale]
   const rail = COURTYARD_ASSETS.Courtyard_Rail
   return {
@@ -77,18 +102,19 @@ function toPiece(prop: PropSpec, height: number, steps = 0): RampartPiece {
     sin: Math.sin(prop.rot),
     height: height * sy,
     steps,
-    railHeight: rail.height * sy,
+    railHeight: rails ? rail.height * sy : 0,
     railThickness: rail.depth * sx,
   }
 }
 
 /** Pre-filter the rampart placements out of a plan's props. Cheap enough to
- *  re-run whenever props are edited; `generateHub` calls it once. */
+ *  re-run whenever a chunk's props change; `world.ts` calls it for you. */
 export function rampartIndex(props: PropSpec[]): RampartIndex {
   const index: RampartIndex = { galleries: [], stairs: [], rails: [] }
   for (const prop of props) {
-    if (prop.kind === 'Courtyard_Gallery') index.galleries.push(toPiece(prop, COURTYARD_ASSETS.Courtyard_Gallery.height))
-    else if (prop.kind === 'Courtyard_Stairs') index.stairs.push(toPiece(prop, COURTYARD_ASSETS.Courtyard_Stairs.height, COURTYARD_ASSETS.Courtyard_Stairs.steps))
+    const stair = STAIR_SPECS[prop.kind]
+    if (stair) index.stairs.push(toPiece(prop, stair.height, stair.steps, stair.rails))
+    else if (prop.kind === 'Courtyard_Gallery') index.galleries.push(toPiece(prop, COURTYARD_ASSETS.Courtyard_Gallery.height))
     else if (prop.kind === 'Courtyard_Rail') index.rails.push(toPiece(prop, COURTYARD_ASSETS.Courtyard_Rail.height))
   }
   return index
@@ -147,6 +173,7 @@ export function hitsRampartRail(index: RampartIndex, x: number, y: number, feet:
       && Math.abs(dx * r.sin + dy * r.cos) < r.hy + radius) return true
   }
   for (const s of index.stairs) {
+    if (s.railHeight <= 0) continue
     const depth = localDepth(s, x, y)
     if (Math.abs(depth) > s.hy) continue
     // Side rails follow the continuous slope, not the discrete treads.
@@ -170,9 +197,9 @@ export function nearRamparts(index: RampartIndex, x: number, y: number, reach: n
 }
 
 /** Finite raised solids for camera obstruction, without closing the passage
- *  below: each piece blocks only across its own vertical extent. */
-export function isRampartCameraBlocked(plan: FloorPlan, x: number, z: number, elevation: number, radius: number): boolean {
-  const index = plan.ramparts
+ *  below: each piece blocks only across its own vertical extent. Called through
+ *  `isRampartCameraBlocked` in `maze.ts`, which resolves the chunk's index. */
+export function indexBlocksCamera(index: RampartIndex, x: number, z: number, elevation: number, radius: number): boolean {
   for (const g of index.galleries) {
     if (elevation + radius < g.z - g.height || elevation - radius > g.z) continue
     for (const dx of [-radius, 0, radius]) {
@@ -188,6 +215,11 @@ export function isRampartCameraBlocked(plan: FloorPlan, x: number, z: number, el
   for (const s of index.stairs) {
     const depth = localDepth(s, x, z)
     if (Math.abs(depth) > s.hy + radius) continue
+    if (s.railHeight <= 0) {
+      // A railless ramp (the build kit's stairs) is a solid wedge to the camera.
+      if (elevation + radius >= s.z && elevation - radius <= s.z + s.height && inside(s, x, z, radius)) return true
+      continue
+    }
     const top = s.z + Math.max(0, Math.min(1, (depth + s.hy) / (2 * s.hy))) * s.height
     if (elevation + radius < top || elevation - radius > top + s.railHeight) continue
     if (Math.abs(Math.abs(localWidth(s, x, z)) - s.hx) <= s.railThickness / 2 + radius) return true
