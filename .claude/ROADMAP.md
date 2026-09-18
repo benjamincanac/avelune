@@ -18,7 +18,10 @@
 - [x] Persistence: Upstash Redis, one key per chunk, write-behind with CAS on `version`, drain on shutdown, in-memory store when unset; `scripts/world-admin.mjs`
 - [x] Tests: `pnpm test` runs world, rampart, terrain, building and chunk-store suites; `ws-test.mjs` covers streaming, terraform, felling, refusals; `spawn-bots.mjs --dig` load test (30 bots, ~1 ms average tick)
 - [x] Deed plots: a `Kit_Deed` post claims a 16-tile square (`DEED_SIZE`, one per player) where only the owner terraforms, builds or clears wild growth; plot outlines on the ground and on the full map, refusals that name the owner
-- [ ] Oracle sees nearby builds, building bots (plan phase 6)
+- [x] Oracle sees the built world: `arena_state` carries pieces standing, top builders, the busiest spot worded as a direction from the gate, weather, time of day and the realm
+- [x] Building bots: `spawn-bots.mjs --build` claims a plot, levels it, raises a two-storey hut or a fence paddock on cells and edges, paves back to the road, and runs the shared `resolveBuild` before sending, so zero refused builds is the pass mark. Refuses to target the prod host
+- [x] Per-chunk collision cells (8 tiles): `propsNear` and the build checks read only the cells a query covers. 12 bots among 377 pieces went from 4.7 ms to 1.4 ms average tick
+- [x] Realms: every store key is scoped by `AVELUNE_REALM` / `VERCEL_REGION`, one stored world per deploy region, named in the HUD and on the landing page (`shared/utils/realm.ts`)
 
 ### Core loop & simulation
 - [x] Shared time of day (`dawn|day|sunset|night|auto`), independent of weather and synchronized on join. Players ask the Oracle for it; `/time` is a dev-only command.
@@ -99,7 +102,7 @@ both sides share.
 
 ### 1. Verify prod
 - [x] **Verify the WebSocket upgrade in prod** — verified 2026-09-16 on `avelune-online.vercel.app` (`cdg1`): the full `ws-test.mjs` (124 checks: streaming, terraform, felling, building, budgets, takeover) passes against the live socket, and 15 walking bots held their connections for 45 s on one instance (every welcome counted the previous bots). Heavier load and the multi-instance question are still open
-- [ ] **Link Upstash Redis to the Vercel project** — prod currently reports `persistent: false` (in-memory store): every restart and every max-duration recycle wipes the world. Storage tab → Upstash for Redis → link; the env vars are picked up as-is
+- [x] **Prod persistence** — verified 2026-09-18: `/api/status` reports `persistent: true` in the `fra1` realm after linking the store (the marketplace sets `KV_REST_API_*`, which the server now reads). The function moved from `cdg1` to `fra1`, so the Frankfurt world started empty
 - [ ] Verify the Oracle works deployed: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Redeploy, then ask "who are you?" in chat (needs `AI_GATEWAY_API_KEY`)
 - [ ] Retroactive compression pass over the pre-existing `public/models/props/**` GLBs (the newer kits are already meshopt+WebP)
 
@@ -108,14 +111,26 @@ both sides share.
 - [ ] Emotes / a wave or cheer clip, so players can interact without typing
 - [ ] Mobile/touch controls (virtual stick + look drag)
 
-### 3. Oracle depth
+### 3. Give building a reason
+- [ ] Gathering: felling wild trees and rocks drops wood and stone, kit pieces cost them
+- [ ] Spawn at your deed (or last position) instead of the gate every session
+- [ ] Doors that open, torches that light (a small pool of point lights near the camera)
+- [ ] Plot decay: release a deed after its owner has been away for some weeks
+- [ ] Nothing stops a player walling themselves in on their own tile (`resolveBuild` never consults player positions)
+- [ ] Client patches instances on `place`/`remove` instead of rebuilding every batch and the grass of that chunk
+- [ ] Compact binary placements in `chunk` frames for built-up areas (they travel as JSON today)
+- [ ] Bot huts pick odd roof rotations (the plan's geometry, not the rules)
+
+### 4. Oracle depth
 - [x] **Greets arrivals by name** — written in-character lines picked to suit the company and the sky (`oracleGreeting`, no model call, so arrivals cost nothing), spoken the tick the player crosses the South Gate line. Once per identity per 30 min, never over a reply in flight, abandoned after 20s of a busy Oracle
-- [ ] Give the Oracle more to see: time of day and weather in `arena_state`, so it can remark on the sky
+- [x] Give the Oracle more to see: time of day, weather and the built world are in `arena_state`
 - [ ] AI announcer voice for shared events (joins, milestones) — deferred; see `memory/ai-announcer-tower-voice.md`
 
-### 4. Stretch
+### 5. Stretch
 - [ ] Proximity voice chat — WebRTC, signaling over the game socket
-- [ ] Multi-instance sharding once one function instance isn't enough (the roster and chunk cache are in-process memory today; Redis CAS keeps the store consistent but players on two instances would not see each other)
+- [ ] Multi-instance sharding once one function instance isn't enough (the roster and chunk cache are in-process memory today; Redis CAS keeps the store consistent but players on two instances would not see each other). crossws 0.4.12 has a Redis sync backplane, but Nitro builds its adapter as `wsAdapter({ resolve })` with no way to pass `sync`, and the backplane only fans out to peers, so server copies of a chunk still need their own server-to-server channel for edit deltas
+- [ ] Multi-region realms as a server list: one project per region with its own hostname, and a realm picker with live counts on the landing page
+- [ ] Reject unauthenticated sockets with a 401 in the `upgrade` hook instead of open-then-close (needs the crossws bump below)
 
 ## Known issues / verify-me
 
@@ -125,6 +140,8 @@ both sides share.
 - [ ] Pointer lock impossible in the Claude preview iframe (`WrongDocumentError`) — real tabs/deploy are fine; delta-look fallback covers embeds
 - [ ] Without pointer lock the OS cursor can pin at screen edges mid-turn (fullscreen `F` mitigates)
 - [x] Camera boom samples solid prop heights as well as the wall grid to avoid clipping into courtyard buildings
+- [ ] **Nitro 3.0.260903-beta cannot be adopted yet.** It needs a Nuxt 5 nightly >= 29814795, and those nightlies mount Nitro as a Vite environment whose dev hook calls `server.httpServer.on("upgrade")` while Nuxt runs Vite in middleware mode (`httpServer` is null): `nuxt dev` crashes, and Nuxt has no upgrade forwarding of its own. Prod builds were fine. Both pins stay on the June pair (reason in `pnpm-workspace.yaml`); worth an upstream issue since it blocks crossws 0.4.12
+
 - [x] ~~Character GLB WebP-support race crashes on cold concurrent loads~~ — mitigated: the convert script byte-sanitizes broken WebP refs; load a roster sequentially to warm WebP first (see `.claude/agents/scene-3d.md`)
 - [x] ~~`scripts/ws-test.mjs` broken by the signed-cookie gate~~ — it now does the `/api/auth` handshake and replays the cookie on the upgrade
 
