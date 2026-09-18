@@ -53,17 +53,18 @@ import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
 import { courtyardWeather, createCourtyardSky } from '~/utils/courtyardSky'
-import { NATURE_NAMES, createGrassBank } from '~/utils/courtyardLandscape'
+import { NATURE_NAMES, createGrassBank, setGrassPushers, updateGrassLod } from '~/utils/courtyardLandscape'
 import { createTerrainMaterial, createTerrainMesh, updateTerrainMesh } from '~/utils/terrainChunk'
 import type { HeightSampler } from '~/utils/terrainChunk'
 import { chunkGrassBlades, createChunkProps, createPavingBank } from '~/utils/chunkProps'
+import { createCritters } from '~/utils/critters'
 import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import { createBuildTools } from '~/utils/buildTools'
 import { PITCH_MAX, PITCH_MAX_TOOL } from '~/composables/useBuild'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
-import { applyOutfitColor } from '~/utils/appearance'
+import { applyBeard, applyOutfitColor } from '~/utils/appearance'
 import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
 import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
 import type { CharacterAsset } from '~/utils/characterModels'
@@ -313,11 +314,15 @@ function buildChunkDetail(entry: MountedChunk, chunk: Chunk) {
     entry.grass.dispose()
     entry.grass = null
   }
-  if (!entry.detail) return
+  if (!entry.detail) {
+    critters?.unmount(chunk.cx, chunk.cy)
+    return
+  }
+  critters?.mount(chunk.cx, chunk.cy)
   entry.props = chunkProps.build(chunk)
   tagShadows(entry.props)
   entry.group.add(entry.props)
-  entry.grass = grassBank.patch(chunkGrassBlades(chunk))
+  entry.grass = grassBank.patch(chunkGrassBlades(chunk, hubWorld.seed))
   if (entry.grass) entry.group.add(entry.grass)
 }
 
@@ -354,6 +359,7 @@ function unmountChunk(cx: number, cy: number): void {
   const entry = mounted.get(key)
   if (!entry) return
   mounted.delete(key)
+  critters?.unmount(cx, cy)
   floorGroup.remove(entry.group)
   if (entry.props) chunkProps.release(entry.props)
   entry.grass?.dispose()
@@ -606,7 +612,22 @@ const terrainMaterial = createTerrainMaterial(townMaterials)
 /** Shared blade geometry for every chunk's meadow and the town's garden beds. */
 const grassBank = createGrassBank(foliageTime)
 const pavingBank = createPavingBank(townMaterials)
-const chunkProps = createChunkProps({ templates: propTemplates, materials: townMaterials, foliageTime, editor: props.editor })
+const chunkProps = createChunkProps({ templates: propTemplates, materials: townMaterials, seed: hubWorld.seed, foliageTime, editor: props.editor })
+/** Ambient wildlife: purely cosmetic, deterministic per chunk, never on the
+ *  wire. Off in the editor, where every extra pickable body is in the way. */
+const critters = props.editor
+  ? null
+  : createCritters({
+      parent: floorGroup,
+      loader: gltfLoader,
+      world: hubWorld,
+      seed: hubWorld.seed,
+      // A new rig needs the CSM patch and a GTAO rescan, exactly as the Oracle's does.
+      onChange: () => {
+        atmosphere.setupShadows()
+        bumpSceneVersion()
+      },
+    })
 const retiredTemplates: Group[] = []
 let sceneDisposed = false
 function releaseTemplates(templates: Iterable<Group>) {
@@ -903,6 +924,8 @@ function createRig(player: GamePlayer): Rig | null {
   // Swap in the chosen outfit colorway (designed texture variant, not a dye).
   // The accent color is a chat/nameplate identity only.
   const outfitMaterials = applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
+  // The beard ships visible in the GLB, so every rig states its own answer.
+  applyBeard(model, player.beard === true)
   // After the outfit swap: cloning a material drops its shader hooks, so the
   // rim has to be installed on whatever materials the rig ends up with.
   applyCharacterRim(model)
@@ -1614,6 +1637,14 @@ onBeforeRender(({ delta }) => {
     actor.feetY = id === selfId ? local.z : player.rz
     waterActorIndex++
   }
+  // The same rendered bodies bend the grass. Both banks (chunk meadows and the
+  // town's garden beds) share one uniform, so this one call covers them.
+  setGrassPushers(waterActors, local.x, local.y)
+  // The same rendered bodies are what the wildlife runs from.
+  critters?.update(dt, now, waterActors, camera.value?.position, rimSky.dayness)
+  // Distant patches draw only the tufts that can still be standing there.
+  const eye = camera.value?.position
+  if (eye) for (const entry of mounted.values()) if (entry.grass) updateGrassLod(entry.grass, eye.x, eye.z)
   // Shader clocks are `uniform float`: at epoch scale (~1.79e9) a float32's ULP
   // is 128 s, so wind and ripples would sit perfectly still. Wrap what reaches
   // a uniform; the fountain keeps absolute seconds because its particle sim
@@ -1698,6 +1729,7 @@ function disposeScene() {
   unsubscribe.length = 0
   if (townRebuild) clearTimeout(townRebuild)
   buildTools?.dispose()
+  critters?.dispose()
   chunkProps.dispose()
   grassBank.dispose()
   pavingBank.dispose()
@@ -1722,7 +1754,7 @@ onBeforeUnmount(disposeScene)
 
 if (import.meta.dev) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view }
+  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters }
 }
 </script>
 
