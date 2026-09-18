@@ -176,6 +176,8 @@ function oraclePos(): { x: number, y: number, rot: number } {
 }
 /** Within this many tiles the player may consult it (drives the HUD prompt). */
 const ORACLE_NEAR = 7
+/** How fast the Oracle turns to face the player it answers (1/s, eased). */
+const ORACLE_TURN_RATE = 4
 interface OracleRig {
   dispose: () => void
   group: Group
@@ -1627,8 +1629,20 @@ onBeforeRender(({ delta }) => {
     // constant in play).
     oracleRig.group.position.x = op.x
     oracleRig.group.position.z = op.y
-    oracleRig.group.rotation.y = op.rot
     const speech = oracle.speech.value
+    // Turn to face whoever it is answering while the line is up, then ease back
+    // to the authored pose. The editor keeps the pose exact so rotating is live.
+    let yaw = op.rot
+    if (speech?.to && speech.until > now && !props.editor) {
+      // Out of `state` range there is nobody to look at: hold the authored pose.
+      const other = speech.to === selfId ? undefined : props.game.players.get(speech.to)
+      const tx = (other ? other.rx : local.x) - op.x
+      const ty = (other ? other.ry : local.y) - op.y
+      if ((other || speech.to === selfId) && Math.hypot(tx, ty) > 0.5) yaw = Math.atan2(tx, ty)
+    }
+    oracleRig.group.rotation.y = props.editor
+      ? yaw
+      : oracleRig.group.rotation.y + angleDelta(yaw, oracleRig.group.rotation.y) * Math.min(1, dt * ORACLE_TURN_RATE)
     updateBubble(oracleRig, speech, now)
   }
   oracle.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < ORACLE_NEAR : false

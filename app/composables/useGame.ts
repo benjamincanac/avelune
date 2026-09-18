@@ -279,7 +279,7 @@ export function useGame(): UseGame {
         // The Oracle speaks as a reserved id, not a roster player: render it
         // with its own name/accent and float a bubble over the 3D NPC.
         if (msg.id === ORACLE_ID) {
-          oracle.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
+          oracle.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION, to: msg.to }
           pushChat({ id: ORACLE_ID, name: ORACLE_NAME, color: ORACLE_COLOR, text: msg.text, at: Date.now(), npc: true })
           break
         }

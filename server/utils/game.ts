@@ -687,15 +687,16 @@ const ORACLE_COOLDOWN = 4000
 /**
  * Say an Oracle line: remember it as context for later replies, start the
  * cooldown, and put it on the wire as an ordinary chat frame from ORACLE_ID.
+ * `to` is the player being answered, so clients can turn the NPC to face them.
  */
-function speak(reply: string) {
+function speak(reply: string, to: string) {
   oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
   hubChat.push({ name: ORACLE_NAME, text: reply })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
-  broadcast({ t: 'chat', id: ORACLE_ID, text: reply })
+  broadcast({ t: 'chat', id: ORACLE_ID, text: reply, to })
 }
 
-function considerOracle(name: string, text: string) {
+function considerOracle(id: string, name: string, text: string) {
   hubChat.push({ name, text })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
   // Don't even classify while replying or cooling down: the classifier gates
@@ -704,7 +705,7 @@ function considerOracle(name: string, text: string) {
   oracleBusy = true
   oracleReply([...hubChat], snapshot, { now: () => skyNow(Date.now()), setWeather, setTime: setTimeOfDay })
     .then((reply) => {
-      if (reply) speak(reply)
+      if (reply) speak(reply, id)
     })
     .catch(() => {})
     .finally(() => {
@@ -759,7 +760,7 @@ function deliverGreeting(session: Session) {
         // Wait out whatever the Oracle is saying, then look again.
         return attempt(Math.max(oracleQuietUntil - Date.now() + 200, GREET_RETRY))
       }
-      speak(oracleGreeting(name, { others: sessions.size - 1, ...skyNow(Date.now()) }))
+      speak(oracleGreeting(name, { others: sessions.size - 1, ...skyNow(Date.now()) }), id)
     }, delay)
     // Never hold the process open just for a pending greeting.
     ;(timer as { unref?: () => void }).unref?.()
@@ -923,7 +924,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           }
           broadcast({ t: 'chat', id: player.id, text }, player.id)
           // The Oracle overhears the arena and answers only when addressed.
-          considerOracle(player.name, text)
+          considerOracle(player.id, player.name, text)
           break
         }
         case 'terraform': {

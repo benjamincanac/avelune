@@ -296,7 +296,7 @@ the HUD feed starts from; after that the client words its own rows from the live
 meaning, present only on the copy sent to the player whose edit it was — every
 other viewer gets the frame without them and ignores the fields. `state` is filtered
 per session to players within 96 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping; the Oracle
-speaks through the reserved `ORACLE_ID` sender, never a roster player. `kicked`
+speaks through the reserved `ORACLE_ID` sender, never a roster player, and its lines carry `to`, the id of the player it answers, which the scene turns the NPC to face. `kicked`
 carries a `reason` and boots a socket when the same identity opens another
 (single session per player). When you change a frame's shape, flag both
 consumers explicitly — the change is not done until `server-net` and the client

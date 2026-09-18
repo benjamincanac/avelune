@@ -123,7 +123,9 @@ export type ServerMessage
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
     | { t: 'state', players: PlayerState[] }
-    | { t: 'chat', id: string, text: string }
+    /** `to` rides only on the Oracle's lines: the player it is answering or
+     *  greeting, so the scene can turn the NPC to face them. */
+    | { t: 'chat', id: string, text: string, to?: string }
     | { t: 'weather', mode: WeatherMode }
     | { t: 'time', mode: TimeOfDayMode }
     | { t: 'system', text: string }
