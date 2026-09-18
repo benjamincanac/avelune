@@ -1,5 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { DEFAULT_CHARACTER, isCharacter, isOutfitColor, outfitOf } from '#shared/utils/characters'
+import { DEFAULT_CHARACTER, isBearded, isCharacter, isOutfitColor, outfitOf } from '#shared/utils/characters'
 import type { Player } from '#shared/types/game'
 
 /**
@@ -19,7 +19,7 @@ import type { Player } from '#shared/types/game'
 // existing `tempest_id` cookies no longer match, so players re-onboard once.
 export const COOKIE_NAME = 'avelune_id'
 
-export type Identity = Pick<Player, 'id' | 'name' | 'color' | 'character' | 'outfitColor'>
+export type Identity = Pick<Player, 'id' | 'name' | 'color' | 'character' | 'outfitColor' | 'beard'>
 
 let warnedNoSecret = false
 
@@ -67,6 +67,9 @@ export function verifyToken(token: string | undefined | null): Identity | null {
         color: obj.color,
         character,
         outfitColor: character === obj.character && isOutfitColor(outfitOf(character), obj.outfitColor) ? obj.outfitColor : 0,
+        // Nothing is released yet, so a cookie minted before the beard existed
+        // simply reads as clean shaven rather than carrying a migration.
+        beard: character === obj.character && isBearded(character, obj.beard),
       }
     }
   }

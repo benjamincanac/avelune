@@ -26,6 +26,9 @@ export interface Player {
   character: string
   /** Chosen outfit colorway index (resolved against the character's outfit). */
   outfitColor: number
+  /** Whether the beard mesh is shown. Only males on a non-hairless outfit can
+   *  carry one; the server normalises every other case to false. */
+  beard: boolean
   x: number
   y: number
   /** Height above the floor plane (jumping, standing on props). */

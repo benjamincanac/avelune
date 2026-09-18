@@ -36,7 +36,7 @@ type View = 'checking' | 'creating' | 'playing' | 'editing'
  * character cookie is permanent.
  */
 const view = ref<View>('checking')
-const identity = ref<Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> | null>(null)
+const identity = ref<Pick<Player, 'name' | 'color' | 'character' | 'outfitColor' | 'beard'> | null>(null)
 const isDev = import.meta.dev
 
 onMounted(async () => {
@@ -59,7 +59,7 @@ onMounted(async () => {
   try {
     const me = await $fetch('/api/auth')
     if (me.authenticated) {
-      identity.value = { name: me.name, color: me.color, character: me.character, outfitColor: me.outfitColor }
+      identity.value = { name: me.name, color: me.color, character: me.character, outfitColor: me.outfitColor, beard: me.beard }
     }
   }
   catch {

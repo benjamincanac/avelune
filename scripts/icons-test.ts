@@ -16,6 +16,9 @@ import simple from '@iconify-json/simple-icons/icons.json' with { type: 'json' }
  * pass, and `icon.serverBundle: 'remote'` means even the build never resolves
  * it. This walks the source for `i-lucide-*` / `i-simple-icons-*` literals and
  * checks each against the installed JSON.
+ *
+ * `shared/` is walked too, not just `app/`: the outfit roster names its picker
+ * icons there, so scanning the components alone missed every one of them.
  */
 const SETS: Record<string, { icons: Record<string, unknown>, aliases?: Record<string, unknown> }> = {
   'lucide': lucide as never,
@@ -31,18 +34,20 @@ function sources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-test('every icon named in app/ exists in the bundled set', () => {
-  const root = fileURLToPath(new URL('../app', import.meta.url))
+test('every icon named in app/ and shared/ exists in the bundled set', () => {
+  const roots = ['../app', '../shared'].map(dir => fileURLToPath(new URL(dir, import.meta.url)))
   const missing: string[] = []
   let checked = 0
 
-  for (const file of sources(root)) {
-    const src = readFileSync(file, 'utf8')
-    for (const match of src.matchAll(/i-(lucide|simple-icons)-((?:[a-z0-9]+-)*[a-z0-9]+)(?=['"`\s])/g)) {
-      const [full, set, name] = match as unknown as [string, string, string]
-      const bundle = SETS[set]!
-      checked++
-      if (!bundle.icons[name] && !bundle.aliases?.[name]) missing.push(`${full} (${file.slice(root.length + 1)})`)
+  for (const root of roots) {
+    for (const file of sources(root)) {
+      const src = readFileSync(file, 'utf8')
+      for (const match of src.matchAll(/i-(lucide|simple-icons)-((?:[a-z0-9]+-)*[a-z0-9]+)(?=['"`\s])/g)) {
+        const [full, set, name] = match as unknown as [string, string, string]
+        const bundle = SETS[set]!
+        checked++
+        if (!bundle.icons[name] && !bundle.aliases?.[name]) missing.push(`${full} (${file.slice(root.length + 1)})`)
+      }
     }
   }
 

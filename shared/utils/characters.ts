@@ -2,10 +2,11 @@
  * The roster every layer agrees on: the character creator (client), the 3D
  * renderer (client), and the identity validator (server) all import from here.
  *
- * A character is chosen along four axes:
+ * A character is chosen along five axes:
  *   - gender   (Male / Female)      → picks the base body
- *   - outfit   (Peasant / Ranger)   → the clothing family
- *   - hair     (per gender)         → baked into the GLB (Ranger is hooded → none)
+ *   - outfit   (the clothing family) → Peasant, Ranger, Knight, Noble, Wizard
+ *   - hair     (per gender)         → baked into the GLB
+ *   - beard    (males with a face)  → a named mesh in the GLB, toggled at runtime
  *   - color    (outfit colorway)    → runtime texture swap on the cloth material
  *
  * Gender + outfit + hair combinations resolve to a GLB basename under /models/characters
@@ -30,8 +31,23 @@ export interface Outfit {
   blurb: string
   /** CSS background shown behind the character in the gate. */
   bg: string
-  /** Hooded outfits hide hair, so they offer no hairstyle choice. */
+  /**
+   * The outfit's own head piece covers the hair: the Ranger's hood, the
+   * Knight's armet. The piece is its own named mesh in the GLB so something can
+   * toggle it later, but nothing does yet, so today the flag only records which
+   * outfits render the hairstyle pick invisible. The Ranger's hood is open at
+   * the face and keeps the hair under it; the Knight's closed armet ships
+   * without hair at all, because every style came through the metal. The
+   * Noble's crown rides on top of the hair and the Wizard has no head piece in
+   * the pack, so both are false.
+   */
   hooded: boolean
+  /**
+   * The head piece encloses the skull, so the outfit ships one GLB per gender
+   * with no hair in it (`<Outfit>_<Gender>`) and the creator offers no
+   * hairstyle. Today that is the Knight's closed armet.
+   */
+  hairless?: boolean
 }
 
 export const OUTFITS: Outfit[] = [
@@ -51,10 +67,35 @@ export const OUTFITS: Outfit[] = [
     bg: 'radial-gradient(ellipse 90% 65% at 50% 18%, rgba(46,86,84,0.55), transparent 70%), linear-gradient(180deg, #16302f 0%, #0a1a1c 55%, #050d0f 100%)',
     hooded: true,
   },
+  {
+    id: 'Knight',
+    name: 'Knight',
+    icon: 'i-lucide-shield',
+    blurb: 'Plate over a scarf, an armet down across the face, and a walk that announces itself. Built for standing in the way of things.',
+    bg: 'radial-gradient(ellipse 90% 65% at 50% 18%, rgba(84,102,124,0.5), transparent 70%), linear-gradient(180deg, #1c2733 0%, #10161d 55%, #070a0d 100%)',
+    hooded: true,
+    hairless: true,
+  },
+  {
+    id: 'Noble',
+    name: 'Noble',
+    icon: 'i-lucide-crown',
+    blurb: 'Silk and a gorget under a thin crown, cut for a house used to being recognised. The lion on the pauldron came with the title.',
+    bg: 'radial-gradient(ellipse 90% 65% at 50% 18%, rgba(128,52,58,0.5), transparent 70%), linear-gradient(180deg, #33161b 0%, #1c0d10 55%, #0b0506 100%)',
+    hooded: false,
+  },
+  {
+    id: 'Wizard',
+    name: 'Wizard',
+    icon: 'i-lucide-wand-sparkles',
+    blurb: 'Long robes, a knotted belt, and nothing on the head but weather. Has more to say about the town\'s old stones than anyone asked for.',
+    bg: 'radial-gradient(ellipse 90% 65% at 50% 18%, rgba(78,62,132,0.52), transparent 70%), linear-gradient(180deg, #221c3a 0%, #13101f 55%, #08070d 100%)',
+    hooded: false,
+  },
 ]
 
 /* -------------------------------------------------------------------------- */
-/* Hairstyles (baked into the GLB) — only for non-hooded outfits              */
+/* Hairstyles (baked into the GLB, one per outfit/gender combination)         */
 /* -------------------------------------------------------------------------- */
 
 export interface Hairstyle {
@@ -74,6 +115,40 @@ export const HAIRSTYLES: Record<Gender, Hairstyle[]> = {
     { id: 'Long', name: 'Long' },
     { id: 'Buns', name: 'Buns' },
   ],
+}
+
+/* -------------------------------------------------------------------------- */
+/* Beard (a named mesh in the male GLBs, shown or hidden per player)          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The beard node name every male GLB with a face carries, straight from the
+ * Quaternius pack. It ships visible, so every rig and preview sets `visible`
+ * per instance after cloning the shared template. A colorway swap cannot touch
+ * it: the beard wears a hair material, and `applyOutfitColor` only rewrites the
+ * `MI_<Outfit>` cloth ones.
+ */
+export const BEARD_MESH = 'Hair_Beard'
+
+/**
+ * Only males carry a beard mesh, and only when the outfit leaves the face open.
+ * The Knight is `hairless`, so its closed armet ships without hair or beard.
+ */
+export function canBeard(outfit: string, gender: string): boolean {
+  return gender === 'Male' && !isHairless(outfit)
+}
+
+/** The gender a character name encodes (its middle segment). */
+export function genderOf(character: string): string {
+  return character.split('_')[1] ?? ''
+}
+
+/**
+ * Normalise a beard flag against the character it belongs to. The server runs
+ * this on every value a client sends, so a female or Knight can never carry one.
+ */
+export function isBearded(character: string, beard: unknown): boolean {
+  return beard === true && canBeard(outfitOf(character), genderOf(character))
 }
 
 /* -------------------------------------------------------------------------- */
@@ -99,6 +174,21 @@ export const OUTFIT_COLORS: Record<string, OutfitColor[]> = {
     { name: 'Umber', swatch: '#5a4832', texture: 'T_Ranger_3' },
     { name: 'Forest', swatch: '#4a6e42', texture: null },
   ],
+  Knight: [
+    { name: 'Steel', swatch: '#9fa8ab', texture: null },
+    { name: 'Gilded', swatch: '#a8801f', texture: 'T_Knight_2' },
+    { name: 'Bluesteel', swatch: '#6b7a86', texture: 'T_Knight_3' },
+  ],
+  Noble: [
+    { name: 'Crimson', swatch: '#7d2f36', texture: null },
+    { name: 'Sapphire', swatch: '#2c4a72', texture: 'T_Noble_2' },
+    { name: 'Verdant', swatch: '#3c6b39', texture: 'T_Noble_3' },
+  ],
+  Wizard: [
+    { name: 'Midnight', swatch: '#243a63', texture: null },
+    { name: 'Amethyst', swatch: '#5b2c6b', texture: 'T_Wizard_2' },
+    { name: 'Ember', swatch: '#8d1f22', texture: 'T_Wizard_3' },
+  ],
 }
 
 /* -------------------------------------------------------------------------- */
@@ -106,17 +196,23 @@ export const OUTFIT_COLORS: Record<string, OutfitColor[]> = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Every character carries a hairstyle. Hooded outfits (Ranger) are baked WITH
- * both the hood and the hair; the hood is shown/hidden at runtime via the
- * separate `hood` flag, so "hood + hair" and "hair only" come from one model.
+ * Every character carries a hairstyle, including the outfits whose head piece
+ * hides it: those GLBs hold the hood or armet and the hair as separate named
+ * meshes, so the pick survives in the name and one model covers both states.
  */
+/** Whether an outfit ships without hair variants (see `Outfit.hairless`). */
+export function isHairless(outfit: string): boolean {
+  return !!OUTFITS.find(o => o.id === outfit)?.hairless
+}
+
 export function characterName(outfit: string, gender: string, hairId?: string): string {
+  if (isHairless(outfit)) return `${outfit}_${gender}`
   const hair = hairId ?? HAIRSTYLES[gender as Gender]?.[0]?.id
   return `${outfit}_${gender}_${hair}`
 }
 
 export const CHARACTER_NAMES: string[] = OUTFITS.flatMap(o =>
-  GENDERS.flatMap(g => HAIRSTYLES[g].map(h => `${o.id}_${g}_${h.id}`)),
+  GENDERS.flatMap(g => o.hairless ? [`${o.id}_${g}`] : HAIRSTYLES[g].map(h => `${o.id}_${g}_${h.id}`)),
 )
 export const DEFAULT_CHARACTER: string = CHARACTER_NAMES[0]!
 
@@ -204,7 +300,7 @@ function pick<T>(arr: readonly T[]): T {
 }
 
 /** A fully random look for the gate's Randomize button. */
-export function randomAppearance(): { gender: Gender, outfit: string, hairId: string, outfitColor: number } {
+export function randomAppearance(): { gender: Gender, outfit: string, hairId: string, outfitColor: number, beard: boolean } {
   const gender = pick(GENDERS)
   const outfit = pick(OUTFITS).id
   return {
@@ -212,5 +308,6 @@ export function randomAppearance(): { gender: Gender, outfit: string, hairId: st
     outfit,
     hairId: pick(HAIRSTYLES[gender]).id,
     outfitColor: Math.floor(Math.random() * outfitColorCount(outfit)),
+    beard: canBeard(outfit, gender) && Math.random() < 0.5,
   }
 }

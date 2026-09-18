@@ -1,5 +1,5 @@
 import { defineEventHandler, getCookie, readBody, setCookie } from 'h3'
-import { DEFAULT_CHARACTER, PLAYER_COLORS, isAllowedColorIndex, isCharacter, isOutfitColor, outfitOf, randomColorIndex } from '#shared/utils/characters'
+import { DEFAULT_CHARACTER, PLAYER_COLORS, isAllowedColorIndex, isBearded, isCharacter, isOutfitColor, outfitOf, randomColorIndex } from '#shared/utils/characters'
 import { COOKIE_NAME, newUserId, signIdentity, verifyToken } from '../utils/session'
 import type { Identity } from '../utils/session'
 
@@ -23,7 +23,7 @@ function cleanName(input: unknown): string {
  * player the WebSocket spawns.
  */
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ username?: string, character?: string, colorIndex?: number, outfitColor?: number }>(event)
+  const body = await readBody<{ username?: string, character?: string, colorIndex?: number, outfitColor?: number, beard?: boolean }>(event)
 
   const name = cleanName(body?.username)
   const character = isCharacter(body?.character) ? body.character : DEFAULT_CHARACTER
@@ -32,6 +32,8 @@ export default defineEventHandler(async (event) => {
   const colorIndex = isAllowedColorIndex(body?.colorIndex) ? body!.colorIndex! : randomColorIndex()
   // Outfit colorway is validated against the chosen outfit's variants.
   const outfitColor = isOutfitColor(outfitOf(character), body?.outfitColor) ? body!.outfitColor! : 0
+  // Only a male on an outfit that leaves the face open has a beard mesh to show.
+  const beard = isBearded(character, body?.beard)
 
   // Keep the same id across re-submits (change of name/character) so the player
   // stays a stable person; mint a fresh one for a brand-new visitor.
@@ -42,6 +44,7 @@ export default defineEventHandler(async (event) => {
     color: PLAYER_COLORS[colorIndex]!,
     character,
     outfitColor,
+    beard,
   }
 
   setCookie(event, COOKIE_NAME, signIdentity(identity), {

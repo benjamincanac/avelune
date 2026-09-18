@@ -3,9 +3,18 @@
 Run headless:
   Blender --background --python convert_universal_characters.py -- <packs_dir> <out_dir>
 
+Set ONLY="Name Name" to rebuild a subset of the roster, so adding an outfit does
+not rewrite the GLBs that are already shipped and reviewed. Pass --animations to
+also write animations.glb; it is off by default because scripts/rebuild_animations.py
+owns that file now and ships two clips (Swim_Loop, Swim_Idle) this script's clip
+list does not know about, so an unguarded run silently dropped them.
+
 <packs_dir> is the folder holding the unzipped packs (default: ~/GitHub/quaternius):
   - Universal Base Characters[Standard]      (heads/faces/eyes/skin + hairstyles)
-  - Modular Character Outfits - Fantasy[...]  (Peasant + Ranger outfits, M/F)
+  - Modular Character Outfits - Fantasy source (the purchased CC0 superset: Peasant,
+    Ranger, Knight, Knight_Cloth, Noble, Wizard, M/F. Its Peasant and Ranger meshes
+    and textures are byte-identical to the older free pack's, so repointing at it
+    cannot change the eight GLBs built before.)
   - Universal Animation Library[Standard]     (UAL1_Standard.glb, 43 clips)
   - Universal Animation Library 2[Standard]   (UAL2_Standard.glb, 43 clips)
 
@@ -28,11 +37,14 @@ import sys
 from mathutils import Vector
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+WITH_ANIMATIONS = "--animations" in argv
+argv = [a for a in argv if not a.startswith("--")]
 PACKS = argv[0] if argv else os.path.expanduser("~/GitHub/quaternius")
 OUT = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "public", "models", "characters")
 OUT = os.path.abspath(OUT)
+ONLY = set(os.environ.get("ONLY", "").split())
 
-OUTFITS = os.path.join(PACKS, "module-character-outfits", "Exports", "glTF (Godot-Unreal)", "Outfits")
+OUTFITS = os.path.join(PACKS, "modular-character-outfits-source", "Exports", "glTF (Godot-Unreal)", "Outfits")
 BASE = os.path.join(PACKS, "universal-base-character", "Base Characters", "Godot - UE")
 HAIR = os.path.join(PACKS, "universal-base-character", "Hairstyles", "Rigged to Head Bone", "glTF (Godot -Unreal)")
 UAL1 = os.path.join(PACKS, "universal-animation-library", "Unreal-Godot", "UAL1_Standard.glb")
@@ -49,6 +61,25 @@ HEAD_BONES = {"Head", "neck_01"}
 # Longest edge any texture is downscaled to before packing (web budget).
 TEX_MAX = 512
 
+# Outfits whose head piece fully encloses the skull, so no hair is imported: it
+# would punch straight through the metal. The Ranger's hood is open at the face
+# and sits clear of the hair, which is why it keeps it; the Knight's armet is a
+# closed helm and every style (parted, buns, long) came out through the crown.
+# The Noble's crown rings the head and rides on top of the hair, so it keeps it
+# too. A helmeted outfit ships one GLB per gender (`Knight_Male`), matching
+# `hairless` in shared/utils/characters; the day something hides the armet at
+# runtime, drop the outfit from this set, give its specs hair and clear that flag.
+HELMETED = {"Male_Knight", "Female_Knight"}
+
+# The beard is imported as its own hair piece and never joined into the
+# hairstyle, so the runtime can show or hide it independently of the hair. Every
+# male build of an outfit that has hair carries it, both SimpleParted and
+# Buzzed. Its object and mesh data are renamed to this exact string so the
+# exported glTF node name is predictable (the pack ships the node as Hair_Beard
+# but the mesh data as Plane.006). Its material is the shared MI_Hair_1, which
+# no outfit-texture regex matches, so hiding the mesh is the whole toggle.
+BEARD = "Hair_Beard"
+
 # Clips pulled from the two animation libraries into the shared set. The game's
 # state machine drives Idle/Jog/Jump/Roll; the rest are bundled for later use so
 # both libraries are genuinely shipped.
@@ -58,18 +89,34 @@ CLIPS_UAL2 = ["Slide_Start", "Slide_Loop", "Sword_Regular_A", "Yes", "Sword_Dash
 
 # name, base full body, outfit, [hairstyles]. The GLB basename encodes
 # outfit_gender_hair and must match CHARACTER_NAMES in shared/utils/characters.
-# The Ranger is baked WITH its hood over the hair (always hooded); the Peasant
-# is bareheaded. Outfit colorways are swapped at runtime, not baked here. Males
-# skip "Long" — the pack's only long hair is a female mesh (bald male crown).
+# Outfit colorways are swapped at runtime, not baked here. Males skip "Long" —
+# the pack's only long hair is a female mesh (bald male crown).
+#
+# Head pieces ride along inside the outfit's own .gltf as their own named mesh
+# (Ranger_Head_Hood, Knight_Head_Armet, Noble_Head_Crown), so nothing extra is
+# imported or bound: the mesh is already skinned to the shared skeleton and the
+# runtime can address it by name. The Wizard has no head piece anywhere in the
+# pack (not in Outfits, not in Modular Parts), so it is bareheaded. The armoured
+# Knight is used, not Knight_Cloth.
 ROSTER = [
-    {"name": "Peasant_Male_SimpleParted",   "base": "Superhero_Male_FullBody",   "outfit": "Male_Peasant",   "hair": ["Hair_SimpleParted", "Hair_Beard"]},
-    {"name": "Peasant_Male_Buzzed",         "base": "Superhero_Male_FullBody",   "outfit": "Male_Peasant",   "hair": ["Hair_Buzzed"]},
+    {"name": "Peasant_Male_SimpleParted",   "base": "Superhero_Male_FullBody",   "outfit": "Male_Peasant",   "hair": ["Hair_SimpleParted"], "beard": True},
+    {"name": "Peasant_Male_Buzzed",         "base": "Superhero_Male_FullBody",   "outfit": "Male_Peasant",   "hair": ["Hair_Buzzed"], "beard": True},
     {"name": "Peasant_Female_Long",         "base": "Superhero_Female_FullBody", "outfit": "Female_Peasant", "hair": ["Hair_Long"]},
     {"name": "Peasant_Female_Buns",         "base": "Superhero_Female_FullBody", "outfit": "Female_Peasant", "hair": ["Hair_Buns"]},
-    {"name": "Ranger_Male_SimpleParted",    "base": "Superhero_Male_FullBody",   "outfit": "Male_Ranger",    "hair": ["Hair_SimpleParted", "Hair_Beard"]},
-    {"name": "Ranger_Male_Buzzed",          "base": "Superhero_Male_FullBody",   "outfit": "Male_Ranger",    "hair": ["Hair_Buzzed"]},
+    {"name": "Ranger_Male_SimpleParted",    "base": "Superhero_Male_FullBody",   "outfit": "Male_Ranger",    "hair": ["Hair_SimpleParted"], "beard": True},
+    {"name": "Ranger_Male_Buzzed",          "base": "Superhero_Male_FullBody",   "outfit": "Male_Ranger",    "hair": ["Hair_Buzzed"], "beard": True},
     {"name": "Ranger_Female_Long",          "base": "Superhero_Female_FullBody", "outfit": "Female_Ranger",  "hair": ["Hair_Long"]},
     {"name": "Ranger_Female_Buns",          "base": "Superhero_Female_FullBody", "outfit": "Female_Ranger",  "hair": ["Hair_Buns"]},
+    {"name": "Knight_Male",                 "base": "Superhero_Male_FullBody",   "outfit": "Male_Knight",    "hair": []},
+    {"name": "Knight_Female",               "base": "Superhero_Female_FullBody", "outfit": "Female_Knight",  "hair": []},
+    {"name": "Noble_Male_SimpleParted",     "base": "Superhero_Male_FullBody",   "outfit": "Male_Noble",     "hair": ["Hair_SimpleParted"], "beard": True},
+    {"name": "Noble_Male_Buzzed",           "base": "Superhero_Male_FullBody",   "outfit": "Male_Noble",     "hair": ["Hair_Buzzed"], "beard": True},
+    {"name": "Noble_Female_Long",           "base": "Superhero_Female_FullBody", "outfit": "Female_Noble",   "hair": ["Hair_Long"]},
+    {"name": "Noble_Female_Buns",           "base": "Superhero_Female_FullBody", "outfit": "Female_Noble",   "hair": ["Hair_Buns"]},
+    {"name": "Wizard_Male_SimpleParted",    "base": "Superhero_Male_FullBody",   "outfit": "Male_Wizard",    "hair": ["Hair_SimpleParted"], "beard": True},
+    {"name": "Wizard_Male_Buzzed",          "base": "Superhero_Male_FullBody",   "outfit": "Male_Wizard",    "hair": ["Hair_Buzzed"], "beard": True},
+    {"name": "Wizard_Female_Long",          "base": "Superhero_Female_FullBody", "outfit": "Female_Wizard",  "hair": ["Hair_Long"]},
+    {"name": "Wizard_Female_Buns",          "base": "Superhero_Female_FullBody", "outfit": "Female_Wizard",  "hair": ["Hair_Buns"]},
 ]
 
 
@@ -221,8 +268,9 @@ def build_character(spec):
     arm, meshes = import_gltf(os.path.join(OUTFITS, spec["outfit"] + ".gltf"))
     meshes = drop_junk(meshes)
 
-    # The outfit's hood (Ranger) is kept alongside the hair; the runtime toggles
-    # its visibility, so one model serves both hood+hair and hair-only.
+    # The outfit's head piece (Ranger hood, Knight armet, Noble crown) is kept
+    # alongside the hair under its own mesh name, so one model serves both
+    # "head piece + hair" and "hair only".
 
     # Base head: trim the full body to the head, keep eyes/eyebrows, rebind.
     base_arm, base_meshes = import_gltf(os.path.join(BASE, spec["base"] + ".gltf"))
@@ -234,12 +282,20 @@ def build_character(spec):
     rebind(base_meshes, arm, base_arm)
     meshes += base_meshes
 
-    # Hair pieces (rigged to the head bone).
-    for hair_name in spec["hair"]:
-        hair_arm, hair_meshes = import_gltf(os.path.join(HAIR, hair_name + ".gltf"))
-        hair_meshes = drop_junk(hair_meshes)
-        rebind(hair_meshes, arm, hair_arm)
-        meshes += hair_meshes
+    # Hair pieces (rigged to the head bone). The beard is one of them, imported
+    # as its own object so it stays a separate node the runtime can toggle.
+    pieces = [] if spec["outfit"] in HELMETED else list(spec["hair"])
+    if spec.get("beard") and spec["outfit"] not in HELMETED:
+        pieces.append(BEARD)
+    for piece in pieces:
+        piece_arm, piece_meshes = import_gltf(os.path.join(HAIR, piece + ".gltf"))
+        piece_meshes = drop_junk(piece_meshes)
+        rebind(piece_meshes, arm, piece_arm)
+        if piece == BEARD:
+            for m in piece_meshes:
+                m.name = BEARD
+                m.data.name = BEARD
+        meshes += piece_meshes
 
     # Keep the pack's full PBR materials (base colour + normal + metallic/
     # roughness) so the outfits render with the depth/shading of the Quaternius
@@ -290,6 +346,9 @@ def build_animations():
 
 os.makedirs(OUT, exist_ok=True)
 for spec in ROSTER:
+    if ONLY and spec["name"] not in ONLY:
+        continue
     build_character(spec)
-build_animations()
+if WITH_ANIMATIONS:
+    build_animations()
 print("done")
