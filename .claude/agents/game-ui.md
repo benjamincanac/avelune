@@ -260,9 +260,12 @@ all seven screens, and the tokens live in `app/assets/css/main.css` and
    focus ring, no arrow-key navigation and nothing a screen reader can read as a
    choice. The entry screen's bar is a `UProgress`. Its `label` slot receives
    `{ item, modelValue }`, which is how the per-item look — icon, swatch,
-   `ACTIVE` tag — stays exactly as designed. Two gotchas: with
+   `ACTIVE` tag — stays exactly as designed. Three gotchas: with
    `indicator="hidden"` the radio itself is `sr-only`, so tests must drive the
-   label rather than the input; and the card variant's focus style is a
+   label rather than the input; an item's `icon` key is *rendered by the
+   component* in that mode, centred above the label, so an icon the slot draws
+   itself must travel under another key (the outfits use `glyph`) or it shows
+   twice; and the card variant's focus style is a
    25%-opacity outline plus a 1px border colour, which vanishes on frost, so
    these groups state `has-focus-visible:outline-solid outline-2` themselves
    (`outline-<width>` alone leaves `outline-style: none`).

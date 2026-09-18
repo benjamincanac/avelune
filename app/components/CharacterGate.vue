@@ -61,7 +61,9 @@ const canSubmit = computed(() => username.value.trim().length > 0)
  * focus states in the first place.
  */
 const genderItems = computed(() => GENDERS.map(g => ({ label: g, value: g })))
-const outfitItems = computed(() => OUTFITS.map((outfit, value) => ({ label: outfit.name, icon: outfit.icon, value })))
+// `glyph`, not `icon`: with `indicator="hidden"` URadioGroup renders an item's
+// `icon` itself, centred above the label, on top of the one the slot draws.
+const outfitItems = computed(() => OUTFITS.map((outfit, value) => ({ label: outfit.name, glyph: outfit.icon, value })))
 const hairItems = computed(() => hairstyles.value.map((hair, value) => ({ label: hair.name, value })))
 const colorwayItems = computed(() => colorways.value.map((colorway, value) => ({ label: colorway.name, swatch: colorway.swatch, value })))
 
@@ -207,7 +209,7 @@ onMounted(async () => {
         <template #label="{ item, modelValue }">
           <span class="flex w-full items-center gap-3.25 px-3.5 py-3.25 text-left">
             <UIcon
-              :name="item.icon"
+              :name="item.glyph"
               class="size-4.25 shrink-0"
               :class="modelValue === item.value ? 'text-primary' : 'text-dimmed'"
             />
