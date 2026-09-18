@@ -16,7 +16,7 @@ files the game loads, and the scripts that do it.
 
 ## Files you own
 - `scripts/convert_universal_characters.py` — character pack conversion. Outfits
-  come from the purchased CC0 superset `modular-character-outfits-source`
+  come from the purchased CC0 superset `modular-character-outfits`
   (Peasant, Ranger, Knight, Knight_Cloth, Noble, Wizard; its Peasant and Ranger
   meshes and textures are byte-identical to the older free `module-character-outfits`,
   so the switch cannot change GLBs built before it). `ONLY="Name Name"` rebuilds a

@@ -44,7 +44,7 @@ OUT = argv[1] if len(argv) > 1 else os.path.join(os.path.dirname(__file__), ".."
 OUT = os.path.abspath(OUT)
 ONLY = set(os.environ.get("ONLY", "").split())
 
-OUTFITS = os.path.join(PACKS, "modular-character-outfits-source", "Exports", "glTF (Godot-Unreal)", "Outfits")
+OUTFITS = os.path.join(PACKS, "modular-character-outfits", "Exports", "glTF (Godot-Unreal)", "Outfits")
 BASE = os.path.join(PACKS, "universal-base-character", "Base Characters", "Godot - UE")
 HAIR = os.path.join(PACKS, "universal-base-character", "Hairstyles", "Rigged to Head Bone", "glTF (Godot -Unreal)")
 UAL1 = os.path.join(PACKS, "universal-animation-library", "Unreal-Godot", "UAL1_Standard.glb")
