@@ -559,12 +559,13 @@ if (!props.editor) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Blender-authored assets (see scripts/make_assets.py)                       */
+/* Blender-authored assets (see scripts/build_*.py and scripts/convert_*)     */
 /* -------------------------------------------------------------------------- */
 
 const gltfLoader = new GLTFLoader()
-// The nature/village kits are meshopt-compressed (scripts/convert_kits.sh); the
-// decoder is a no-op for the plain PNG GLBs, so it's safe to always register.
+// The shipped GLBs are meshopt-compressed (scripts/convert_nature.sh,
+// scripts/convert_kit.sh); the decoder is a no-op for uncompressed ones, so
+// it's safe to always register.
 gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 
 /**

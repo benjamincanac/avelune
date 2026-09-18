@@ -3,8 +3,8 @@ name: assets
 description: >
   3D asset pipeline — Blender headless conversion, glTF processing/compression,
   and the models under public/models/**. Use for the scripts/*.py + scripts/*.sh
-  conversion tooling (convert_props.py, convert_universal_characters.py,
-  rebuild_animations.py, make_assets.py, convert_fantasy.sh, convert_kits.sh),
+  conversion tooling (convert_universal_characters.py, rebuild_animations.py,
+  convert_nature.sh, convert_kit.sh, build_kit.py, build_courtyard_*.py),
   the OG image generator (make_og.py), gltf-transform compression, and importing
   new Quaternius packs. NOT for how models are rendered in-game (that's scene-3d).
 model: inherit
@@ -14,7 +14,6 @@ You own Avelune's asset pipeline: turning source packs into the optimized `.glb`
 files the game loads, and the scripts that do it.
 
 ## Files you own
-- `scripts/convert_props.py` — architecture/props → instanced-ready glb.
 - `scripts/convert_universal_characters.py` — character pack conversion.
 - `scripts/rebuild_animations.py` — shared `animations.glb` retargeting (the
   Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
@@ -33,15 +32,6 @@ files the game loads, and the scripts that do it.
   straight from UAL1/UAL2; `Sprint_Loop` and `Jog_Fwd_Loop` already share
   footfall phase (left foot down at ~0.0 / 0.05 of the cycle), so no sprint
   rebuild is needed for gait blending. The packs live in `~/GitHub/quaternius`.
-- `scripts/make_assets.py`, `scripts/convert_fantasy.sh`, `scripts/convert_kits.sh`,
-  `scripts/convert_new_kits.py` — batch conversion entry points.
-- `scripts/make_door.py` / `scripts/make_portal.py` — built the arena's great
-  door (`colosseum_door.glb`) and the older `portal_gate.glb`. Both are now
-  unloaded: the door was removed when the dungeon was cut, so the scripts and
-  GLBs are dead weight kept only as reference. If you resurrect either, note the
-  contract: objects named `Shard_*` are animated and material `Rune` is
-  emissive-pulsed, and compressing needs `gltf-transform optimize --join false
-  --flatten false --instance false` or the named nodes get merged away.
 - `scripts/make_og.py` renders the social OG image (`public/og.png`, 1200x630) from
   shipped assets only: `courtyard/{fountain,inn,shop,tower}.glb`, `nature/*.glb`,
   a pair of `characters/*.glb` posed from `characters/animations.glb`, and a
@@ -78,8 +68,8 @@ files the game loads, and the scripts that do it.
 - **Blender 5.1.2** at `/Applications/Blender.app/Contents/MacOS/Blender`. Scripts
   run headless:
   `"/Applications/Blender.app/Contents/MacOS/Blender" --background --python scripts/<x>.py -- <args>`
-- The local source library is `/Users/benjamincanac/GitHub/quaternius`, not
-  `~/Downloads/quaternius`. It remains available for future authored exports.
+- The local source library is `/Users/benjamincanac/GitHub/quaternius`. It
+  remains available for future authored exports.
 - Quaternius packs come from Google Drive folders linked on quaternius.com pack
   pages (`gdown --folder`). Newer packs (Universal*, Modular Outfits) are
   **itch.io-only behind Cloudflare** — they need a manual download dropped into
@@ -96,11 +86,10 @@ files the game loads, and the scripts that do it.
    `rebuild_animations.py` output stable; renaming a clip silently breaks
    playback.
 2. **Props are authored for instancing** — consistent origins/scale so
-   `MazeScene.vue` can batch them. The Ruins pack **does** have a full straight-wall
-   set — `Wall` (plain 2×2 panel), `Wall_Half`, `Wall_Broken`, `Wall_Hole`,
-   `Wall_Overgrown`, the 4×4 `Wall_Arch*` variants, `Window_*`, `Doors_*`, and
-   `Curve_*` corners — all converted, though the arena only places a handful of
-   the pack (arches, columns, torches, flags, seating slabs).
+   `MazeScene.vue` can batch them. A piece that must sit flush on the ground
+   needs its top measured, not guessed: placement `y = 0.01 - meshTop`, where
+   `meshTop` is the mesh's Blender **max-Z**, not its height. Measure it headless
+   with a `bound_box` world-Z scan, never by eye.
 3. Output stays in `public/models/<category>/`; keep the existing folder layout so
    loader paths don't move.
 4. **Character head-trim is by bone weight, not height.**
@@ -123,7 +112,7 @@ files the game loads, and the scripts that do it.
    defect distinct from the runtime WebP-probe race `scene-3d` documents — both
    surface the same `.uri` error, both must be handled.
 
-6. **Decode normalized attributes before baking transforms.** Optimized village
+6. **Decode normalized attributes before baking transforms.** Optimized
    GLBs use normalized Int16 position accessors. Convert positions, normals and
    UVs to float through attribute getters before `applyMatrix4`; writing world
    coordinates into the quantized arrays clips or wraps them. Preserve source
@@ -143,20 +132,6 @@ files the game loads, and the scripts that do it.
    for previews and shipped Meshopt output. Preserve `COLOR_0`: the plaster and
    stone carry painted footing gradients. Leaf sprays use actual geometry, not
    opaque spherical canopy cores.
-
-## Ruins pack (convert_props.py) specifics
-- Source: `/Users/benjamincanac/GitHub/quaternius/ultimate-modular-ruins-pack/Blends` (91 `.blend`).
-  `"…/Blender" --background --python scripts/convert_props.py -- <that dir> public/models/props`
-  It prints `DIMS <name>: w x d x h` per model — read those to choose placement scales.
-- **83 of 91 are converted**; the 8 deliberately skipped are dupes/junk: `Brick`
-  (single brick — use `Bricks`), `Tree_1/2/3` (use the nicer nature-pack
-  `CommonTree`/`Pine`), and the 4 "double"-width panels (`Wall_Double_Broken`,
-  `Wall_Double_Hole`, `Window_Open_Double`, `Window_Bars_Double_Overgrown`) that
-  don't fit the kit's 2-unit panel grid.
-- **A piece that must sit flush on the ground needs its top measured, not
-  guessed.** Placement `y = 0.01 - meshTop`, where `meshTop` is the mesh's
-  Blender **max-Z** (its top), *not* its height. Measure it headless with a
-  `bound_box` world-Z scan (a ~6-line script) — never by eye.
 
 ## Working style
 Run conversions headless and report the before/after file sizes and any dropped
