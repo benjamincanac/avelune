@@ -98,7 +98,7 @@
 - [x] Beard as its own choice, independent of the hairstyle: every male GLB of an outfit that leaves the face open ships a `Hair_Beard` node, and `applyBeard` sets its `visible` per rig clone. It rides the identity cookie and the `Player` frame as a boolean the server normalises, so females and the `hairless` Knight can never carry one
 - [x] Asset pipeline: `convert_universal_characters.py` (WebP-crash byte-sanitizer), `rebuild_animations.py`, `convert_nature.sh`/`convert_kit.sh`/`convert_monsters.sh` (`gltf-transform optimize` → meshopt + WebP), `build_kit.py`, `build_courtyard_*.py`, `make_og.py`
 - [x] **Dev-only in-game world editor** (Escape menu → "World editor", or `/?editor=1`; `import.meta.dev`-gated): fly camera + click-to-place / select / drag / rotate / scale / elevation, palette from `shared/utils/propCatalog.ts`. Pieces bake into `hub-structure.json`, free-standing clutter into `hub-props.json`, both appended to `plan.props` (`hand:true`) through `makeProp` so collision matches what you see. Tree-shaken from prod; save routes 404 in prod (read-only FS)
-- [x] **Real `og.png`** rendered from game assets (`make_og.py`)
+- [x] **Real `og.png`**, the landing hero at card size (`scripts/og.html`, headless Chrome)
 
 ### Ship
 - [x] `git init`, `benjamincanac/avelune` repo created & pushed

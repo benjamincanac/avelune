@@ -59,7 +59,7 @@ files the game loads, and the scripts that do it.
   straight from UAL1/UAL2; `Sprint_Loop` and `Jog_Fwd_Loop` already share
   footfall phase (left foot down at ~0.0 / 0.05 of the cycle), so no sprint
   rebuild is needed for gait blending. The packs live in `~/GitHub/quaternius`.
-- `scripts/make_og.py` renders the social OG image (`public/og.png`, 1200x630) from
+- `public/og.png` (1200x630) is the landing hero at card size, screenshotted from `scripts/og.html` with headless Chrome (command in its header). `scripts/make_og.py` is the older Blender town-square render and no longer produces the shipped image. It builds its scene from
   shipped assets only: `courtyard/{fountain,inn,shop,tower}.glb`, `nature/*.glb`,
   a pair of `characters/*.glb` posed from `characters/animations.glb`, and a
   procedural plaza (no floor model ships). Every courtyard/nature GLB is Meshopt,

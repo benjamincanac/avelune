@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+  Avelune's OG image (public/og.png, 1200x630). The landing hero at card size:
+  the same town render, scrim, lockup and copy as app/pages/index.vue.
+
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars \
+    --window-size=1200,630 --virtual-time-budget=8000 --allow-file-access-from-files \
+    --screenshot=public/og.png scripts/og.html
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@700;800&family=Archivo:wght@400&family=IBM+Plex+Mono:wght@600&display=block">
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body { width: 1200px; height: 630px; overflow: hidden; background: #081114; color: #fff; position: relative; }
+    .art { position: absolute; left: 0; top: -96px; width: 1500px; }
+    .scrim { position: absolute; inset: 0; background: linear-gradient(95deg, rgb(6 14 17 / 0.96) 0%, rgb(6 14 17 / 0.88) 34%, rgb(6 14 17 / 0.12) 66%, rgb(6 14 17 / 0.45) 100%); }
+    .frame { position: absolute; inset: 0; padding: 64px 72px; display: flex; flex-direction: column; }
+    .lockup { display: flex; align-items: center; gap: 16px; }
+    .lockup img { width: 34px; height: 34px; }
+    .lockup span { font: 700 28px/1 'Saira Condensed', sans-serif; letter-spacing: 0.34em; }
+    .hero { margin-top: auto; margin-bottom: auto; padding-top: 8px; }
+    .eyebrow { display: flex; align-items: center; gap: 14px; font: 600 15px/1 'IBM Plex Mono', monospace; letter-spacing: 0.24em; text-transform: uppercase; color: #6FF0DA; }
+    .eyebrow i { width: 30px; height: 2px; background: #6FF0DA; }
+    h1 { margin-top: 22px; font: 800 176px/0.84 'Saira Condensed', sans-serif; letter-spacing: 0.01em; text-transform: uppercase; }
+    .lead { margin-top: 30px; max-width: 560px; font: 400 25px/1.45 'Archivo', sans-serif; color: #B6BFC9; }
+  </style>
+</head>
+<body>
+  <img class="art" src="../public/landing.jpg" alt="">
+  <div class="scrim"></div>
+  <div class="frame">
+    <div class="lockup">
+      <img src="../public/logo.svg" alt="">
+      <span>AVELUNE</span>
+    </div>
+    <div class="hero">
+      <p class="eyebrow"><i></i>Shared multiplayer sandbox</p>
+      <h1>Avelune</h1>
+      <p class="lead">One town, one live world. Reshape the land, build what stays, and ask the Oracle what changed.</p>
+    </div>
+  </div>
+</body>
+</html>
