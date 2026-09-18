@@ -324,9 +324,9 @@ export class RedisChunkStore implements ChunkStore {
  *
  * `useRuntimeConfig` only exists inside Nitro; `scripts/world-admin.mjs` loads
  * this module through jiti, where the reference throws and the env names are all
- * there is. The bare `UPSTASH_*` names are accepted alongside the `NUXT_`
- * prefixed ones because that is what the Vercel marketplace integration sets on
- * the project.
+ * there is. The bare `UPSTASH_*` and `KV_REST_API_*` names are accepted alongside
+ * the `NUXT_` prefixed ones: the Upstash console integration sets the former, a
+ * store created from the Vercel marketplace sets the latter.
  */
 function setting(key: 'upstashRedisRestUrl' | 'upstashRedisRestToken', ...envNames: string[]): string {
   try {
@@ -346,8 +346,8 @@ function setting(key: 'upstashRedisRestUrl' | 'upstashRedisRestToken', ...envNam
 
 export function chunkStoreCredentials(): { url: string, token: string } {
   return {
-    url: setting('upstashRedisRestUrl', 'NUXT_UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_URL'),
-    token: setting('upstashRedisRestToken', 'NUXT_UPSTASH_REDIS_REST_TOKEN', 'UPSTASH_REDIS_REST_TOKEN'),
+    url: setting('upstashRedisRestUrl', 'NUXT_UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_URL', 'KV_REST_API_URL'),
+    token: setting('upstashRedisRestToken', 'NUXT_UPSTASH_REDIS_REST_TOKEN', 'UPSTASH_REDIS_REST_TOKEN', 'KV_REST_API_TOKEN'),
   }
 }
 
