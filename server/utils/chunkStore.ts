@@ -54,6 +54,11 @@ export interface ChunkStore {
   /** Apply signed deltas to those totals. Deltas rather than absolutes so two
    *  instances draining at once add up instead of clobbering each other. */
   addPieces: (deltas: readonly (readonly [string, number])[]) => Promise<void>
+  /** Where one identity last stood, as `positions.ts` encoded it, or null. */
+  readPosition: (id: string) => Promise<string | null>
+  /** Last writer wins: a position is only ever written by the instance that
+   *  holds the player's socket. */
+  writePositions: (entries: readonly (readonly [string, string])[]) => Promise<void>
 }
 
 /** The realm this process serves: every key below is scoped to it, so each
@@ -63,6 +68,9 @@ export const REALM = normalizeRealm(process.env.AVELUNE_REALM ?? process.env.VER
 
 /** The hash every identity's owned-piece total lives in, per realm. */
 export const PIECES_KEY = `pieces:${REALM}`
+
+/** The hash every identity's last position lives in, per realm. */
+export const POSITIONS_KEY = `positions:${REALM}`
 
 /** Writes per pipelined request. A flush of a whole town's worth of edits is
  *  split into batches rather than sent as one 200-command pipeline. */
@@ -119,6 +127,7 @@ export class MemoryChunkStore implements ChunkStore {
   readonly kind = 'memory'
   private readonly records = new Map<string, string>()
   private readonly pieces = new Map<string, number>()
+  private readonly positions = new Map<string, string>()
 
   async get(cx: number, cy: number): Promise<StoredChunk | null> {
     return decodeRecord(this.records.get(chunkStoreKey(cx, cy)))
@@ -170,6 +179,14 @@ export class MemoryChunkStore implements ChunkStore {
       if (next > 0) this.pieces.set(id, next)
       else this.pieces.delete(id)
     }
+  }
+
+  async readPosition(id: string): Promise<string | null> {
+    return this.positions.get(id) ?? null
+  }
+
+  async writePositions(entries: readonly (readonly [string, string])[]): Promise<void> {
+    for (const [id, value] of entries) this.positions.set(id, value)
   }
 }
 
@@ -311,6 +328,17 @@ export class RedisChunkStore implements ChunkStore {
       const pipeline = this.redis.pipeline()
       for (const [id, delta] of batch) pipeline.hincrby(PIECES_KEY, id, delta)
       await pipeline.exec()
+    }
+  }
+
+  async readPosition(id: string): Promise<string | null> {
+    const raw = await this.redis.hget<string>(POSITIONS_KEY, id)
+    return typeof raw === 'string' ? raw : null
+  }
+
+  async writePositions(entries: readonly (readonly [string, string])[]): Promise<void> {
+    for (let at = 0; at < entries.length; at += FLUSH_BATCH) {
+      await this.redis.hset(POSITIONS_KEY, Object.fromEntries(entries.slice(at, at + FLUSH_BATCH)))
     }
   }
 }

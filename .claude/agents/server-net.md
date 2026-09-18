@@ -55,6 +55,16 @@ bytes between it and clients.
   (`deedCount`/`addDeed`/`removeDeed`), for exactly the same reason: `DEED_LIMIT`
   is a fact about a person, and a plot of theirs can sit in a chunk nobody has
   visited. A deed is an ordinary piece as well, so placing one moves both.
+- `server/utils/positions.ts` — where each identity last stood, in one Redis
+  hash (`positions:<realm>`), so a reload or a new login resumes there instead
+  of at the gate. The tick notes every session on the 5 s flush and
+  `disconnect()` notes it again, and the dirty entries ride `flushDirtyChunks`.
+  Nothing is read at boot: `server/api/ws.ts` awaits `loadPosition` in `open`
+  before calling `registerConnection`, which is why `open` is async and tracks
+  `opening` peers, so a close that lands during the read registers nothing. A
+  take-over resumes from the live session's body instead of the saved one. The
+  `respawn` action is the way back to the gate, on a 30 s cooldown keyed by
+  identity so a reconnect does not reset it.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
 - `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete`, `status.get`. The

@@ -139,6 +139,12 @@ function resume() {
   gameScene.value?.requestLock()
 }
 
+/** The way out of a hole. The server owns the cooldown and answers in chat. */
+function respawn() {
+  game.sendAction('respawn')
+  resume()
+}
+
 /** Leave the arena and clear the saved identity before showing the gate again. */
 async function logout() {
   try {
@@ -371,6 +377,7 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
             @resume="resume"
             @fullscreen="toggleFullscreen"
             @map="openMap"
+            @respawn="respawn"
             @edit="edit"
             @logout="logout"
           />

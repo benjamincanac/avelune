@@ -76,6 +76,14 @@ function run(data, hashes, command) {
       else hash.set(args[1], next)
       return next
     }
+    case 'hget':
+      return hashes.get(args[0])?.get(args[1]) ?? null
+    case 'hset': {
+      const hash = hashes.get(args[0]) ?? new Map()
+      hashes.set(args[0], hash)
+      for (let i = 1; i + 1 < args.length; i += 2) hash.set(args[i], String(args[i + 1]))
+      return (args.length - 1) / 2
+    }
     case 'ping':
       return 'PONG'
     case 'get':

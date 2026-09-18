@@ -54,7 +54,7 @@ export interface UseGame {
   disconnect: () => void
   setInput: (input: MoveInput) => void
   setLook: (angle: number) => void
-  sendAction: (kind: 'jump' | 'dash') => void
+  sendAction: (kind: 'jump' | 'dash' | 'respawn') => void
   sendChat: (text: string) => void
   /** Push a system announcement into the chat. */
   announce: (text: string) => void
@@ -94,8 +94,8 @@ const SNAP_DISTANCE = 5
  * Maintains a single resilient WebSocket connection to `/api/ws` and exposes
  * the live game state. Reconnects with exponential backoff, as recommended
  * for Vercel Functions WebSockets (connections close when the function
- * reaches its max duration) — on reconnect the server respawns the character
- * in the arena.
+ * reaches its max duration) — on reconnect the server puts the character back
+ * where it stood.
  *
  * The `players` map is deliberately non-reactive: the 3D scene reads it at
  * 60fps and Vue proxies would only add overhead there. UI-facing bits
@@ -428,7 +428,7 @@ export function useGame(): UseGame {
     lookAngle = angle
   }
 
-  function sendAction(kind: 'jump' | 'dash') {
+  function sendAction(kind: 'jump' | 'dash' | 'respawn') {
     send({ t: 'action', kind })
   }
 

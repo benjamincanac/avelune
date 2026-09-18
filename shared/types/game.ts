@@ -58,8 +58,9 @@ export interface PlayerState {
 /** Messages the client sends to the server. */
 export type ClientMessage
   = | { t: 'move', a?: number } & MoveInput
-    /** One-shot actions; the server validates grounded/cooldown state. */
-    | { t: 'action', kind: 'jump' | 'dash' }
+    /** One-shot actions; the server validates grounded/cooldown state.
+     *  `respawn` is the way out of a hole: back to the gate, on a cooldown. */
+    | { t: 'action', kind: 'jump' | 'dash' | 'respawn' }
     | { t: 'chat', text: string }
     /** Move terrain under the brush. The server validates reach, protection,
      *  rate and the step; it never trusts the resulting height. */

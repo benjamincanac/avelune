@@ -4,7 +4,7 @@
 // a character over `POST /api/auth` and carries the cookie into the upgrade.
 const WS_URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
 const BASE = WS_URL.replace(/^ws/, 'http').replace(/\/api\/ws.*$/, '')
-const characters = { A: 'Peasant_Male_SimpleParted', B: 'Ranger_Female_Long' }
+const characters = { A: 'Peasant_Male_SimpleParted', B: 'Ranger_Female_Long', C: 'Ranger_Female_Long' }
 
 /** Create a character and return its `avelune_id` cookie. The route validates
  *  and falls back to the default character, so a bare name is enough here. */
@@ -541,6 +541,32 @@ check('late connection inherits automatic time', a3.welcome.timeOfDay === 'auto'
 check('time reset preserves automatic weather', a3.welcome.weather === 'auto')
 a3.ws.close()
 b2.ws.close()
+
+// A reconnect resumes where the body stood; `respawn` is the way back to the
+// gate, on a cooldown.
+const c = await connect('C', await auth('C'))
+const gate = c.welcome.self
+send(c, { t: 'move', ...noMove, forward: true, a: Math.PI / 2 })
+await sleep(1500)
+send(c, { t: 'move', ...noMove, a: Math.PI / 2 })
+await sleep(300)
+const walked = c.frames.filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === gate.id).at(-1)
+check('C walked away from the gate', !!walked && Math.hypot(walked.x - gate.x, walked.y - gate.y) > 3, walked ? `to ${walked.x.toFixed(1)}, ${walked.y.toFixed(1)}` : 'no state')
+c.ws.close()
+await sleep(300)
+const c2 = await connect('C2', c.cookie)
+const back = c2.welcome.self
+check('a reconnect resumes where the body stood', !!walked && Math.hypot(back.x - walked.x, back.y - walked.y) < 0.5, `at ${back.x.toFixed(1)}, ${back.y.toFixed(1)}`)
+check('and keeps its heading', Math.abs(back.angle - Math.PI / 2) < 0.01, `angle=${back.angle}`)
+send(c2, { t: 'action', kind: 'respawn' })
+await sleep(300)
+const home = c2.frames.filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === gate.id).at(-1)
+check('respawn returns to the gate', !!home && Math.hypot(home.x - gate.x, home.y - gate.y) < 1.5, home ? `at ${home.x.toFixed(1)}, ${home.y.toFixed(1)}` : 'no state')
+check('respawn is confirmed', c2.frames.some(f => f.t === 'system' && f.text === 'Returned to town.'))
+send(c2, { t: 'action', kind: 'respawn' })
+await sleep(150)
+check('a second respawn waits out the cooldown', c2.frames.some(f => f.t === 'system' && f.text.startsWith('You can return to town again in')))
+c2.ws.close()
 
 a2.ws.close()
 a.ws.close()

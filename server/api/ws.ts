@@ -1,6 +1,7 @@
 import { defineWebSocketHandler } from 'nitro'
 import type { Connection } from '../utils/game'
 import { registerConnection } from '../utils/game'
+import { loadPosition } from '../utils/positions'
 import { verifyCookieHeader } from '../utils/session'
 
 /**
@@ -16,9 +17,13 @@ import { verifyCookieHeader } from '../utils/session'
  */
 
 const conns = new Map<string, Connection>()
+/** Peers whose saved position is still being read. A close that lands during
+ *  the read removes the peer, so the read comes back to nobody and registers
+ *  nothing. */
+const opening = new Set<string>()
 
 export default defineWebSocketHandler({
-  open(peer) {
+  async open(peer) {
     // Identity rides the signed cookie on the same-origin WS upgrade. No valid
     // cookie means the client skipped onboarding — close the socket.
     const identity = verifyCookieHeader(peer.request?.headers?.get('cookie'))
@@ -26,18 +31,23 @@ export default defineWebSocketHandler({
       peer.close()
       return
     }
-    conns.set(peer.id, registerConnection(identity, data => peer.send(data), () => peer.close()))
+    opening.add(peer.id)
+    const saved = await loadPosition(identity.id)
+    if (!opening.delete(peer.id)) return
+    conns.set(peer.id, registerConnection(identity, saved, data => peer.send(data), () => peer.close()))
   },
   message(peer, message) {
     conns.get(peer.id)?.handleMessage(message.text())
   },
   close(peer) {
+    opening.delete(peer.id)
     const conn = conns.get(peer.id)
     conns.delete(peer.id)
     conn?.disconnect()
   },
   error(peer, error) {
     console.error('[game] ws error', peer.id, error)
+    opening.delete(peer.id)
     const conn = conns.get(peer.id)
     conns.delete(peer.id)
     conn?.disconnect()

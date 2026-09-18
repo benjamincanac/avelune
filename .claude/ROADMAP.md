@@ -119,7 +119,8 @@ both sides share.
 
 ### 3. Give building a reason
 - [ ] Gathering: felling wild trees and rocks drops wood and stone, kit pieces cost them
-- [ ] Spawn at your deed (or last position) instead of the gate every session
+- [x] Resume at your last position instead of the gate every session (`server/utils/positions.ts`, one hash per realm), with a "Return to town" row in the Escape menu (`respawn` action, 30 s cooldown) for anyone stuck
+- [ ] Spawn at your deed as an option
 - [ ] Doors that open, torches that light (a small pool of point lights near the camera)
 - [ ] Plot decay: release a deed after its owner has been away for some weeks
 - [ ] Nothing stops a player walling themselves in on their own tile (`resolveBuild` never consults player positions)

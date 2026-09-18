@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * The Escape menu: pause, check the controls, jump to the map or the editor,
- * leave. A modal over the frozen render — it does not pause the server, and the
- * status module stays visible behind it saying so.
+ * get back to town when stuck, leave. A modal over the frozen render — it does
+ * not pause the server, and the status module stays visible behind it saying so.
  *
  * Return is the only accent on the screen. Everything below it is the same
  * frost weight, in the order you are likely to want them, and logging out gets
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   resume: []
   fullscreen: []
   map: []
+  respawn: []
   edit: []
   logout: []
 }>()
@@ -115,6 +116,19 @@ const CONTROLS = [
       >
         <template #trailing>
           <span class="telemetry text-label">M</span>
+        </template>
+      </UButton>
+      <UButton
+        block
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-door-open"
+        label="Return to town"
+        :ui="{ base: 'justify-start', leadingIcon: 'text-dimmed', label: 'flex-1 text-left' }"
+        @click="emit('respawn')"
+      >
+        <template #trailing>
+          <span class="telemetry text-label">If stuck</span>
         </template>
       </UButton>
       <UButton

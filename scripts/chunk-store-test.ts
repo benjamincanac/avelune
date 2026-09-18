@@ -68,6 +68,13 @@ async function roundTrip(store: ChunkStore) {
   await store.addPieces([['ann', 3], ['bo', 1]])
   await store.addPieces([['ann', -1]])
   assert.deepEqual([...(await store.readPieces())].sort(), [['ann', 2], ['bo', 1]])
+
+  // Last positions: one field per identity, last writer wins.
+  assert.equal(await store.readPosition('ann'), null, 'nobody has stood anywhere yet')
+  await store.writePositions([['ann', '1.00,2.00,0.00,0.00'], ['bo', '5.00,6.00,1.50,3.14']])
+  await store.writePositions([['ann', '9.00,8.00,0.00,1.00']])
+  assert.equal(await store.readPosition('ann'), '9.00,8.00,0.00,1.00')
+  assert.equal(await store.readPosition('bo'), '5.00,6.00,1.50,3.14')
 }
 
 type ProbeResult = {

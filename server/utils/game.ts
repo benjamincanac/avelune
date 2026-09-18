@@ -30,6 +30,8 @@ import {
 } from './world'
 import { addDeed, addPiece, deedCount, pieceCount, removeDeed, removePiece } from './pieces'
 import { REALM, chunkStore } from './chunkStore'
+import { flushPositions, notePosition } from './positions'
+import type { SavedPosition } from './positions'
 import type { Identity } from './session'
 import { FORTIFICATIONS } from '#shared/utils/courtyard'
 import { realmName } from '#shared/utils/realm'
@@ -72,6 +74,9 @@ const STATE_RANGE = 192
 const VOID_FLOOR = -50
 /** While a player's chunk is still in flight, look for it again this often. */
 const RESYNC_EVERY = 20
+/** How often a player may ask to be put back at the gate. Long enough that it
+ *  is a way out of a hole and not a way home. */
+const RESPAWN_COOLDOWN = 30_000
 
 interface Session {
   player: Player
@@ -146,6 +151,24 @@ function spawnAt(): { x: number, y: number, z: number } {
   }
 }
 
+/** Put a body back at the gate, wherever it was. */
+function respawn(session: Session) {
+  const { player } = session
+  const spawn = spawnAt()
+  player.x = spawn.x
+  player.y = spawn.y
+  player.z = spawn.z
+  session.vz = 0
+  session.grounded = true
+  session.dashUntil = 0
+  session.moved = true
+  syncChunks(session, player.x, player.y, true)
+}
+
+/** When each identity last asked for a respawn. Keyed by identity rather than
+ *  held on the session, so a reconnect does not reset the cooldown. */
+const respawnedAt = new Map<string, number>()
+
 function broadcast(msg: ServerMessage, exceptId?: string) {
   const data = JSON.stringify(msg)
   for (const [id, session] of sessions) {
@@ -208,15 +231,8 @@ function tick() {
     session.grounded = body.grounded
     // Belt and braces: whatever let a body through the floor, it comes back.
     if (player.z < VOID_FLOOR) {
-      const spawn = spawnAt()
-      player.x = spawn.x
-      player.y = spawn.y
-      player.z = spawn.z
-      session.vz = 0
-      session.grounded = true
-      session.moved = true
+      respawn(session)
       console.error(`[game] ${player.id} fell out of the world; respawned`)
-      syncChunks(session, player.x, player.y, true)
     }
     if (before.x !== player.x || before.y !== player.y || before.z !== player.z) {
       session.moved = true
@@ -242,7 +258,11 @@ function tick() {
 
   // Write-behind: the flush is async and self-guarding, so the tick hands it
   // the roster (a CAS conflict has to re-send the chunk) and moves on.
-  if (tickCount % FLUSH_EVERY === 0) void flushDirtyChunks(sessions.values())
+  // Positions ride the same flush: note where everyone stands first.
+  if (tickCount % FLUSH_EVERY === 0) {
+    for (const { player } of sessions.values()) notePosition(player.id, player)
+    void flushDirtyChunks(sessions.values())
+  }
 }
 
 /**
@@ -770,16 +790,18 @@ function deliverGreeting(session: Session) {
 }
 
 /**
- * Register a new socket. Spawns the authenticated identity's character in the
- * arena, sends the welcome frame with the world state, and announces the join.
+ * Register a new socket. Puts the authenticated identity's character back
+ * where it last stood (`saved`, see `./positions`) or at the gate, sends the
+ * welcome frame with the world state, and announces the join.
  * Identity (id/name/color/character) comes from the signed cookie the WS
  * handler verified — see server/utils/session.ts.
  */
-export function registerConnection(identity: Identity, send: (data: string) => void, close: () => void): Connection {
+export function registerConnection(identity: Identity, saved: SavedPosition | null, send: (data: string) => void, close: () => void): Connection {
+  // A take-over resumes from the live body, which is newer than anything saved.
+  const resume = sessions.get(identity.id)?.player ?? saved
   const player: Player = {
     ...identity,
-    ...spawnAt(),
-    angle: -Math.PI / 2,
+    ...(resume ? { x: resume.x, y: resume.y, z: resume.z, angle: resume.angle } : { ...spawnAt(), angle: -Math.PI / 2 }),
   }
 
   const session: Session = {
@@ -836,7 +858,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
   // chunk the client has not been given.
   syncChunks(session, player.x, player.y, true)
   broadcast({ t: 'join', player }, player.id)
-  recordEvent(player.name, 'join', 'entered the town')
+  recordEvent(player.name, 'join', resume ? 'returned to the world' : 'entered the town')
   notePlayers(sessions.size)
 
   return {
@@ -872,6 +894,16 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           else if (msg.kind === 'dash' && Date.now() >= session.dashCooldownUntil) {
             session.dashUntil = Date.now() + DASH_DURATION * 1000
             session.dashCooldownUntil = Date.now() + DASH_COOLDOWN * 1000
+          }
+          else if (msg.kind === 'respawn') {
+            const wait = (respawnedAt.get(player.id) ?? 0) + RESPAWN_COOLDOWN - Date.now()
+            if (wait > 0) {
+              send(JSON.stringify({ t: 'system', text: `You can return to town again in ${Math.ceil(wait / 1000)}s.` } satisfies ServerMessage))
+              return
+            }
+            respawnedAt.set(player.id, Date.now())
+            respawn(session)
+            send(JSON.stringify({ t: 'system', text: 'Returned to town.' } satisfies ServerMessage))
           }
           break
         }
@@ -1001,6 +1033,8 @@ export function registerConnection(identity: Identity, send: (data: string) => v
       // the booted socket's close lands here too — but the delete + leave belong
       // to the session that replaced it, not this one.
       if (sessions.get(player.id) === session) {
+        notePosition(player.id, player)
+        void flushPositions()
         sessions.delete(player.id)
         broadcast({ t: 'leave', id: player.id })
         notePlayers(sessions.size)

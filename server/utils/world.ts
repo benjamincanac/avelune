@@ -22,6 +22,7 @@ import { brushExtent } from '#shared/utils/building'
 import type { WorldPlacement } from '#shared/utils/props'
 import { chunkStore } from './chunkStore'
 import { flushPieceCounts } from './pieces'
+import { flushPositions } from './positions'
 import type { ChunkWrite, ExpectedVersion, StoredChunk } from './chunkStore'
 
 /**
@@ -334,6 +335,7 @@ export async function flushDirtyChunks(viewers: Iterable<ChunkViewer> = []): Pro
   // The piece budget rides the same timer as the chunks: both are write-behind
   // state that a redeploy must not lose.
   await flushPieceCounts()
+  await flushPositions()
   evictIdleChunks(viewers)
   return written
 }
