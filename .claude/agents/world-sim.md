@@ -25,9 +25,23 @@ independently.
   `stepBody` kinematics, the movement constants both sides read, and
   `occupancyGrid` (a display-only wall raster, now per chunk, for the minimap).
 - `shared/utils/terrain.ts` — the height field itself (`landscapeHeight`,
-  `worldTerrainHeight`). `app/utils/courtyardLandscape.ts` draws its decorative
-  mesh from the *same* function, so the visible ground and the feet that walk it
-  can never drift apart. Change one and you change both.
+  `worldTerrainHeight(x, y, seed = WORLD_SEED)`) *and* the regional noise both it
+  and `biome.ts` read. `WORLD_SEED` is declared here, the lowest layer that needs
+  it. Terrain is **biome-aware**: `mountainUplift` is a continuous 0..1 field and
+  the mountain amplitude, the crags and the heath's extra roll all multiply by it,
+  so ranges rise and their foothills blend away smoothly. Everything blends on
+  the *continuous field*, never on the discrete `Biome` label — threshold first
+  and every border becomes a cliff. `biomeAt` thresholds the very same numbers,
+  which is why a range's label and its shape cannot disagree.
+  The town is untouched by all of it: inside `MEADOW_BELT` of `LANDSCAPE_CENTER`
+  every relief term is gated to exactly zero, so the protected footprint, the
+  flat square and their approach are the same heights they were before biomes
+  existed (`scripts/terrain-test.ts` asserts that against a copy of the old
+  field). Amplitudes are budgeted against `SLOPE_MAX`: a value-noise octave's
+  steepest slope is `1.5 / lattice` per tile (a ridged one twice that), so a new
+  term is sized from its lattice rather than by eye — a range has to be climbable
+  along most routes, and a tile past `SLOPE_MAX` is a wall at every height, jump
+  included, which is also why no amount of relief can trap a body.
 - `shared/utils/props.ts` — `PropSpec`, `HubPropPlacement`, `WorldPlacement`,
   `SOLID_PROPS` and `makeProp`. Split out of `maze.ts` so `world.ts` (which
   buckets placements) and `maze.ts` (which queries them) share it without a
@@ -111,6 +125,37 @@ independently.
   everywhere else.
   Deliberately NOT inside `generateChunk`: the server's `loadChunk` applies it
   once per chunk, and the client receives the result as placements.
+  The scatter is regional. `FLAVOURS` keys a per-biome table (families, copse
+  odds, cover, scale) and every candidate asks `biomeAt` at **its own point**,
+  never once per chunk, so a border cuts across a chunk instead of following the
+  grid. Candidate `n` keeps its position and its `wild:` id whatever the biome:
+  the denser biomes take the `INFILL` candidates appended after the original 26
+  (`Flavour.infill`), and meadow's numbers are the original ones, so a chunk that
+  is meadow throughout still generates exactly what it always did. The infill
+  hash indices (`n * 7 + k`) must stay clear of the copse salts at `0x10D`, which
+  caps the candidate total at 38. `BIOME_TREES` is the families by biome and
+  `isWildTree` the whole set — never test a tree with `kind.startsWith('tree')`,
+  pines and dead trunks are trees too. `TREELINE` and `BARREN_LINE` are altitude,
+  not biome: above the treeline a candidate falls through to ground cover
+  (boulders), above the bare line nothing grows, whatever country it stands in.
+- `shared/utils/biome.ts` — `biomeAt(seed, x, y)` returning
+  `'meadow' | 'forest' | 'pinewood' | 'grove' | 'heath' | 'mountain'`. Labels
+  only: the fields it thresholds live in `terrain.ts` (two `REGION_SIZE`-lattice
+  value-noise fields for the low country, `mountainUplift` for a range), because
+  the height field has to read the same numbers and a label is the wrong thing to
+  interpolate. Pure in world tile coordinates, no chunk grid and no world state,
+  cheap enough per candidate point. Meadow is the largest share and is forced
+  inside `MEADOW_BELT` of `LANDSCAPE_CENTER` so the approach to the walls never
+  changes character. A range outranks the region fields, and the label threshold
+  sits *above* the height onset on purpose: the foothills keep their neighbour's
+  label, so a wood climbs into a range instead of stopping at its edge. Both
+  sides hold the seed — `WORLD_SEED` as a constant, `welcome.world.seed` on the
+  wire — so the client may call this freely, but only for cosmetics (ground
+  scatter, ambient critters). A biome still decides nothing about collision,
+  elevation or edit rules directly; it only tells generation what to plant, and
+  the *ground* it plants on comes from `terrain.ts`, which is the server's.
+  Widening this union breaks every `Record<Biome, …>` table in `app/**` — that is
+  deliberate, and those are the rendering agent's to fill in.
 - `shared/utils/characters.ts` — character roster / assignment logic.
 - `shared/utils/courtyard.ts` — the courtyard bounds, arena/fountain positions,
   and `COURTYARD_ASSETS` dimensions shared by collision and the art templates.
@@ -166,6 +211,10 @@ independently.
    (`WORLD_BOUNDS`), and its edge is a hard wall.** A chunk holds 33×33 corner
    heights (`Int16Array`, 0.05 steps, the last row/column duplicating the
    neighbour), a 32×32 surface raster, its placements and a `version`.
+   `surfaceFor` derives that raster from height and slope, so it needs no biome:
+   `ROCK_LINE` (34) is bare rock and `SNOW_LINE` (50, hashed into a ragged band)
+   is `SURFACE.snow`, both above the 31 the pre-mountain world ever reached, so
+   nothing below the ranges changed colour. Snow is generated, never painted.
    `terrainHeight` interpolates bilinearly and returns `-Infinity` for a missing
    chunk, so an unloaded chunk reads as void rather than a hole to fall through.
    `isWalkable` blocks the world edge, missing chunks, and any tile whose local

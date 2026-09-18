@@ -33,10 +33,16 @@ world from the seed and the committed layout JSON, because it authors them.
   four hooks the streaming layer drives (see **Chunk rendering**), and it is what
   aims and sends the hotbar's verbs (see **Crosshair targeting**).
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
-  outdoor lights, fog, rain and sky environment. All animation follows the
-  server clock. A sky-only 64px cube refreshes every eight seconds for material
-  reflections for physical materials. The water surface uses a separate guarded
-  planar reflection pass.
+  stars, Milky Way and moon, outdoor lights, fog, rain, lightning and sky
+  environment. All animation follows the server clock, lightning included
+  (`courtyardLightning` hashes strikes off `now`, so clients agree). The moon
+  stays opposite the sun because the night key light and its shadows come from
+  there; its phase is only a terminator drawn on the disc. Stars and the galaxy
+  are added after the cloud march, veiled by its transmittance cubed, or bloom
+  lifts them through the clouds. A sky-only 256px cube refreshes when the sun
+  or the overcast has moved, at most every 2.5 seconds, for reflections on
+  physical materials. The water surface uses a separate guarded planar
+  reflection pass.
 - `app/utils/courtyardAssets.ts` creates the custom town templates, merges geometry
   by material and registers them for both instancing and editor selection. Shared
   dimensions come from `shared/utils/courtyard.ts`.
@@ -58,7 +64,35 @@ world from the seed and the committed layout JSON, because it authors them.
   remote feet through each fountain inverse transform for cosmetic wakes; water
   must never move players. Dispose each water effect separately before generic scenery disposal. `courtyardLandscape.ts`
   is now only the grass bank: one shared blade geometry and GPU wind material that
-  both the chunk meadows and the town's garden beds instance from. Botanicals are the
+  both the chunk meadows and the town's garden beds instance from. Its wind is three
+  layers (a directional sway, gusts gated by a drifting value-noise envelope over
+  world xz, per-tuft turbulence), all phased off the instance origin in *world*
+  space — `modelMatrix * instanceMatrix`, because chunk meshes sit at the chunk
+  origin and their instances are chunk-local — and all scaled by height squared so
+  roots stay planted. Displacement is computed in world units and folded back
+  through the instance frame's transpose, so a push is the same size whatever the
+  tuft's scale. A patch's `instanceColor` is data, not a tint: rank (index over
+  count), and the `lush` and `straw` weights `meadowCover` in `terrainChunk.ts`
+  reports for the ground under the tuft. The shader rebuilds the terrain's own
+  pigment from them (`MEADOW_PALETTE`), so blades grow out of the ground's colour;
+  change `groundColor` and the grass follows only if `meadowCover` still describes
+  it. The vertex `color` attribute is data too: height along the blade and a
+  per-blade shade. Density thins with distance by rank: a tuft shrinks away once
+  the share kept at its distance drops under its rank, and `updateGrassLod` (called
+  per mounted patch each frame) trims `mesh.count` to the share kept at the patch's
+  nearest point, which is safe only because `chunkGrassBlades` emits tufts in hashed
+  order. `DoubleSide` flips the upward normal on back faces, so the fragment hook
+  flips it back. Bodies bend blades away through `setGrassPushers(actors, x, z)`:
+  the uniform is module-level, not per bank, because the chunk meadows and the
+  garden beds each build their own bank and both must react to the same bodies.
+  `MazeScene` feeds it the rendered player positions it already assembles for the
+  fountain wakes, nearest four; the push only fires when the feet are within
+  `PUSH_CONTACT` of the blade's root, so a jump releases the grass. Blades dissolve
+  between `GRASS_FADE_START` and `GRASS_FADE_END` (50→62 units from the camera)
+  with a screen-door dither discard and a shrinking height, which must stay inside
+  `MazeScene`'s `DETAIL_RADIUS` ring or grass pops in instead of fading. The patch
+  bounding sphere is padded for that displacement, or edge patches cull while their
+  blades are still on screen. Botanicals are the
   Quaternius Stylized Nature MegaKit under `public/models/nature/` (`NATURE_NAMES`:
   `tree1..5`, `bush1..2`, `fern`, `clover`, `plant`, `flowers1..2`, `rock1..3`); outside
   the walls they are real chunk placements from `shared/utils/vegetation.ts`, not
@@ -94,14 +128,22 @@ world from the seed and the committed layout JSON, because it authors them.
   own height so every character frames the same. `LIFT` pans the eye *and* the
   target down by the same amount — a pan, not a tilt, because tilting
   foreshortens a character the design wants read straight on — and it exists so
-  the boots clear the name field stacked below. The gate's ground rule and glow
-  are positioned at the matching fraction of the stage (72%) rather than a fixed
-  offset from the bottom, or they detach from the feet as the window resizes.
+  the boots clear the name field stacked below. The floor is a textured disc in
+  the scene at y = 0 (`floorTexture()` in `CharacterPreviewModel`), not CSS in
+  the gate: only a disc in perspective wraps both boots, a flat rule across the
+  stage cut through whichever foot stood nearer the camera.
 - `app/utils/characterModels.ts` owns the serialized GLB loader and shared
   scene/clip cache for both onboarding and the live game. `CharacterAsset`
   carries a scene template and the universal animation library's clips.
   `preloadCharacterAssets()` warms the default model first, then the remaining
-  roster and outfit textures. Every rig uses `SkeletonUtils.clone`; dispose its
+  roster and outfit textures. Only the **parse** is serialized: downloads are
+  plain `fetch`es that run ahead of it, three at a time for the preloader, and
+  the clip library is always requested before the model. Starting the whole
+  cast at once filled the browser's six connections per host, `animations.glb`
+  queued behind 18 models and no rig could show until it landed. The clip URL
+  carries `?v=CLIPS_VERSION`: bump it whenever the clip set changes, Nitro dev
+  sends no `Cache-Control` and the browser keeps the old file for hours.
+  Every rig uses `SkeletonUtils.clone`; dispose its
   skeleton's GPU bone textures when replacing or removing the rig, but retain
   the cached template geometry and materials.
 - `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
@@ -314,6 +356,13 @@ are analytic, sampled one corner *past* each edge through the caller's
 creases every seam. Vertex colour is the meadow's own pigment (moisture, dryness,
 the gate approach's wear, scree on steep faces, distance cooling) tinted by the
 surface raster, except on protected footprint tiles where the raster says nothing.
+Every `SURFACE` value needs a `surfaceTint` case or it renders as untinted grass;
+snow's tint is a cool off-white and not white, because the terrain is lit and then
+bloomed, and an albedo near 1 clips the summits to a flat sheet at noon. Ground
+cover gates on the **surface kind**, never the biome: `isGrassTile` is what keeps
+blades, flowers and the cosmetic scatter off flagstones, bare stone and snow alike,
+so a generated surface needs no separate exclusion. Each `Record<Biome, …>` table
+(`BIOME_SWARD`, `UNDERSTORY`, critters' `RESIDENTS`) must name every biome.
 All chunks share one material, so there is one program and one CSM registration.
 Terrain receives shadows and casts none (`userData.shadowTagged`), and is *not*
 excluded from GTAO.
@@ -360,6 +409,29 @@ height the server resolved for a kit piece — so nothing is bedded or offset he
 costs one `createCourtyardScene`, not the world. In editor mode the chunk batches
 skip placements whose id starts with `town:`; `hubEditor` draws those as
 selectable clones.
+
+**Ground scatter follows `biomeAt`, not the chunk.** `chunkScatter` in
+`chunkProps.ts` samples `biomeAt(seed, x, z)` per point — the same shared
+function `generateVegetation` uses — so a region border runs through a chunk
+exactly as the server's trees do: flower drifts in meadow, fungus and low green
+cover under pinewood and grove, pebbles on heath. `chunkGrassBlades` reads it too,
+thinning and drying the sward per biome through the `lush`/`straw` weights the
+blade shader already has. Both are cosmetic, deterministic per chunk and never on
+the wire. `NATURE_NAMES` in `courtyardLandscape.ts` is the gate: a tree family the
+server plants but this list omits arrives as a placement with no template and
+renders as nothing. The per-instance tint is split by family — a warm/cool wobble
+for green foliage (`tree`/`bush`/`pine`), brightness only for the autumn-red
+`twisted` and the bare `dead` trunks, which greening would only muddy.
+
+**Ambient critters are client-only cosmetics.** `app/utils/critters.ts` spawns
+wildlife deterministically per chunk from `(seed, cx, cy)` and the biome at the
+spawn point, mounted and unmounted with the chunk's detail level and capped at
+`MAX_LIVE`. There is no NPC on the server and this must not create one: nothing
+reaches the wire, nothing enters `shared/` state, and a critter can never move,
+block or collide with a player. Two players do not see the same bunny in the same
+place, and that is accepted. It reads the shared helpers (`surfaceHeight`,
+`isWalkable`, `getSwimmingContact`) **read-only**, so a critter stands on the same
+terraformed ground as a player and stays out of the water. Off in editor mode.
 
 The camera boom's obstruction test is three things ORed: the wall grid and
 `surfaceHeight` for ground-based geometry, `isRampartCameraBlocked` for the

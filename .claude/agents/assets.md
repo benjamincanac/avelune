@@ -4,9 +4,10 @@ description: >
   3D asset pipeline — Blender headless conversion, glTF processing/compression,
   and the models under public/models/**. Use for the scripts/*.py + scripts/*.sh
   conversion tooling (convert_universal_characters.py, rebuild_animations.py,
-  convert_nature.sh, convert_kit.sh, build_kit.py, build_courtyard_*.py),
-  the OG image generator (make_og.py), gltf-transform compression, and importing
-  new Quaternius packs. NOT for how models are rendered in-game (that's scene-3d).
+  convert_nature.sh, convert_monsters.sh, convert_kit.sh, build_kit.py,
+  build_courtyard_*.py), the OG image generator (make_og.py), gltf-transform
+  compression, and importing new Quaternius packs. NOT for how models are
+  rendered in-game (that's scene-3d).
 model: inherit
 ---
 
@@ -14,7 +15,33 @@ You own Avelune's asset pipeline: turning source packs into the optimized `.glb`
 files the game loads, and the scripts that do it.
 
 ## Files you own
-- `scripts/convert_universal_characters.py` — character pack conversion.
+- `scripts/convert_universal_characters.py` — character pack conversion. Outfits
+  come from the purchased CC0 superset `modular-character-outfits-source`
+  (Peasant, Ranger, Knight, Knight_Cloth, Noble, Wizard; its Peasant and Ranger
+  meshes and textures are byte-identical to the older free `module-character-outfits`,
+  so the switch cannot change GLBs built before it). `ONLY="Name Name"` rebuilds a
+  subset, which is how a new outfit lands without rewriting the shipped ones.
+  Its `build_animations()` is opt-in behind `--animations` and must stay that way:
+  it knows 16 clips, `rebuild_animations.py` ships 21, so an unguarded run silently
+  dropped `Swim_Loop`/`Swim_Idle` from `animations.glb`.
+  Head pieces (`*_Head_Hood`, `*_Head_Armet`, `*_Head_Crown`) ride inside the
+  outfit's own `.gltf` already skinned, so nothing extra is imported or bound.
+  A head piece that fully encloses the skull goes in `HELMETED`, its build
+  imports no hair and it ships one GLB per gender (`Knight_Male`), mirrored by
+  `hairless` on the outfit in `shared/utils/characters.ts`: the Ranger's hood is open at the face and keeps the hair, the
+  Knight's closed armet had every style punching through the metal. The Wizard has
+  no head piece anywhere in the pack.
+  The male beard is a toggle mesh, not part of a hairstyle. Every male build of
+  an outfit that has hair carries `Hair_Beard` as its own node, both
+  `SimpleParted` and `Buzzed`, and the script renames the object and its mesh
+  data to that exact string so the exported node name is predictable. The
+  helmeted Knight and every female build have no beard. The beard keeps the
+  hair material `MI_Hair_1`, which the `CLOTH` regex in
+  `app/utils/appearance.ts` does not match, so the runtime toggles it by hiding
+  the node and no texture swap touches it. Colourway PNGs under
+  `public/models/characters/textures/` are `sips -Z 512 -s format png` of the pack's
+  `T_<Outfit>_{2,3}_BaseColor.png`; that command reproduces the shipped ones byte
+  for byte, Blender's own `image.scale` does not.
 - `scripts/rebuild_animations.py` — shared `animations.glb` retargeting (the
   Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
   `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start/Loop/Land`, `Roll`, …), one NLA
@@ -46,7 +73,30 @@ files the game loads, and the scripts that do it.
   `--palette false` so two-material trees keep separate bark/leaves primitives,
   `alphaMode MASK` + `doubleSided` preserved (the runtime relies on both), Meshopt
   at the end. `bush1` swaps the autumn `Leaves_TwistedTree` texture for the green
-  `Leaves_NormalTree`. The earlier Blender-built botanicals and their script are gone.
+  `Leaves_NormalTree`. Also covers `pine1-3`/`twisted1-3`/`dead1-3` (each the 3
+  most distinct silhouettes of that family's 5 source variants, picked by bounding
+  box and triangle count — `TwistedTree` keeps its autumn-red leaf texture as-is,
+  the `bush1` green swap doesn't apply to the trees), `mushroom1-2`, and
+  `pebble1-3` (mixed round/square). The twisted and dead trees are modelled two
+  to three times the size of the others, so the script scales their root nodes
+  (0.5 to 0.85) to keep every tree comparable at placement scale 1; the
+  `SOLID_PROPS` radii in `shared/utils/props.ts` are the scaled trunks. `ONLY="a b"`
+  reconverts a subset. The earlier Blender-built botanicals and
+  their script are gone.
+- `scripts/convert_monsters.sh` converts curated Quaternius Ultimate Monsters
+  (`~/GitHub/quaternius/ultimate-monsters/{Big,Blob,Flying}/glTF`) into
+  `public/models/monsters/*.glb` for ambient wildlife (`MushroomKing.glb` there
+  is the unrelated Oracle model and is never touched by this script). These are
+  skinned rigs, so `optimize` runs with `--simplify false --flatten false --join
+  false --instance false` — untested flags here risk corrupting joints/weights.
+  Before `optimize`, a `@gltf-transform/core` prepass (installed on the fly via
+  `npm install --no-save` into a scratch dir, since the CLI package doesn't
+  expose importable modules) drops every animation clip not in that model's keep
+  list, and unconditionally re-points every texture at the source folder's own
+  `Atlas_Monsters.png` on disk — the `Flying/` and `Blob/` folder `.gltf` files
+  embed a broken 32x32 placeholder instead of the real 1024x1024 shared atlas
+  that `Big/` embeds correctly, so the fix is applied to every folder rather
+  than assumed per-folder.
 - `scripts/build_courtyard_fountain.py` builds the original courtyard fountain
   at `public/models/courtyard/fountain.glb`. Run it headless without arguments;
   optional `--render` creates a studio preview after exporting.
