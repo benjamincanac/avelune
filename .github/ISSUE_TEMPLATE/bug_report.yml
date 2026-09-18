@@ -1,5 +1,5 @@
 name: "Bug Report"
-description: Report a problem with the starter
+description: Report a problem with Avelune
 title: "[bug] "
 labels: [bug]
 body:
@@ -20,8 +20,11 @@ body:
       label: Area
       options:
         - WebSocket connection / upgrade
-        - Presence / cursors / reactions
-        - Redis / cross-instance state
+        - Movement / physics
+        - World / terraforming / building
+        - Rendering / 3D scene
+        - Oracle
+        - Persistence (Redis)
         - Local dev (crossws)
         - Deployment (Vercel)
         - UI

@@ -1,12 +1,12 @@
 name: "Question"
-description: Ask a question about the starter
+description: Ask a question about Avelune
 title: "[question] "
 labels: [question]
 body:
   - type: markdown
     attributes:
       value: |
-        Check the [README](https://github.com/vercel-labs/nuxt-websockets-starter#readme) and [Vercel WebSockets docs](https://vercel.com/docs/functions/websockets) first.
+        Check the [README](https://github.com/benjamincanac/avelune#readme) and [Vercel WebSockets docs](https://vercel.com/docs/functions/websockets) first.
   - type: textarea
     id: question
     attributes:

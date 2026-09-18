@@ -4,5 +4,5 @@ contact_links:
     url: https://vercel.com/docs/functions/websockets
     about: Official Vercel Functions WebSockets documentation.
   - name: Report a security issue
-    url: https://github.com/vercel-labs/nuxt-websockets-starter/security/advisories/new
+    url: https://github.com/benjamincanac/avelune/security/advisories/new
     about: Do not file public issues for security vulnerabilities.
