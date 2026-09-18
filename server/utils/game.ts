@@ -8,9 +8,9 @@ import {
   PLAYER_SPEED,
   stepBody,
 } from '#shared/utils/maze'
-import { CHUNK_SIZE, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
+import { CHUNK_SIZE, TERRAFORM_STEP, TERRAFORM_VERBS, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
 import type { Chunk, SurfaceType } from '#shared/utils/world'
-import { DEED_KIND } from '#shared/utils/kit'
+import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { EDITS_PER_SECOND, checkDemolish, checkTerraform, isKitKind, refusalText, resolveBuild } from '#shared/utils/building'
 import {
   WORLD,
@@ -23,6 +23,7 @@ import {
   markChunkDirty,
   releaseViewer,
   residentChunk,
+  STREAMED_CHUNKS,
   syncChunks,
   terrainDeltas,
 } from './world'
@@ -470,10 +471,118 @@ export interface ArenaState {
  * few times a minute at most, so paying once per tool call is far cheaper than
  * keeping counters warm 20 times a second.
  */
-/** How many players are connected right now. The cheap half of `snapshot()`,
- *  for the landing gate's live line — no chunk scan, no per-player payload. */
-export function playerCount(): number {
-  return sessions.size
+/* -------------------------------------------------------------------------- */
+/* The live surface: peak, history and the world feed                          */
+/* -------------------------------------------------------------------------- */
+
+/** One thing that happened in the world, worded the way the feed reads it. */
+export interface WorldEvent {
+  at: number
+  name: string
+  text: string
+  /** Same actor doing the same kind of thing again replaces the row instead of
+   *  stacking: a wall goes up in a dozen clicks and the feed shows one line. */
+  kind: string
+}
+
+/** The feed surfaces show three rows; a few spare cover a burst of activity. */
+const FEED_LIMIT = 6
+const FEED_COALESCE = 6_000
+
+const worldFeed: WorldEvent[] = []
+
+function recordEvent(name: string, kind: string, text: string) {
+  const at = Date.now()
+  const head = worldFeed[0]
+  if (head && head.name === name && head.kind === kind && at - head.at < FEED_COALESCE) {
+    head.at = at
+    head.text = text
+    return
+  }
+  worldFeed.unshift({ at, name, text, kind })
+  if (worldFeed.length > FEED_LIMIT) worldFeed.length = FEED_LIMIT
+}
+
+/** Newest first, for the landing page — which has no socket to watch. */
+export function recentEvents(): WorldEvent[] {
+  return worldFeed
+}
+
+/**
+ * Roster history, kept only well enough to say something true on the title
+ * screen: the highest count seen today, and the highest in each of the last
+ * nine hours. Both are process-local — nothing is persisted, because the peak
+ * of a world that resets with the process is a fact about the process.
+ */
+const SERIES_HOURS = 9
+const HOUR = 3_600_000
+
+const series: number[] = Array.from({ length: SERIES_HOURS }, () => 0)
+let seriesHour = -1
+let peakDay = ''
+let peak = 0
+
+/**
+ * Bring the window up to now: roll the hourly buckets forward, zero-filling any
+ * hour nobody was here for, and clear the peak when the day turns.
+ *
+ * Called on every read as well as on every join, because a world with one
+ * long-lived session has no churn to drive it — it would otherwise serve
+ * yesterday's peak under a "today" label and an eleven-hour-old bucket under
+ * "last 9h".
+ */
+function rollWindow(now: number) {
+  const hour = Math.floor(now / HOUR)
+  if (seriesHour < 0) {
+    seriesHour = hour
+  }
+  else if (hour > seriesHour) {
+    const shift = Math.min(hour - seriesHour, SERIES_HOURS)
+    series.splice(0, shift)
+    while (series.length < SERIES_HOURS) series.push(0)
+    seriesHour = hour
+  }
+  const day = new Date(now).toISOString().slice(0, 10)
+  if (day !== peakDay) {
+    peakDay = day
+    peak = 0
+  }
+}
+
+function notePlayers(n: number) {
+  rollWindow(Date.now())
+  if (n > peak) peak = n
+  const last = SERIES_HOURS - 1
+  if (n > series[last]!) series[last] = n
+}
+
+/** A roster row for the title screen, which has no socket to ask. Minutes in
+ *  town rather than a ping: latency is measured by the client's own heartbeat,
+ *  so the server has no honest per-player number to report. */
+export interface RosterEntry {
+  name: string
+  minutes: number
+}
+
+/** The panel holds five rows before it starts scrolling; send six. */
+const ROSTER_LIMIT = 6
+
+/** Everything the title screen's stat blocks, sparkline and roster need. */
+export function playerStats(): { players: number, peak: number, series: number[], roster: RosterEntry[] } {
+  const now = Date.now()
+  // Reading is also the only thing that happens in a quiet world, so it has to
+  // both roll the window and fold the live roster into the current hour.
+  rollWindow(now)
+  notePlayers(sessions.size)
+  return {
+    players: sessions.size,
+    peak,
+    series: [...series],
+    roster: [...sessions.values()]
+      .sort((a, b) => a.joinedAt - b.joinedAt)
+      .slice(0, ROSTER_LIMIT)
+      .map(session => ({ name: session.player.name, minutes: Math.floor((now - session.joinedAt) / 60_000) })),
+  }
 }
 
 export function snapshot(): ArenaState {
@@ -720,7 +829,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     now: Date.now(),
     weather,
     timeOfDay,
-    world: { chunkSize: WORLD.chunkSize, bounds: WORLD.bounds, seed: WORLD.seed, realm: REALM, persistent: chunkStore().kind !== 'memory' },
+    world: { chunkSize: WORLD.chunkSize, bounds: WORLD.bounds, seed: WORLD.seed, realm: REALM, persistent: chunkStore().kind !== 'memory', streamed: STREAMED_CHUNKS },
     // The budget readout is the server's to fill: this identity's pieces are
     // spread over the whole world, and the client only ever holds 25 chunks.
     pieces: pieceCount(player.id),
@@ -731,6 +840,8 @@ export function registerConnection(identity: Identity, send: (data: string) => v
   // chunk the client has not been given.
   syncChunks(session, player.x, player.y, true)
   broadcast({ t: 'join', player }, player.id)
+  recordEvent(player.name, 'join', 'entered the town')
+  notePlayers(sessions.size)
   prepareGreeting(session)
 
   return {
@@ -810,8 +921,9 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           // A brush on a chunk border writes the same corner in up to four
           // chunks, and each of them is somebody's seam — send every one.
           for (const frame of terrainDeltas(request, changed)) {
-            broadcastToChunk(sessions.values(), frame.cx, frame.cy, frame)
+            broadcastToChunk(sessions.values(), frame.cx, frame.cy, { ...frame, by: player.id, mode: request.mode, at: [Math.round(request.x), Math.round(request.y)] })
           }
+          recordEvent(player.name, `terrain:${request.mode}`, `${TERRAFORM_VERBS[request.mode]} at ${Math.round(request.x)}, ${Math.round(request.y)}`)
           break
         }
         case 'build': {
@@ -831,6 +943,11 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           indexPlacement(resolved.placement)
           markChunkDirty(chunk)
           announceEdit(session, chunk, { t: 'place', cx: chunk.cx, cy: chunk.cy, v: chunk.version, piece: resolved.placement })
+          recordEvent(
+            player.name,
+            `build:${resolved.placement.kind}`,
+            resolved.placement.kind === DEED_KIND ? 'claimed a plot' : `placed a ${kitLabel(resolved.placement.kind).toLowerCase()}`,
+          )
           break
         }
         case 'demolish': {
@@ -849,6 +966,11 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           if (placement.owner && placement.kind === DEED_KIND) removeDeed(placement.owner)
           markChunkDirty(chunk)
           announceEdit(session, chunk, { t: 'remove', cx: chunk.cx, cy: chunk.cy, v: chunk.version, id: placement.id })
+          recordEvent(
+            player.name,
+            `clear:${placement.kind}`,
+            placement.kind === DEED_KIND ? 'released a plot' : `cleared a ${kitLabel(placement.kind).toLowerCase()}`,
+          )
           break
         }
         case 'ping':
@@ -864,6 +986,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
       if (sessions.get(player.id) === session) {
         sessions.delete(player.id)
         broadcast({ t: 'leave', id: player.id })
+        notePlayers(sessions.size)
       }
       // Left without ever stepping through the gate: they were never greeted,
       // so the next visit should be.

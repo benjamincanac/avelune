@@ -701,6 +701,17 @@ export function applyRemove(world: World, id: string): Chunk | undefined {
 }
 
 export type TerraformMode = 'raise' | 'lower' | 'flatten' | 'paint'
+
+/** How each brush mode reads in the world feed. Shared because the server words
+ *  the rows the title screen shows and the client words the in-game ones from
+ *  `terrain` frames — two copies of this would drift on the first edit. */
+export const TERRAFORM_VERBS: Record<TerraformMode, string> = {
+  raise: 'raised land',
+  lower: 'lowered land',
+  flatten: 'levelled ground',
+  paint: 'painted ground',
+}
+
 export interface TerrainEdit {
   /** Brush centre, in tiles. Snapped to the nearest tile corner. */
   x: number

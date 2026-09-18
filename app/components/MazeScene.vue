@@ -802,7 +802,7 @@ function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   // Metrics ride the canvas height so the plate looks identical at any
   // resolution. The stroke stays thin enough not to fatten the letterforms.
-  ctx.font = `600 ${Math.round(canvas.height * 0.34)}px Geist, ui-sans-serif, sans-serif`
+  ctx.font = `600 ${Math.round(canvas.height * 0.34)}px Archivo, ui-sans-serif, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.lineWidth = Math.max(2, Math.round(canvas.height * 0.055))
@@ -818,7 +818,7 @@ function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name
  * BUBBLE_TEXELS_PER_UNIT), so text keeps a constant, crisp size instead of
  * being squished onto a single line. */
 const BUBBLE_CANVAS_WIDTH = 512
-const BUBBLE_FONT = '500 36px Geist, ui-sans-serif, sans-serif'
+const BUBBLE_FONT = '500 36px Archivo, ui-sans-serif, sans-serif'
 const BUBBLE_LINE_HEIGHT = 46
 const BUBBLE_PAD_X = 26
 const BUBBLE_PAD_Y = 18

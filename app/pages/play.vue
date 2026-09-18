@@ -14,6 +14,7 @@ useSeoMeta({
 const game = useGame()
 const world = useWorld()
 const oracle = useOracle()
+const feed = useFeed()
 
 const gameRoot = useTemplateRef('gameRoot')
 const gameScene = useTemplateRef('gameScene')
@@ -22,11 +23,13 @@ const showMenu = ref(false)
  *  around it; the page renders it and routes Escape to it. */
 const map = useWorldMap()
 const fullscreen = ref(false)
+/** Chat has the keyboard: the hotbar drops back so the capture is visible. */
+const typing = ref(false)
 
 type View = 'checking' | 'creating' | 'playing' | 'editing'
 
 /**
- * Entry flow. The landing page is `/`, so by the time anyone is here they have
+ * Entry flow. The title screen is `/`, so by the time anyone is here they have
  * asked to play: `checking` covers the initial /api/auth probe, then a
  * returning player drops straight into the arena and a brand-new visitor lands
  * on character creation. The socket opens the moment we enter the arena; the
@@ -70,6 +73,8 @@ onMounted(async () => {
 /** Enter the arena as the saved character. */
 function play() {
   view.value = 'playing'
+  // The gate's rows came off `/api/status`; from here the socket is the source.
+  feed.reset()
   game.connect()
 }
 
@@ -205,8 +210,8 @@ function onKeyDown(event: KeyboardEvent) {
   // keydown (also a window listener), so focus may already be gone by the time
   // the event reaches us — the target still names the input it came from.
   const target = event.target as HTMLElement | null
-  const typing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
-  if (typing) return
+  const isTyping = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+  if (isTyping) return
   if (event.code === 'KeyF') {
     event.preventDefault()
     void toggleFullscreen()
@@ -230,13 +235,14 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
 })
 
-const statusColor = computed(() => game.status.value === 'connected' ? 'bg-primary' : 'bg-warning')
+const live = computed(() => game.status.value === 'connected')
+const realm = computed(() => world.realm.value ? realmName(world.realm.value) : null)
 </script>
 
 <template>
   <div
     ref="gameRoot"
-    class="relative h-screen overflow-hidden bg-[#05070d]"
+    class="relative h-screen overflow-hidden bg-stage"
   >
     <!-- Character creation, for a visitor with no character cookie yet. -->
     <CharacterGate
@@ -254,47 +260,68 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         @unlock="showMenu = true"
       />
 
-      <!-- Top-left: identity + connection status. -->
-      <header class="pointer-events-none absolute left-4 top-4 z-10 flex flex-col gap-2">
-        <BrandMark
+      <!-- Veils, top and bottom, so the corner clusters read over whatever the
+           camera happens to be pointing at. Never blurred — the render is the
+           content and each frosted layer costs a composite pass. -->
+      <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-42.5 bg-[linear-gradient(180deg,rgb(6_14_17/0.72),rgb(6_14_17/0))]" />
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-57.5 bg-[linear-gradient(0deg,rgb(6_14_17/0.82),rgb(6_14_17/0))]" />
+
+      <!-- Top left: who is here, where, and how far away the server is. -->
+      <header class="pointer-events-none absolute left-7 top-6 z-10 flex flex-col items-start gap-2">
+        <HudStatus
           :count="game.count.value"
-          :realm="world.realm.value ? realmName(world.realm.value) : null"
-          :dot-class="statusColor"
-          size="size-8"
-          class="pointer-events-auto rounded-lg bg-black/45 px-3 py-2 backdrop-blur"
+          :realm="realm"
+          :rtt="game.rtt.value"
+          :live="live"
+          class="pointer-events-auto"
         />
         <!-- The server has no store: say so before anyone builds a house. -->
-        <p
-          v-if="world.persistent.value === false"
-          class="pointer-events-auto flex items-center gap-1.5 rounded-lg bg-warning/20 px-3 py-1.5 text-[11px] text-warning backdrop-blur"
-        >
-          <UIcon
-            name="i-lucide-triangle-alert"
-            class="size-3.5"
-          />
-          Sandbox: this world resets when the server restarts
-        </p>
+        <SandboxNotice v-if="world.persistent.value === false" />
       </header>
 
-      <!-- Top-right: minimap. -->
-      <aside class="pointer-events-none absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
+      <!-- Top right: the minimap, then the feed below it on the edge wash. -->
+      <aside class="pointer-events-none absolute right-7 top-6 z-10 flex flex-col items-end">
         <MiniMap :game="game" />
       </aside>
+      <WorldFeed
+        :events="feed.events.value"
+        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97"
+      />
 
       <!-- Centre: the crosshair the build ray is cast through. -->
       <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
         <span class="size-1.5 rounded-full bg-white/80 ring-1 ring-black/50" />
       </div>
 
-      <!-- Bottom-left: chat. -->
-      <div class="pointer-events-none absolute bottom-4 left-4 z-10">
-        <ChatPanel :game="game" />
+      <!-- Bottom left: chat. The one thing down here you can click, so the one
+           thing down here with a panel. -->
+      <div class="pointer-events-none absolute bottom-6.5 left-7 z-10">
+        <ChatPanel
+          :game="game"
+          @focus="typing = true"
+          @blur="typing = false"
+        />
       </div>
 
-      <!-- Bottom-centre: the build bar. -->
-      <div class="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
-        <Hotbar />
+      <!-- Bottom centre: the build bar. -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-6.5 z-10 flex justify-center">
+        <Hotbar :dimmed="typing" />
       </div>
+
+      <!-- Bottom right: why the world stopped answering the movement keys. -->
+      <Transition
+        enter-active-class="transition-opacity duration-150 ease-out"
+        enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-100 ease-in"
+        leave-to-class="opacity-0"
+      >
+        <p
+          v-if="typing"
+          class="wash-right label-section on-render pointer-events-none absolute bottom-31 right-0 z-10 whitespace-nowrap py-3.5 pl-17 pr-7 text-default"
+        >
+          Movement held while typing
+        </p>
+      </Transition>
 
       <!-- Oracle: a discovery hint when near it. The Oracle answers in the
            chat when addressed — no separate dialog. -->
@@ -305,11 +332,15 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
         leave-to-class="opacity-0 translate-y-2"
       >
         <div
-          v-if="oracle.near.value"
-          class="pointer-events-none absolute inset-x-0 bottom-32 z-20 flex justify-center"
+          v-if="oracle.near.value && !typing"
+          class="pointer-events-none absolute inset-x-0 bottom-46 z-20 flex justify-center"
         >
-          <span class="flex items-center gap-1.5 rounded-full bg-black/60 px-3.5 py-1.5 text-[13px] text-highlighted ring ring-white/10 backdrop-blur">
-            The Oracle listens — <span class="text-muted">speak to it in chat</span>
+          <span class="frost telemetry flex items-center gap-2.5 rounded-[4px] px-3.5 py-2 text-toned">
+            <UIcon
+              name="i-lucide-sparkles"
+              class="size-3 text-primary"
+            />
+            The Oracle listens — speak to it in chat
           </span>
         </div>
       </Transition>
@@ -333,132 +364,54 @@ const statusColor = computed(() => game.status.value === 'connected' ? 'bg-prima
       >
         <div
           v-if="showMenu"
-          class="absolute inset-0 z-40 flex select-none items-center justify-center bg-black/50"
+          class="absolute inset-0 z-40 flex select-none items-center justify-center bg-[#060e11]/72 p-6"
           @click.self="resume"
         >
-          <div class="flex w-60 flex-col gap-4 rounded-xl bg-black/60 p-4 ring ring-white/10 backdrop-blur">
-            <p class="text-center text-[10px] font-medium uppercase tracking-widest text-muted">
-              Game menu
-            </p>
-
-            <div class="flex flex-col gap-1.5 text-[11px]">
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Move</span>
-                <span class="flex items-center gap-0.5">
-                  <UKbd value="W" /><UKbd value="A" /><UKbd value="S" /><UKbd value="D" />
-                </span>
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Jump</span>
-                <UKbd value="Space" />
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Dash</span>
-                <UKbd value="Shift" />
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Cursor</span>
-                <UKbd value="Alt" />
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Hotbar</span>
-                <span class="flex items-center gap-0.5">
-                  <UKbd value="1" /><UKbd value="9" /><UKbd value="Tab" />
-                </span>
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Use tool</span>
-                <UKbd value="Click" />
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Brush / rotate</span>
-                <span class="flex items-center gap-0.5">
-                  <UKbd value="[" /><UKbd value="]" /><UKbd value="R" />
-                </span>
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Map</span>
-                <UKbd value="M" />
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Fullscreen</span>
-                <UKbd value="F" />
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <span class="text-muted">Menu</span>
-                <UKbd value="Esc" />
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-1.5">
-              <UButton
-                :label="fullscreen ? 'Exit fullscreen' : 'Fullscreen'"
-                :icon="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
-                color="neutral"
-                variant="soft"
-                block
-                @click="toggleFullscreen"
-              />
-              <UButton
-                label="Map (M)"
-                icon="i-lucide-map"
-                color="neutral"
-                variant="soft"
-                block
-                @click="openMap"
-              />
-              <UButton
-                v-if="isDev"
-                label="World editor"
-                icon="i-lucide-pencil-ruler"
-                color="neutral"
-                variant="soft"
-                block
-                @click="edit"
-              />
-              <UButton
-                label="Return to game"
-                color="neutral"
-                block
-                @click="resume"
-              />
-              <UButton
-                label="Log out"
-                icon="i-lucide-log-out"
-                color="neutral"
-                variant="ghost"
-                block
-                @click="logout"
-              />
-            </div>
-          </div>
+          <GameMenu
+            :fullscreen="fullscreen"
+            :dev="isDev"
+            @resume="resume"
+            @fullscreen="toggleFullscreen"
+            @map="openMap"
+            @edit="edit"
+            @logout="logout"
+          />
         </div>
       </Transition>
+
+      <!-- Entering the world, step by step — and, after that, the only socket
+           state we can actually detect: a drop we are retrying. -->
+      <ConnectingOverlay
+        :status="game.status.value"
+        :rtt="game.rtt.value"
+        :self-id="game.selfId.value"
+      />
 
       <!-- Kicked: this identity opened the arena in another tab, and that newer
            socket took over. We don't reconnect (it would boot the new tab) — the
            player picks which window wins. -->
       <div
         v-if="game.kicked.value"
-        class="absolute inset-0 z-50 flex select-none items-center justify-center bg-black/80 backdrop-blur"
+        class="absolute inset-0 z-50 flex select-none items-center justify-center bg-[#060e11]/90 p-6"
       >
-        <div class="flex w-80 flex-col gap-4 rounded-xl bg-black/60 p-6 text-center ring ring-white/10">
+        <div class="frost-modal flex w-100 flex-col items-center gap-5 rounded-[6px] border-t-2 border-[#d8b13a] p-8 text-center">
           <UIcon
             name="i-lucide-monitor-x"
-            class="mx-auto size-8 text-warning"
+            class="size-7 text-[#d8b13a]"
           />
-          <div class="flex flex-col gap-1">
-            <p class="text-sm font-medium text-highlighted">
+          <div class="flex flex-col gap-2">
+            <h2 class="font-display text-lg font-bold uppercase leading-none tracking-[0.2em] text-highlighted">
               Playing in another tab
-            </p>
-            <p class="text-xs text-muted">
+            </h2>
+            <p class="text-[15px]/[1.5] text-muted text-pretty">
               {{ game.kicked.value }}
             </p>
           </div>
           <UButton
-            label="Play here instead"
-            color="primary"
             block
+            size="lg"
+            label="Play here instead"
+            class="notch-wide text-[15px]"
             @click="playHere"
           />
         </div>

@@ -1,6 +1,8 @@
 import type { Ref } from 'vue'
 import type { ClientMessage, MoveInput, Player, ServerMessage, Surface, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
+import { DEED_KIND, kitLabel } from '#shared/utils/kit'
+import { TERRAFORM_VERBS } from '#shared/utils/world'
 
 export interface GamePlayer extends Player {
   /** Render position/heading, smoothly interpolated toward the server state. */
@@ -34,6 +36,9 @@ export interface UseGame {
   /** Every player in the arena, self included, keyed by id. */
   players: Map<string, GamePlayer>
   count: Ref<number>
+  /** Last measured round trip to the server, in ms; null until the first pong.
+   *  The heartbeat is the measurement — there is no separate latency frame. */
+  rtt: Ref<number | null>
   /** Set when the server booted this socket because the same identity opened
    *  another tab. Holds the reason; reconnection is stopped. */
   kicked: Ref<string | null>
@@ -62,9 +67,20 @@ export interface UseGame {
   sendDemolish: (id: string) => void
 }
 
-/** Heartbeat cadence, and how long to wait for a pong before treating the socket as dead. */
-const HEARTBEAT_INTERVAL = 25_000
-const PONG_TIMEOUT = 10_000
+/**
+ * Heartbeat cadence, and how many beats may go unanswered before the socket is
+ * treated as dead.
+ *
+ * The beat doubles as the latency probe the HUD reads, so it runs often enough
+ * for the number to mean something. Liveness is counted in beats rather than
+ * measured with a timeout, because the main thread stalls for seconds at a time
+ * while a neighbourhood's models decode: a `setTimeout` and the `message` event
+ * that answers it both come due during the stall and can then run in either
+ * order, so a timeout hangs up on a socket that was never dead. Browsers do not
+ * replay a missed interval, so a stall costs one beat however long it lasts.
+ */
+const HEARTBEAT_INTERVAL = 5_000
+const MISSED_BEATS = 3
 
 const BUBBLE_DURATION = 4_000
 
@@ -90,6 +106,9 @@ export function useGame(): UseGame {
   // The streamed world. Every world frame is handed straight to it; nothing
   // here interprets chunks, and the scene subscribes to it rather than to us.
   const stream = useWorld()
+  // The world feed. It lives here rather than in `useWorld` because wording a
+  // row needs the roster: the frames carry player ids, not names.
+  const feed = useFeed()
   const status = ref<GameStatus>('connecting')
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
@@ -98,6 +117,7 @@ export function useGame(): UseGame {
   const timeOfDay = ref<TimeOfDayMode>('auto')
   const kicked = ref<string | null>(null)
   const chatLog = ref<ChatMessage[]>([])
+  const rtt = ref<number | null>(null)
 
   let clockOffset = 0
   const serverNow = () => Date.now() + clockOffset
@@ -107,10 +127,13 @@ export function useGame(): UseGame {
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
   let closed = false
 
-  // Liveness: ping periodically and force a reconnect if the pong never arrives,
-  // which catches half-open connections a silent proxy drop wouldn't surface.
+  // Liveness: ping periodically and force a reconnect if the pongs stop, which
+  // catches half-open connections a silent proxy drop wouldn't surface.
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined
-  let pongTimer: ReturnType<typeof setTimeout> | undefined
+  /** Beats sent since the last pong. */
+  let unanswered = 0
+  /** When the outstanding ping left, so its pong measures the round trip. */
+  let pingAt = 0
 
   let lastInput: MoveInput = { forward: false, back: false, left: false, right: false }
   let lookAngle = 0
@@ -145,7 +168,53 @@ export function useGame(): UseGame {
     pushChat({ id: `system-${systemSeq++}`, name: 'System', color: 'inherit', text, at: Date.now(), system: true })
   }
 
+  /**
+   * Turn a world frame into a feed row, if it is attributable. There is no feed
+   * frame on the wire: a `place` carries its piece's owner, a `terrain` carries
+   * `by`, and a `remove` names only an id — so the piece is looked up before
+   * `useWorld` takes it out of the chunk.
+   */
+  function recordFeed(msg: ServerMessage) {
+    switch (msg.t) {
+      case 'join':
+        feed.record(msg.player.name, 'join', 'entered the town')
+        break
+      case 'terrain': {
+        const name = msg.by ? players.get(msg.by)?.name : undefined
+        if (!name || !msg.mode || !msg.at) break
+        // A brush on a chunk seam sends one frame per chunk; the coalescing
+        // window in `useFeed` folds them back into the single row they were.
+        feed.record(name, `terrain:${msg.mode}`, `${TERRAFORM_VERBS[msg.mode]} at ${msg.at[0]}, ${msg.at[1]}`)
+        break
+      }
+      case 'place': {
+        const name = msg.piece.owner ? players.get(msg.piece.owner)?.name : undefined
+        if (!name) break
+        feed.record(
+          name,
+          `build:${msg.piece.kind}`,
+          msg.piece.kind === DEED_KIND ? 'claimed a plot' : `placed a ${kitLabel(msg.piece.kind).toLowerCase()}`,
+        )
+        break
+      }
+      case 'remove': {
+        const piece = stream.world.getChunk(msg.cx, msg.cy)?.placements.find(p => p.id === msg.id)
+        const name = piece?.owner ? players.get(piece.owner)?.name : undefined
+        if (!name || !piece) break
+        feed.record(
+          name,
+          `clear:${piece.kind}`,
+          piece.kind === DEED_KIND ? 'released a plot' : `cleared a ${kitLabel(piece.kind).toLowerCase()}`,
+        )
+        break
+      }
+    }
+  }
+
   function handle(msg: ServerMessage) {
+    // The feed reads a `remove` against the chunk it is about to leave, so it
+    // has to run before the stream applies the frame.
+    recordFeed(msg)
     // Chunks, terrain, placements and rejects belong to `useWorld`. `welcome`
     // is read by both (it carries the world info as well as the roster), so
     // this runs before the switch rather than instead of it.
@@ -228,29 +297,37 @@ export function useGame(): UseGame {
         socket?.close()
         break
       case 'pong':
-        clearPong()
+        // The heartbeat is the only round trip we control end to end, so it is
+        // also the only honest latency reading available — but only the pong
+        // that answers the outstanding ping measures anything. After a stall
+        // several beats are in flight and `pingAt` holds the newest of them, so
+        // an older pong would report a millisecond round trip.
+        if (unanswered === 1 && pingAt) rtt.value = Math.max(0, Date.now() - pingAt)
+        unanswered = 0
         break
     }
   }
 
+  function beat() {
+    if (unanswered >= MISSED_BEATS) {
+      socket?.close()
+      return
+    }
+    unanswered++
+    pingAt = Date.now()
+    send({ t: 'ping' })
+  }
+
   function startHeartbeat() {
     stopHeartbeat()
-    heartbeatTimer = setInterval(() => {
-      send({ t: 'ping' })
-      // Expect a pong before the next beat; if none arrives, the socket is dead.
-      pongTimer ??= setTimeout(() => socket?.close(), PONG_TIMEOUT)
-    }, HEARTBEAT_INTERVAL)
+    // Beat once straight away: the HUD shows a latency the moment it opens
+    // rather than a dash for the first interval.
+    beat()
+    heartbeatTimer = setInterval(beat, HEARTBEAT_INTERVAL)
     // Mouse-look changes are flushed on a small fixed cadence, not per-event.
     lookTimer ??= setInterval(() => {
       if (Math.abs(lookAngle - sentLook) > 0.02) sendMove()
     }, LOOK_INTERVAL)
-  }
-
-  function clearPong() {
-    if (pongTimer) {
-      clearTimeout(pongTimer)
-      pongTimer = undefined
-    }
   }
 
   function stopHeartbeat() {
@@ -262,7 +339,8 @@ export function useGame(): UseGame {
       clearInterval(lookTimer)
       lookTimer = undefined
     }
-    clearPong()
+    unanswered = 0
+    pingAt = 0
   }
 
   function open() {
@@ -297,6 +375,7 @@ export function useGame(): UseGame {
       selfId.value = null
       players.clear()
       count.value = 0
+      rtt.value = null
       // The loaded set belonged to that session; a reconnect re-sends it all.
       stream.reset()
       stopHeartbeat()
@@ -326,6 +405,8 @@ export function useGame(): UseGame {
     selfId.value = null
     players.clear()
     count.value = 0
+    rtt.value = null
+    feed.reset()
     status.value = 'disconnected'
   }
 
@@ -387,6 +468,7 @@ export function useGame(): UseGame {
     selfId,
     players,
     count,
+    rtt,
     kicked,
     serverNow,
     weather,

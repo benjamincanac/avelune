@@ -32,7 +32,7 @@ export default defineNuxtConfig({
       viewport: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no',
       title: site.title,
       meta: [
-        { name: 'theme-color', content: '#93B9E8' },
+        { name: 'theme-color', content: '#6FF0DA' },
         { name: 'color-scheme', content: 'light dark' },
         { name: 'robots', content: 'index, follow' },
         { name: 'description', content: site.description },
@@ -131,6 +131,17 @@ export default defineNuxtConfig({
     prerender: {
       crawlLinks: false,
     },
+  },
+
+  // Three type roles, one family each — structure, prose, telemetry. @nuxt/fonts
+  // ships with Nuxt UI, so this only pins the weights the design actually uses;
+  // the UI reads as broken without the condensed face.
+  fonts: {
+    families: [
+      { name: 'Saira Condensed', provider: 'google', weights: [600, 700, 800] },
+      { name: 'Archivo', provider: 'google', weights: [400, 500, 600, 700] },
+      { name: 'IBM Plex Mono', provider: 'google', weights: [500, 600] },
+    ],
   },
 
   // The Nitro v3 beta's rolldown build mishandles @nuxt/icon's local server

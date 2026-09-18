@@ -57,6 +57,9 @@ WORLD.generate = false
 
 /** Chunks streamed around a player: the 5×5 they stand in. */
 const LOAD_RADIUS = 2
+/** How many that is, for `welcome.world.streamed` — the entry screen's
+ *  denominator while terrain lands. */
+export const STREAMED_CHUNKS = (LOAD_RADIUS * 2 + 1) ** 2
 /** The ring that goes out on the spot: the 3×3 a player is standing in or can
  *  step into before the next tick. A late chunk two away is scenery; a late
  *  chunk underfoot is a hole. */
@@ -542,6 +545,13 @@ export function syncChunks(viewer: ChunkViewer, x: number, y: number, force = fa
           // Still in the store. `urgent` stays in ring order, so the ground
           // underfoot goes out ahead of the rest when the read lands.
           urgent.push([kx, ky])
+          // Queue it as well. `sendLoaded` drops a coord whose read lands after
+          // the player has moved, or lands without the chunk resident, and
+          // nothing would ever ask for it again — the player would hold 24 of
+          // their 25 chunks until they walked away and back. The queue is the
+          // path that already retries; whichever of the two sends it first, the
+          // next `drainChunkQueue` sees it in `viewer.chunks` and drops the key.
+          viewer.pending.add(key)
           continue
         }
         viewer.pending.delete(key)

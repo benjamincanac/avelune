@@ -63,12 +63,16 @@ export type ClientMessage
     | { t: 'chat', text: string }
     /** Move terrain under the brush. The server validates reach, protection,
      *  rate and the step; it never trusts the resulting height. */
-    | { t: 'terraform', x: number, y: number, mode: 'raise' | 'lower' | 'flatten' | 'paint', size: 1 | 2 | 3, surface?: Surface }
+    | { t: 'terraform', x: number, y: number, mode: TerraformKind, size: 1 | 2 | 3, surface?: Surface }
     /** Place a piece. The server snaps it, computes its `z` and assigns its id. */
     | { t: 'build', kind: string, x: number, y: number, rot: number }
     /** Remove a piece by id — the owner's own, or an unowned generated one. */
     | { t: 'demolish', id: string }
     | { t: 'ping' }
+
+/** What a brush did to the ground. Echoed back on `terrain` so the feed can
+ *  word it without guessing from the height deltas. */
+export type TerraformKind = 'raise' | 'lower' | 'flatten' | 'paint'
 
 /** Shared weather override; auto follows the synchronized weather cycle. */
 export type WeatherMode = 'auto' | 'clear' | 'overcast' | 'rain'
@@ -88,6 +92,10 @@ export interface WorldInfo {
   /** Whether edits outlive the server process. False means the in-memory
    *  store: the world resets on every restart, and the HUD says so. */
   persistent: boolean
+  /** How many chunks the server streams around a player once they are settled.
+   *  The client can't derive it — the radius is the server's — and the entry
+   *  screen needs a denominator for "19 / 25 chunks". */
+  streamed: number
 }
 
 /** Messages the server sends to the client. */
@@ -111,8 +119,12 @@ export type ServerMessage
     /** That chunk left the player's interest radius; drop it. */
     | { t: 'unchunk', cx: number, cy: number }
     /** Terrain delta: `edits` are `[cornerIndex, quantised height]` into the
-     *  chunk's 33×33 heights, `surface` `[tileIndex, value]` into its raster. */
-    | { t: 'terrain', cx: number, cy: number, v: number, edits: [number, number][], surface?: [number, number][] }
+     *  chunk's 33×33 heights, `surface` `[tileIndex, value]` into its raster.
+     *  `by`, `mode` and `at` name whose brush it was, what it did and where —
+     *  the world feed has no other way to attribute ground work, since a height
+     *  carries no owner the way a placement does, and a corner index is not a
+     *  place anyone can read. Absent when the server moved the ground itself. */
+    | { t: 'terrain', cx: number, cy: number, v: number, edits: [number, number][], surface?: [number, number][], by?: string, mode?: TerraformKind, at?: [number, number] }
     /** A piece was placed in a chunk the player holds. `pieces` and `deeds`
      *  ride only on the copy sent to the player who asked for the edit, and are
      *  their new totals; every other viewer gets the frame without them. */

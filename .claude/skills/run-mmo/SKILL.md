@@ -101,8 +101,8 @@ character** → type a name → **Enter** → WASD move, mouse look, Space jump,
   health check turns a failed entry into a non-zero exit instead of a black shot.
 - **Onboarding is mandatory; there is no one-click Play for a fresh browser.** With
   no `avelune_id` cookie the gate shows "Create your character" → a **name field**
-  → **Enter** (the Enter button stays disabled until the name is non-empty). The
-  driver fills the name "Probe" automatically.
+  → **Enter the world** (the button stays disabled until the name is non-empty).
+  The driver fills the name "Probe" automatically.
 - **Headless WebGL needs GPU flags.** Chromium has no GPU in this context; the
   driver launches with `--use-gl=angle --use-angle=swiftshader
   --enable-unsafe-swiftshader --ignore-gpu-blocklist` or the canvas is black.

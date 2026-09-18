@@ -57,9 +57,20 @@ bytes between it and clients.
   visited. A deed is an ordinary piece as well, so placing one moves both.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
-- `server/api/*.ts` — `auth.get`, `auth.post`. The Oracle has no HTTP route: it
-  runs in-process from the game loop (`server/utils/oracle.ts`, owned by the
-  `oracle-ai` agent).
+- `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete`, `status.get`. The
+  Oracle has no HTTP route: it runs in-process from the game loop
+  (`server/utils/oracle.ts`, owned by the `oracle-ai` agent).
+- `GET /api/status` is the title screen's only source, because that page is
+  prerendered and has no socket. It answers `{ players, peak, series, realm,
+  roster, persistent, feed }`, all of it already computed: `notePlayers()` keeps
+  the day's peak and a nine-bucket hourly series as sessions come and go, and
+  `recordEvent()` keeps a six-row world feed (join, terraform, build, demolish)
+  worded exactly as the in-game feed words it, so the two surfaces can't drift.
+  Nothing on this route scans a chunk. Both are process-local by design — the
+  peak of a world that resets with the process is a fact about the process — and
+  the roster carries minutes in town rather than a ping, because latency is
+  measured by each client's own heartbeat and the server has no honest
+  per-player number to report.
 - `server/api/editor/save.post.ts` + `server/utils/editorFiles.ts` — the
   **dev-only** save route (first line: `if (!import.meta.dev) throw createError({
   statusCode: 404 })`) the world editor POSTs its whole working doc to; validates

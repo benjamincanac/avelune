@@ -1,44 +1,40 @@
 <script setup lang="ts">
 /**
- * The AVELUNE wordmark with the live "N in town" line and its status dot.
- * Purely presentational: the caller supplies the count and the dot colour
- * (connection status) and frames/positions it via the root `class`.
+ * The lockup: the mark and the wordmark, nothing else.
+ *
+ * Every screen pairs it with something different — the HUD with a live count,
+ * the creator with a step, the menu with `PAUSED` — so the line beside it
+ * belongs to the caller, not here. Sizes are the design's three, and the
+ * tracking opens up with the type: at 26px a tight wordmark reads as a word
+ * rather than a mark.
  */
 withDefaults(defineProps<{
-  /** Players in town; null hides the line until the first probe resolves. */
-  count: number | null
-  /** The realm's display name, shown after the count once known. */
-  realm?: string | null
-  /** Tailwind `bg-*` utility for the status dot. */
-  dotClass?: string
-  /** Logo edge size (Tailwind `size-*` utility). */
-  size?: string
+  size?: 'sm' | 'md' | 'lg'
 }>(), {
-  dotClass: 'bg-primary',
-  size: 'size-9',
+  size: 'md',
 })
+
+const SIZES = {
+  sm: { mark: 'size-[22px]', type: 'text-[15px] tracking-[0.28em]', gap: 'gap-3' },
+  md: { mark: 'size-[26px]', type: 'text-[21px] tracking-[0.32em]', gap: 'gap-3.5' },
+  lg: { mark: 'size-[30px]', type: 'text-[26px] tracking-[0.34em]', gap: 'gap-4' },
+} as const
 </script>
 
 <template>
-  <div class="flex items-center gap-2.5">
+  <div
+    class="flex items-center"
+    :class="SIZES[size].gap"
+  >
     <img
-      src="/logo.svg?v=wind"
+      src="/logo.svg?v=aqua"
       alt="Avelune"
-      class="rounded-md"
-      :class="size"
+      class="rounded-[5px]"
+      :class="SIZES[size].mark"
     >
-    <div class="flex flex-col leading-tight">
-      <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">AVELUNE</span>
-      <span
-        v-if="count !== null"
-        class="flex items-center gap-1 text-[11px] text-muted"
-      >
-        <span
-          class="size-1.5 rounded-full"
-          :class="dotClass"
-        />
-        {{ count }} in town<template v-if="realm"> · {{ realm }}</template>
-      </span>
-    </div>
+    <span
+      class="font-display font-bold leading-none text-highlighted"
+      :class="SIZES[size].type"
+    >AVELUNE</span>
   </div>
 </template>

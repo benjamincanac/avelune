@@ -1,26 +1,36 @@
 <script setup lang="ts">
+import { MAX_CHAT_LENGTH } from '#shared/types/game'
 import type { ChatMessage, UseGame } from '~/composables/useGame'
 
 /**
  * Bottom-left chat, MMO style: a scrollback of recent messages from everyone in
  * the arena, with the input underneath. Enter or `/` focuses it from anywhere;
  * Escape hands control back to the game.
+ *
+ * It is a panel rather than plain text on the render, because it is the one
+ * thing down there you can click — the HUD rule reserves frost for exactly
+ * that. Focusing widens it, tints the input row with the accent and holds
+ * movement, which the caller mirrors by dimming the hotbar.
  */
 
 const props = defineProps<{ game: UseGame }>()
+const emit = defineEmits<{ focus: [], blur: [] }>()
 
 const text = ref('')
 const focused = ref(false)
 const input = useTemplateRef('input')
 const scrollback = useTemplateRef('scrollback')
 
-const placeholder = computed(() => focused.value ? 'Press Esc to play…' : 'Press Enter to chat…')
-
-const messages = computed<ChatMessage[]>(() => props.game.chatLog.value.slice(-9))
+const messages = computed<ChatMessage[]>(() => props.game.chatLog.value.slice(focused.value ? -12 : -4))
 
 watch(messages, async () => {
   await nextTick()
   scrollback.value?.scrollTo({ top: scrollback.value.scrollHeight })
+})
+
+watch(focused, (value) => {
+  if (value) emit('focus')
+  else emit('blur')
 })
 
 function submit() {
@@ -50,55 +60,48 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>
-  <div class="pointer-events-auto flex w-92 flex-col bg-black/35 overflow-hidden min-h-0 ring ring-white/5 divide-y divide-white/5 rounded-lg">
+  <div class="frost pointer-events-auto flex w-105 min-h-0 flex-col overflow-hidden rounded-[6px]">
     <div
       ref="scrollback"
-      class="flex max-h-44 flex-col justify-end gap-1 overflow-y-auto p-2.5 text-[13px] leading-snug backdrop-blur-sm"
-      :class="messages.length ? '' : 'opacity-0'"
+      class="flex max-h-56 flex-col justify-end gap-1.5 overflow-y-auto p-4"
+      :class="messages.length ? '' : 'hidden'"
     >
       <p
         v-for="message in messages"
         :key="`${message.id}-${message.at}`"
-        class="wrap-break-word"
+        class="wrap-break-word text-pretty text-sm"
+        :class="message.system || message.npc ? 'text-muted' : 'text-default'"
       >
-        <template v-if="message.system">
-          <span
-            class="font-semibold text-primary"
-          >System: </span>
-          <span class="text-primary italic">{{ message.text }}</span>
-        </template>
-        <template v-else-if="message.npc">
-          <span
-            class="font-semibold"
-            :style="{ color: message.color }"
-          >{{ message.name }}: </span>
-          <span
-            class="italic"
-            :style="{ color: message.color }"
-          >{{ message.text }}</span>
-        </template>
-        <template v-else>
-          <span
-            class="font-semibold"
-            :style="{ color: message.color }"
-          >{{ message.name }}: </span>
-          <span class="text-default/90">{{ message.text }}</span>
-        </template>
+        <b
+          class="font-semibold"
+          :style="{ color: message.system ? 'var(--ui-primary)' : message.color }"
+        >{{ message.system ? 'System' : message.name }}</b>
+        {{ message.text }}
       </p>
     </div>
 
+    <!-- The row is the input's own root, so the whole strip takes the click and
+         the keycap rides its leading slot. -->
     <UInput
       ref="input"
       v-model="text"
-      :placeholder="placeholder"
-      :maxlength="120"
-      size="sm"
+      placeholder="say something…"
+      :maxlength="MAX_CHAT_LENGTH"
       variant="none"
-      class="w-full"
-      :ui="{ base: 'backdrop-blur-sm placeholder:text-default/90' }"
+      :ui="{
+        root: ['w-full border-t border-white/10 px-4.5 py-3 transition-colors duration-120 ease-out', focused ? 'bg-primary/6' : ''],
+        base: 'h-auto rounded-none py-0 ps-15 text-[15px] leading-none text-default caret-primary placeholder:text-muted',
+        leading: 'ps-4',
+      }"
       @focus="focused = true"
       @blur="focused = false"
       @keydown.enter.prevent="submit"
-    />
+    >
+      <!-- The cap advertises the key that is live: Enter gets you in, Esc gets
+           you back to the game. -->
+      <template #leading>
+        <UKbd :value="focused ? 'Esc' : 'Enter'" />
+      </template>
+    </UInput>
   </div>
 </template>

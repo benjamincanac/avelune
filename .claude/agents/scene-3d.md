@@ -79,8 +79,9 @@ world from the seed and the committed layout JSON, because it authors them.
   `{x, y, rot}` live. Driven by `useEditor` state and mounted by `MazeScene`
   when its `editor` prop is set (dev-only, tree-shaken from prod).
   The 2D palette/inspector is `game-ui`'s `EditorPanel.vue`.
-- `app/components/MiniMap.vue` — round WoW-style minimap (top-right), north-up
-  and centred on you. Nothing is fogged; ground colour comes from each chunk's
+- `app/components/MiniMap.vue` — square 214px minimap (top-right), north-up
+  and centred on you, with a mono bar beneath it carrying your tile coordinates
+  and the loaded chunk count. Nothing is fogged; ground colour comes from each chunk's
   surface raster and walls from `occupancyGrid(chunk)` (from `world-sim`), one
   chunk at a time over a fixed tile range that is no longer derived from
   `COURTYARD`. Inside the protected *footprint* (`isProtectedTile`) the raster is
@@ -88,7 +89,14 @@ world from the seed and the committed layout JSON, because it authors them.
   coloured from the town constants instead; outside it, the rest of a town chunk
   included, the raster is real and shows what players have painted.
 - `CharacterPreview*.client.vue` — model preview rendering for onboarding
-  (coordinate visuals with `game-ui`, which owns the surrounding UI).
+  (coordinate visuals with `game-ui`, which owns the surrounding UI). Framing is
+  `LIFT` and `DISTANCE` in `CharacterPreviewModel`, both in units of the figure's
+  own height so every character frames the same. `LIFT` pans the eye *and* the
+  target down by the same amount — a pan, not a tilt, because tilting
+  foreshortens a character the design wants read straight on — and it exists so
+  the boots clear the name field stacked below. The gate's ground rule and glow
+  are positioned at the matching fraction of the stage (72%) rather than a fixed
+  offset from the bottom, or they detach from the feet as the window resizes.
 - `app/utils/characterModels.ts` owns the serialized GLB loader and shared
   scene/clip cache for both onboarding and the live game. `CharacterAsset`
   carries a scene template and the universal animation library's clips.

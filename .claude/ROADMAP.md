@@ -34,6 +34,14 @@
 - [x] Protocol test suite (`scripts/ws-test.mjs`) — creates characters over `/api/auth`, then asserts `welcome`/`state`/`chat`/`pong`/`leave`/`kicked`
 - [x] Bot load-testing script (`scripts/spawn-bots.mjs`)
 
+### UI redesign (design handoff: "Avelune UI — 2a Broadcast")
+- [x] One visual system across all seven screens — title, HUD, character creator, world map, game menu, chat, entry. Three type roles (Saira Condensed for structure, Archivo for prose, IBM Plex Mono for anything the server reports), one aqua accent, `.frost` panels, the corner notch on primary actions and the armed hotbar slot only, and the HUD rule that in-world text gets an edge wash rather than a panel. Tokens in `app/assets/css/main.css` + `app/app.config.ts`; the contract is in `.claude/agents/game-ui.md`
+- [x] Live data is content, not debug output: a real measured round trip (`useGame.rtt`, from the heartbeat), a world feed (`useFeed`, worded from `join`/`terrain`/`place`/`remove` in-game and from the server's own ring on the title screen), the roster, the day's peak and a nine-hour sparkline
+- [x] Entry screen shows the handshake step by step from real state — socket, realm, `N / 25` chunks, placement — and latches shut once you are in, surfacing only a dropped socket after that
+- [x] Protocol additions for it: `terrain` carries `by`/`mode`/`at` (a height has no owner the way a placement does), `welcome.world` carries `streamed`
+- [ ] Oracle provenance chip (`READ N CHUNKS · M PLAYERS`) — dropped, not faked: the persona forbids numbers and nothing counts them (handoff open question 4)
+- [ ] World-map plot hover tooltip (`PLOT 04 · TORVALD`, `18 PIECES · EDITED 14:01`) — dropped: per-plot piece counts and edit times aren't tracked
+
 ### Identity, onboarding & app shell
 - [x] Avelune branding, town wording in the UI, and metadata matching the current world. The identity cookie is `avelune_id`, so earlier characters re-onboard once.
 - [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `avelune_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
@@ -112,6 +120,7 @@ both sides share.
 ## Known issues / verify-me
 
 - [ ] **Nitro-beta dev server can die/crash-loop under the arena's GLB load burst** (dev worker exits silently or "Dev worker failed after 3 retries"); a prod build (`pnpm build` + `NUXT_SESSION_PASSWORD=… node .output/server/index.mjs`) serves the same session rock-solid — use it for headless verification (see the run-mmo skill)
+- [ ] **The socket drops and reconnects mid-session**, emptying the streamed world until chunks land again (`useWorld.reset()`). Pre-existing — `driver.mjs map` reproduces it on the pre-redesign commit too, where it showed as a silent "0 chunks loaded" — but the redesign now says so out loud (the entry overlay's reconnect notice, the map's live pip going amber). Two flavours seen: a recycle after roughly three minutes, and a drop within seconds of the map-mode canvas click. Worth pinning down whether the close is Nitro/crossws, the platform, or something the click triggers
 - [ ] Ranger's **hairstyle selector has no visible effect** — the hood is always baked on and covers it; the intended "hooded ⇒ no hairstyle choice" isn't enforced in the gate UI
 - [ ] Pointer lock impossible in the Claude preview iframe (`WrongDocumentError`) — real tabs/deploy are fine; delta-look fallback covers embeds
 - [ ] Without pointer lock the OS cursor can pin at screen edges mid-turn (fullscreen `F` mitigates)

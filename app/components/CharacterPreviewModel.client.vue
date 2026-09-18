@@ -18,7 +18,6 @@ const props = defineProps<{ character: string, outfitColor: number }>()
 const model = shallowRef<Group | null>(null)
 let mixer: AnimationMixer | null = null
 let token = 0
-let figureHeight = 1.8
 
 async function rebuild() {
   const mine = ++token
@@ -35,12 +34,14 @@ async function rebuild() {
   })
   applyOutfitColor(next, outfitColorTexture(outfitOf(character), outfitColor))
 
-  // Center on the origin so the fixed camera frames the whole figure.
+  // Stand the figure on the origin rather than centring it on it. Characters
+  // are not all the same height (1.78–1.84), so centring put every pair of
+  // boots at a different depth in frame; standing them on a shared floor means
+  // the stage's ground glow lands under the boots whoever is there.
   next.updateMatrixWorld(true)
   const bounds = new Box3().setFromObject(next)
   const center = bounds.getCenter(new Vector3())
-  figureHeight = bounds.max.y - bounds.min.y
-  next.position.set(-center.x, -center.y, -center.z)
+  next.position.set(-center.x, -bounds.min.y, -center.z)
 
   if (model.value) {
     mixer?.stopAllAction()
@@ -56,6 +57,23 @@ async function rebuild() {
 
 const { camera: cameraManager } = useTresContext()
 const { onBeforeRender } = useLoop()
+
+/**
+ * Framing, in world units and the same for every character.
+ *
+ * Deliberately *not* scaled to each figure's own height: backing the camera off
+ * in proportion makes a taller character render smaller, which is exactly
+ * backwards — the male peasant measures 1.84 against the female's 1.78 and came
+ * out ~3% smaller on screen. A fixed frame lets that difference read as height.
+ *
+ * `CENTRE` is the world height the camera looks at, chosen so the feet (now at
+ * y = 0) land 72% down the frame: the bottom of the gate is not free, the
+ * summary line and the name field stack there, and the stage's ground glow is
+ * positioned at the matching 72%. `DISTANCE` leaves the tallest character about
+ * a seventh of the frame in air above the head.
+ */
+const CENTRE = 0.66
+const DISTANCE = 4.9
 
 // Turntable: auto-spins until the user grabs the character, then drag rotates it.
 let yaw = 0
@@ -82,15 +100,18 @@ function onPointerUp() {
 
 onBeforeRender(({ delta }) => {
   // Frame the (origin-centered) figure from slightly above, looking at its mid.
+  // Both the eye and the target drop by the same amount, so this is a pan and
+  // not a tilt — tilting would foreshorten the character the design wants read
+  // straight on.
   const cam = cameraManager.activeCamera.value
   if (cam instanceof PerspectiveCamera) {
-    cam.position.set(0, 0.15, figureHeight * 2.3)
+    cam.position.set(0, CENTRE + 0.15, DISTANCE)
     if (!cameraConfigured) {
       cam.fov = 34
       cam.updateProjectionMatrix()
       cameraConfigured = true
     }
-    cam.lookAt(0, 0, 0)
+    cam.lookAt(0, CENTRE, 0)
   }
   if (autoSpin && !dragging) yaw += delta * 0.35
   if (model.value) model.value.rotation.y = yaw

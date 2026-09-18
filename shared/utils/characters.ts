@@ -154,15 +154,28 @@ export function characterFor(id: string): string {
 /* Accent color (chat / nameplate identity only — never dyes the outfit)      */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Hue is the identity; lightness is set by where these have to be legible. A
+ * name is drawn on a frosted chat panel and on a nameplate over the bare world,
+ * so the worst case is a sunlit wall behind it — at the authored lightnesses
+ * red and indigo landed at 2.5:1 there. Each is lifted (never darkened, which
+ * would lose the hue against a dark UI) to the first lightness that clears
+ * 4:1 on that surface; gold already did.
+ *
+ * The identity cookie stores the resolved colour *string*, not an index, so
+ * anyone already holding an old value keeps it until they next save a
+ * character, at which point the accent is re-rolled. Nothing is live yet, so
+ * that is cheaper than carrying a migration.
+ */
 export const PLAYER_COLORS: string[] = [
-  'hsl(6, 85%, 60%)', // red
-  'hsl(28, 90%, 56%)', // orange
+  'hsl(6, 85%, 76%)', // red
+  'hsl(28, 90%, 63%)', // orange
   'hsl(45, 90%, 55%)', // gold
-  'hsl(140, 55%, 50%)', // green
-  'hsl(172, 68%, 44%)', // teal
-  'hsl(205, 85%, 58%)', // blue
-  'hsl(255, 68%, 67%)', // indigo
-  'hsl(318, 70%, 62%)', // magenta
+  'hsl(140, 55%, 52%)', // green
+  'hsl(172, 68%, 46%)', // teal
+  'hsl(205, 85%, 67%)', // blue
+  'hsl(255, 68%, 79%)', // indigo
+  'hsl(318, 70%, 75%)', // magenta
 ]
 export const DEFAULT_COLOR_INDEX = 5 // blue
 

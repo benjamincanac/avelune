@@ -43,6 +43,9 @@ export interface UseWorld {
   persistent: Ref<boolean | null>
   /** From `welcome.world`: the realm id this server owns, null until connected. */
   realm: Ref<string | null>
+  /** From `welcome.world`: how many chunks the server streams around a settled
+   *  player, so the entry screen can say how far terrain has got. */
+  streamed: Ref<number | null>
   /** Feed a server frame in. Returns true if it was a world frame. */
   handle: (msg: ServerMessage) => boolean
   /** Drop everything (a disconnect invalidates the loaded set). */
@@ -78,6 +81,7 @@ export function useWorld(): UseWorld {
   const build = useBuild()
   const chunkCount = ref(0)
   const persistent = ref<boolean | null>(null)
+  const streamed = ref<number | null>(null)
   const realm = ref<string | null>(null)
 
   const listeners = {
@@ -135,6 +139,7 @@ export function useWorld(): UseWorld {
         build.deeds.value = msg.deeds
         persistent.value = msg.world.persistent
         realm.value = msg.world.realm
+        streamed.value = msg.world.streamed
         return true
       case 'chunk':
         install(msg)
@@ -228,6 +233,7 @@ export function useWorld(): UseWorld {
     chunkCount,
     persistent,
     realm,
+    streamed,
     handle,
     reset,
     onChunk: on(listeners.chunk),

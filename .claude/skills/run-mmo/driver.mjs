@@ -112,7 +112,7 @@ const nameField = page.getByPlaceholder(/name your character/i)
 if (await nameField.count()) {
   await nameField.fill('Probe').catch(() => {})
   await page.waitForTimeout(200)
-  await click(/^enter$/i)
+  await click(/^enter( the world)?$/i)
 }
 
 // WS connect + hub build + streamed models + a follow-up rebuild once deferred

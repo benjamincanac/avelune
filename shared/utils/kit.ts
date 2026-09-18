@@ -33,3 +33,10 @@ export const DEED_KIND = 'Kit_Deed'
 
 export type KitKind = keyof typeof KIT_ASSETS
 export const KIT_NAMES = Object.keys(KIT_ASSETS) as KitKind[]
+
+/** `Kit_WallWindow` reads as "Wall window" — on the hotbar and in the feed,
+ *  which the server words too, so the label belongs to the kit, not the bar. */
+export function kitLabel(kind: string): string {
+  const words = kind.slice(4).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}

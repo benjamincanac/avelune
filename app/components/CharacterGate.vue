@@ -2,10 +2,18 @@
 import { GENDERS, HAIRSTYLES, OUTFITS, OUTFIT_COLORS, PLAYER_COLORS, characterName, isAllowedColorIndex, isOutfitColor, randomAppearance, randomColorIndex } from '#shared/utils/characters'
 import type { Gender } from '#shared/utils/characters'
 import type { Player } from '#shared/types/game'
+import { DEED_LIMIT, EDIT_REACH, MAX_PIECES_PER_PLAYER } from '#shared/utils/building'
+import { BUILD_PAGES } from '~/composables/useBuild'
+import type { WorldEvent } from '~/composables/useFeed'
 
 /**
  * The onboarding gate previews appearance changes before creating an identity.
  * Characters offer gender, outfit, hairstyle and texture colorway choices.
+ *
+ * Three zones on a dark stage: options left, dossier right, the commit stack
+ * centred at the bottom. The character is the only thing at full brightness —
+ * everything else is frost over a neutral radial, so a change of outfit reads
+ * on the model rather than on the furniture.
  *
  * The accent color is NOT chosen here — it's rolled randomly at login (never
  * green/teal, reserved for system UI) and used only as a chat/nameplate
@@ -18,6 +26,10 @@ const props = defineProps<{ initial?: Pick<Player, 'name' | 'color' | 'character
 const emit = defineEmits<{ done: [identity: Player], cancel: [] }>()
 
 const toast = useToast()
+const feed = useFeed()
+
+/** The server's own limit (`auth.post.ts`), mirrored so the counter is true. */
+const MAX_NAME = 20
 
 const initialParts = props.initial?.character?.split('_') ?? []
 const initialGender = GENDERS.find(g => g === initialParts[1]) ?? 'Male'
@@ -36,9 +48,56 @@ const currentOutfit = computed(() => OUTFITS[outfitIndex.value]!)
 const hairstyles = computed(() => HAIRSTYLES[gender.value])
 const colorways = computed(() => OUTFIT_COLORS[currentOutfit.value.id] ?? [])
 const hairId = computed(() => hairstyles.value[hairIndex.value]?.id)
+const hairName = computed(() => hairstyles.value[hairIndex.value]?.name ?? '')
 const character = computed(() => characterName(currentOutfit.value.id, gender.value, hairId.value))
 // A name is required to enter (Accept disabled, Enter ignored, until non-blank).
 const canSubmit = computed(() => username.value.trim().length > 0)
+
+/**
+ * Every choice on this panel is a single-select, so each one is a real
+ * `URadioGroup`: arrow-key navigation, a focus ring, and a radio the form and a
+ * screen reader can both see. The look is the design's fused cells, applied
+ * through `ui` rather than by hand-rolling buttons — which is what lost the
+ * focus states in the first place.
+ */
+const genderItems = computed(() => GENDERS.map(g => ({ label: g, value: g })))
+const outfitItems = computed(() => OUTFITS.map((outfit, value) => ({ label: outfit.name, icon: outfit.icon, value })))
+const hairItems = computed(() => hairstyles.value.map((hair, value) => ({ label: hair.name, value })))
+const colorwayItems = computed(() => colorways.value.map((colorway, value) => ({ label: colorway.name, swatch: colorway.swatch, value })))
+
+/** The library's card focus is a 25%-opacity outline plus a 1px border colour,
+ *  which disappears against a frosted panel — these cells state it outright. */
+const FOCUS = 'has-focus-visible:outline-solid has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-primary'
+/** Square, fused by a 1px gap over the panel, and never rounded by the library
+ *  default. The two checked treatments below differ only in weight: a solid
+ *  accent fill for the top-level choice, an accent wash for the sub-choices. */
+const CELL = `flex-1 rounded-none border-transparent p-0 bg-white/8 transition-colors duration-120 ease-out hover:bg-white/12 ${FOCUS}`
+const CELL_SOLID = {
+  fieldset: 'flex-nowrap gap-px',
+  item: `${CELL} has-data-[state=checked]:border-transparent has-data-[state=checked]:bg-primary`,
+  wrapper: 'w-full',
+  label: 'w-full',
+}
+const CELL_WASH = {
+  fieldset: 'flex-nowrap gap-px',
+  item: `${CELL} has-data-[state=checked]:border-primary/45 has-data-[state=checked]:bg-primary/12`,
+  wrapper: 'w-full',
+  label: 'w-full',
+}
+const SWATCH = {
+  fieldset: 'flex-nowrap gap-2',
+  item: `rounded-[4px] border-transparent p-0 has-data-[state=checked]:border-transparent ${FOCUS}`,
+  wrapper: 'w-full',
+  label: 'w-full',
+}
+
+/** What the server hands every new character, straight from the shared rules. */
+const dossier = computed(() => [
+  { label: 'Carry', value: `${MAX_PIECES_PER_PLAYER} pieces` },
+  { label: 'Reach', value: `${EDIT_REACH} tiles` },
+  { label: 'Plots', value: `${DEED_LIMIT}` },
+  { label: 'Tools', value: (BUILD_PAGES[0]?.slots ?? []).slice(0, 3).map(slot => slot.label).join(' · '), accent: true },
+])
 
 // Keep sub-selections valid as gender/outfit change.
 watch([gender, outfitIndex], () => {
@@ -76,24 +135,30 @@ async function submit() {
   }
 }
 
-onMounted(() => input.value?.inputRef?.focus())
+onMounted(async () => {
+  input.value?.inputRef?.focus()
+  // The world is already running while you pick a face; show it. One probe, no
+  // poll — this screen is measured in seconds, not minutes.
+  try {
+    const status = await $fetch<{ feed: WorldEvent[] }>('/api/status')
+    feed.adopt(status.feed)
+  }
+  catch {
+    // The feed is a nicety here; without it the aside simply doesn't render.
+  }
+})
 </script>
 
 <template>
-  <div class="pointer-events-auto absolute inset-0 z-40 overflow-hidden bg-[#05070d] text-white">
-    <!-- Per-outfit atmospheric backdrop, crossfading when the outfit changes. -->
-    <Transition
-      enter-active-class="transition-opacity duration-500"
-      enter-from-class="opacity-0"
-      leave-active-class="transition-opacity duration-500"
-      leave-to-class="opacity-0"
-    >
-      <div
-        :key="currentOutfit.id"
-        class="absolute inset-0"
-        :style="{ background: currentOutfit.bg }"
-      />
-    </Transition>
+  <div class="pointer-events-auto absolute inset-0 z-40 overflow-hidden bg-stage text-white">
+    <!-- The stage. One neutral radial, so the character is the only thing at
+         full brightness and an outfit change reads on the model. -->
+    <div class="absolute inset-0 bg-[radial-gradient(66%_62%_at_50%_40%,#16222b_0%,#0c1216_48%,#070d0f_100%)]" />
+    <!-- The ground under the feet. Placed as a fraction of the stage rather than
+         a fixed offset from the bottom: the camera frames the figure by its own
+         height, so the boots land at the same 72% whatever the window is. -->
+    <div class="absolute left-1/2 top-[72%] h-px w-105 -translate-x-1/2 -translate-y-1/2 bg-[linear-gradient(90deg,rgb(111_240_218/0),rgb(111_240_218/0.5),rgb(111_240_218/0))]" />
+    <div class="absolute left-1/2 top-[72%] h-15 w-110 -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(50%_50%,rgb(111_240_218/0.16),rgb(111_240_218/0))]" />
 
     <!-- Big 3D character stage (transparent canvas over the backdrop). -->
     <CharacterPreview
@@ -101,175 +166,214 @@ onMounted(() => input.value?.inputRef?.focus())
       :outfit-color="outfitColor"
       class="absolute inset-0"
     />
-    <!-- Vignette for depth (transparent center keeps the character crisp). -->
-    <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_42%,transparent_38%,#05070daa_92%)]" />
 
-    <!-- Brand. -->
-    <div class="absolute left-6 top-5 z-10 flex items-center gap-2.5">
-      <img
-        src="/logo.svg?v=wind"
-        alt="Avelune"
-        class="size-9 rounded-md"
-      >
-      <div class="flex flex-col leading-tight">
-        <span class="text-sm font-semibold tracking-[0.2em] text-highlighted">AVELUNE</span>
-        <span class="text-[11px] text-muted">{{ initial ? 'Customize your character' : 'Create your character' }}</span>
-      </div>
+    <!-- Brand + what this screen is. -->
+    <div class="absolute left-9 top-8 z-10 flex items-center gap-3.5">
+      <BrandMark size="sm" />
+      <span class="h-4 w-px bg-white/18" />
+      <span class="telemetry tracking-[0.18em] text-dimmed">{{ initial ? 'Customize your character' : 'Create your character' }}</span>
     </div>
 
     <!-- Left: creation controls. -->
-    <div class="absolute left-6 top-24 z-10 flex max-h-[calc(100vh-12rem)] w-80 flex-col gap-4 overflow-y-auto rounded-lg ring ring-white/5 bg-black/35 p-4 backdrop-blur">
-      <!-- Gender -->
-      <div>
-        <p class="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted">
-          Gender
-        </p>
-        <div class="grid grid-cols-2 gap-1 rounded-lg bg-black/40 p-1">
-          <button
-            v-for="g in GENDERS"
-            :key="g"
-            type="button"
-            class="flex items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-medium transition"
-            :class="gender === g ? 'bg-primary text-inverted' : 'text-muted hover:text-highlighted'"
-            @click="gender = g"
-          >
-            <UIcon :name="g === 'Male' ? 'i-lucide-mars' : 'i-lucide-venus'" />
-            {{ g }}
-          </button>
-        </div>
-      </div>
+    <div class="frost absolute left-9 top-24 z-10 flex max-h-[calc(100dvh-14rem)] w-79.5 flex-col gap-5.5 overflow-y-auto rounded-[6px] p-5.5">
+      <URadioGroup
+        v-model="gender"
+        legend="Gender"
+        :items="genderItems"
+        variant="card"
+        orientation="horizontal"
+        indicator="hidden"
+        :ui="{ ...CELL_SOLID, legend: 'label-section mb-2.25 text-label' }"
+      >
+        <template #label="{ item, modelValue }">
+          <span
+            class="block w-full py-3 text-center font-display text-sm uppercase leading-none tracking-[0.16em]"
+            :class="modelValue === item.value ? 'font-bold text-avelune-950' : 'font-semibold text-muted'"
+          >{{ item.label }}</span>
+        </template>
+      </URadioGroup>
 
-      <!-- Outfit -->
-      <div>
-        <p class="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted">
-          Outfit
-        </p>
-        <div class="flex flex-col gap-1">
-          <button
-            v-for="(o, i) in OUTFITS"
-            :key="o.id"
-            type="button"
-            class="flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition"
-            :class="outfitIndex === i
-              ? 'border-primary/60 bg-primary/15 text-highlighted'
-              : 'border-white/10 bg-black/30 text-toned hover:border-white/25'"
-            @click="outfitIndex = i"
-          >
+      <!-- No notch on these rows: it is reserved for actions, and here it read
+           as noise. -->
+      <URadioGroup
+        v-model="outfitIndex"
+        legend="Outfit"
+        :items="outfitItems"
+        variant="card"
+        orientation="vertical"
+        indicator="hidden"
+        :ui="{ ...CELL_WASH, legend: 'label-section mb-2.25 text-label' }"
+      >
+        <template #label="{ item, modelValue }">
+          <span class="flex w-full items-center gap-3.25 px-3.5 py-3.25 text-left">
             <UIcon
-              :name="o.icon"
-              class="size-5 shrink-0"
-              :class="outfitIndex === i ? 'text-primary' : 'text-muted'"
+              :name="item.icon"
+              class="size-4.25 shrink-0"
+              :class="modelValue === item.value ? 'text-primary' : 'text-dimmed'"
             />
-            <span class="text-sm font-medium">{{ o.name }}</span>
-          </button>
-        </div>
-      </div>
+            <span
+              class="flex-1 text-base leading-none"
+              :class="modelValue === item.value ? 'font-semibold text-highlighted' : 'font-medium text-toned'"
+            >{{ item.label }}</span>
+            <span
+              v-if="modelValue === item.value"
+              class="telemetry text-primary"
+            >Active</span>
+          </span>
+        </template>
+      </URadioGroup>
 
-      <!-- Hairstyle -->
-      <div>
-        <p class="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted">
-          Hair
-        </p>
-        <div class="flex flex-wrap gap-1">
-          <button
-            v-for="(h, i) in hairstyles"
-            :key="h.id"
-            type="button"
-            class="rounded-lg border px-3 py-1.5 text-sm font-medium transition"
-            :class="hairIndex === i
-              ? 'border-primary/60 bg-primary/15 text-highlighted'
-              : 'border-white/10 bg-black/30 text-toned hover:border-white/25'"
-            @click="hairIndex = i"
-          >
-            {{ h.name }}
-          </button>
-        </div>
-      </div>
+      <URadioGroup
+        v-model="hairIndex"
+        legend="Hair"
+        :items="hairItems"
+        variant="card"
+        orientation="horizontal"
+        indicator="hidden"
+        :ui="{ ...CELL_WASH, legend: 'label-section mb-2.25 text-label' }"
+      >
+        <template #label="{ item, modelValue }">
+          <span
+            class="block w-full py-2.75 text-center font-display text-[13px] uppercase leading-none tracking-[0.14em]"
+            :class="modelValue === item.value ? 'font-bold text-primary' : 'font-semibold text-muted'"
+          >{{ item.label }}</span>
+        </template>
+      </URadioGroup>
 
-      <!-- Outfit color (texture-pack colorways) -->
-      <div v-if="colorways.length > 1">
-        <p class="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted">
-          Outfit color
-        </p>
-        <div class="flex items-center gap-2">
-          <button
-            v-for="(c, i) in colorways"
-            :key="c.name"
-            type="button"
-            class="size-7 rounded-md ring-2 ring-offset-2 ring-offset-black/55 transition"
-            :class="i === outfitColor ? 'ring-white' : 'ring-transparent hover:ring-white/40'"
-            :style="{ backgroundColor: c.swatch }"
-            :aria-label="c.name"
-            :title="c.name"
-            @click="outfitColor = i"
+      <URadioGroup
+        v-if="colorways.length > 1"
+        v-model="outfitColor"
+        legend="Outfit colour"
+        :items="colorwayItems"
+        variant="card"
+        orientation="horizontal"
+        indicator="hidden"
+        :ui="{ ...SWATCH, legend: 'label-section mb-2.25 text-label' }"
+      >
+        <template #label="{ item, modelValue }">
+          <span
+            class="block size-9.5 rounded-[4px] transition-shadow duration-120 ease-out"
+            :class="modelValue === item.value
+              ? 'shadow-[0_0_0_2px_var(--ui-primary)]'
+              : 'shadow-[inset_0_0_0_1px_rgb(255_255_255/0.2)] hover:shadow-[0_0_0_2px_rgb(255_255_255/0.4)]'"
+            :style="{ backgroundColor: item.swatch }"
           />
-        </div>
-      </div>
+          <span class="sr-only">{{ item.label }}</span>
+        </template>
+      </URadioGroup>
 
       <UButton
-        icon="i-lucide-dices"
-        label="Randomize"
-        color="neutral"
-        variant="soft"
         block
+        color="neutral"
+        variant="subtle"
+        size="sm"
+        icon="i-lucide-dices"
+        label="Randomise"
         @click="randomize"
       />
     </div>
 
-    <!-- Right: flavor. -->
-    <aside class="absolute right-6 top-24 z-10 hidden w-72 flex-col gap-3 rounded-lg ring ring-white/5 bg-black/55 p-4 backdrop-blur lg:flex">
-      <div class="flex items-center gap-2">
-        <UIcon
-          :name="currentOutfit.icon"
-          class="size-5 text-primary"
-        />
-        <span class="text-base font-semibold text-highlighted">{{ currentOutfit.name }}</span>
+    <!-- Right: what you are choosing, and what the world hands you for it. -->
+    <aside class="absolute right-9 top-24 z-10 hidden w-81 flex-col lg:flex">
+      <div class="frost rounded-[6px] border-t-2 border-primary p-5.5">
+        <div class="flex items-center gap-3">
+          <span class="flex size-8.5 items-center justify-center rounded-[4px] bg-primary/14 text-primary">
+            <UIcon
+              :name="currentOutfit.icon"
+              class="size-4"
+            />
+          </span>
+          <h2 class="font-display text-[22px] font-bold uppercase leading-none tracking-widest text-highlighted">
+            {{ currentOutfit.name }}
+          </h2>
+        </div>
+        <p class="mt-4 text-base/normal text-muted text-pretty">
+          {{ currentOutfit.blurb }}
+        </p>
+        <dl class="fused mt-5 flex-col bg-white/8">
+          <div
+            v-for="row in dossier"
+            :key="row.label"
+            class="telemetry flex items-center justify-between gap-4 bg-white/6 px-3 py-2.5"
+          >
+            <dt class="shrink-0 text-label">
+              {{ row.label }}
+            </dt>
+            <dd
+              class="truncate"
+              :class="row.accent ? 'text-primary' : 'text-highlighted'"
+            >
+              {{ row.value }}
+            </dd>
+          </div>
+        </dl>
       </div>
-      <p class="text-sm leading-relaxed text-toned">
-        {{ currentOutfit.blurb }}
-      </p>
+
+      <!-- The town is already running while you pick a face. -->
+      <WorldFeed
+        :events="feed.events.value"
+        :rows="2"
+        class="-mr-9 mt-5"
+      />
     </aside>
 
-    <!-- Character caption. -->
-    <div class="pointer-events-none absolute inset-x-0 bottom-29 z-10 flex justify-center">
-      <p class="text-sm">
-        <span class="font-semibold text-highlighted">{{ currentOutfit.name }}</span>
-        <span class="text-muted"> · {{ gender }}</span>
-      </p>
-    </div>
+    <!-- Bottom: what you picked, what you are called, and the way in. -->
+    <div class="absolute inset-x-0 bottom-8.5 z-10 flex justify-center px-6">
+      <div class="flex w-110 max-w-full flex-col items-center gap-2.5">
+        <p class="telemetry flex items-center gap-3 whitespace-nowrap tracking-[0.18em] text-dimmed">
+          <span class="text-highlighted">{{ currentOutfit.name }}</span>
+          <span class="text-faint">·</span>
+          <span>{{ gender }}</span>
+          <template v-if="hairName">
+            <span class="text-faint">·</span>
+            <span>{{ hairName }}</span>
+          </template>
+        </p>
 
-    <!-- Bottom: name + enter. -->
-    <div class="absolute inset-x-0 bottom-6 z-10 flex justify-center px-4">
-      <div class="flex flex-col w-full max-w-3xs items-center gap-2">
+        <!-- The frame belongs to the input's own root, and the label and counter
+             to its leading/trailing slots. Wrapping it in a div instead leaves a
+             field whose padding looks clickable and isn't. -->
         <UInput
           ref="input"
           v-model="username"
           placeholder="Name your character"
-          :maxlength="20"
-          color="neutral"
-          size="lg"
-          class="flex-1 w-full"
+          :maxlength="MAX_NAME"
+          variant="none"
           autofocus
+          :ui="{
+            root: 'frost w-full rounded-[6px] px-5 py-4 shadow-[inset_0_0_0_1px_rgb(111_240_218/0.34)]',
+            base: 'h-auto rounded-none py-0 pe-14 ps-15 text-lg leading-none text-highlighted caret-primary placeholder:text-label',
+            leading: 'ps-5',
+            trailing: 'pe-5',
+          }"
           @keydown.enter.prevent="submit"
-        />
+        >
+          <template #leading>
+            <span class="telemetry tracking-[0.16em] text-primary">Name</span>
+          </template>
+          <template #trailing>
+            <span class="font-mono text-[10px] font-semibold leading-none text-faint">{{ username.length }} / {{ MAX_NAME }}</span>
+          </template>
+        </UInput>
+
         <div class="flex w-full gap-2">
           <UButton
             v-if="initial"
-            label="Cancel"
             color="neutral"
-            variant="soft"
+            variant="subtle"
             size="lg"
+            label="Cancel"
             :disabled="submitting"
-            class="flex-1 justify-center"
+            class="flex-1 justify-center py-4.5 text-sm"
             @click="emit('cancel')"
           />
           <UButton
-            :label="initial ? 'Save' : 'Enter'"
-            color="neutral"
             size="lg"
+            trailing-icon="i-lucide-play"
+            :label="initial ? 'Save character' : 'Enter the world'"
             :loading="submitting"
             :disabled="!canSubmit"
-            class="flex-1 justify-center"
+            class="notch-wide flex-1 justify-center py-4.5 text-[17px] tracking-[0.2em] disabled:opacity-55"
             @click="submit"
           />
         </div>

@@ -1,47 +1,169 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
 
+/**
+ * Avelune's design system: a live-service game front-end rendered in frosted
+ * glass. Three type roles and no exceptions — Saira Condensed (uppercase) for
+ * structure and numerals, Archivo for prose, IBM Plex Mono for anything the
+ * server reports. One aqua accent carries every live indicator and every
+ * primary action.
+ */
 @theme static {
-  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, monospace;
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* Structure: wordmark, screen titles, section labels, button labels, big
+     numerals. Always uppercase — the UI reads as broken without it. */
+  --font-display: 'Saira Condensed', 'Archivo', sans-serif;
 
-  --color-blue-50: #F5F9FD;
-  --color-blue-100: #E7F1FA;
-  --color-blue-200: #CCE9F6;
-  --color-blue-300: #B0D3EF;
-  --color-blue-400: #93B9E8;
-  --color-blue-500: #6E99D4;
-  --color-blue-600: #4E7EBE;
-  --color-blue-700: #3A71A4;
-  --color-blue-800: #305C86;
-  --color-blue-900: #2A4B6C;
-  --color-blue-950: #1B2F45;
+  --color-avelune-50: #EEFFFB;
+  --color-avelune-100: #D3FFF6;
+  --color-avelune-200: #A6F9EB;
+  --color-avelune-300: #9AF5E6;
+  --color-avelune-400: #6FF0DA;
+  --color-avelune-500: #2BD8BC;
+  --color-avelune-600: #17AE97;
+  --color-avelune-700: #158A79;
+  --color-avelune-800: #156B5F;
+  --color-avelune-900: #0E3C36;
+  --color-avelune-950: #04211D;
 
-  --color-avelune-50: #EEF8FF;
-  --color-avelune-100: #D0E1F0;
-  --color-avelune-200: #A3B1C6;
-  --color-avelune-300: #5CC8E4;
-  --color-avelune-400: #00DDEB;
-  --color-avelune-500: #0681B4;
-  --color-avelune-600: #0A5C8A;
-  --color-avelune-700: #112A43;
-  --color-avelune-800: #0C1A2F;
-  --color-avelune-900: #071120;
-  --color-avelune-950: #040A14;
+  /* The app background. Scrims, veils and edge washes all fade toward
+     `rgb(6 14 17)`, a touch darker, and say so inline where they are used. */
+  --color-stage: #081114;
 
-  /* Custom Gradient Utility utilizing the scale */
-  --background-image-login-button: linear-gradient(180deg, var(--color-avelune-300) 0%, var(--color-avelune-500) 100%);
+  /* Section labels and mono keys; separators and disabled text. The five steps
+     between them are Nuxt UI's own text tokens, remapped below.
+
+     Both sit well above the handoff's values (#6F7A86 / #4F5A64), which measured
+     4.36:1 and 2.71:1 on the app background — under AA for text this small.
+     These clear 9:1 and 6.5:1 there, with headroom on purpose: the type they
+     carry is 10px mono, where a ratio that is technically fine still reads
+     thin. */
+  --color-label: #A8B3BF;
+  --color-faint: #8A95A2;
 }
 
+/**
+ * Both pages force dark, so these are the only values that ship. The text ramp
+ * is the design's seven-step one: `highlighted` → `dimmed` cover five of them
+ * and `label`/`faint` above cover the last two.
+ */
 .dark {
-  --ui-bg: #0a0a0a;
-  --ui-bg-muted: oklch(17.5% 0 0);
-  --ui-bg-elevated: oklch(20.5% 0 0);
-  --ui-bg-accented: oklch(26.9% 0 0);
-  --ui-border: oklch(26.9% 0 0);
-  --ui-border-muted: oklch(23% 0 0);
+  --ui-bg: var(--color-stage);
+  --ui-bg-muted: #0C171B;
+  --ui-bg-elevated: rgba(255, 255, 255, 0.08);
+  --ui-bg-accented: rgba(255, 255, 255, 0.14);
+  --ui-border: rgba(255, 255, 255, 0.12);
+  --ui-border-muted: rgba(255, 255, 255, 0.07);
+  --ui-border-accented: rgba(255, 255, 255, 0.18);
+
+  /* Lifted from the handoff's #8F9AA5 for the same reason as `label` above. */
+  /* The one destructive colour, so `color="error"` and the design's danger are
+     the same thing — buttons, toasts and the log-out row all read from it. */
+  --ui-error: #E07A5F;
+
+  --ui-text-dimmed: #A4AEB9;
+  --ui-text-muted: #B6BFC9;
+  --ui-text-toned: #CDD5DD;
+  --ui-text: #F2F5F7;
+  --ui-text-highlighted: #FFFFFF;
 }
 
 html {
   overscroll-behavior: none;
+}
+
+@layer components {
+  /**
+   * The one frosted surface. Every panel uses it and nothing else does: each
+   * frosted layer is a separate composite pass over the live WebGL canvas, so
+   * the count per screen stays low. Borders are inset shadows rather than
+   * `border`, so they never move anything.
+   */
+  .frost {
+    /* 0.66 rather than the handoff's 0.5: at 0.5 this panel over sunlit stone
+       composites to #60686c, where even `muted` text lands at 3.05:1. At 0.66
+       the worst case is 4.7:1 and the glass still reads as glass. */
+    background: rgb(8 17 20 / 0.66);
+    backdrop-filter: blur(26px);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  }
+
+  /** Modals sit over a frozen render, so they can afford to be heavier. */
+  .frost-modal {
+    background: rgb(8 17 20 / 0.76);
+    backdrop-filter: blur(30px);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.14),
+      0 40px 90px rgb(0 0 0 / 0.6);
+  }
+
+  /**
+   * The HUD rule: in-world text never gets a panel. Anything overlaid on the
+   * live render that isn't interactive sits as plain text on an edge-anchored
+   * gradient wash, never blurred — panels are reserved for things you click.
+   */
+  .wash-right {
+    background: linear-gradient(90deg, rgb(6 14 17 / 0), rgb(6 14 17 / 0.78));
+  }
+
+  /**
+   * Text sitting directly on the render, with no panel under it. The wash alone
+   * cannot carry small type over a sunlit wall, and the alternative — giving
+   * these surfaces a panel — is the one thing the HUD rule forbids. Same shadow
+   * the handoff puts under the hotbar's telemetry row.
+   */
+  .on-render {
+    text-shadow: 0 1px 4px rgb(0 0 0 / 0.9);
+  }
+
+  /**
+   * The corner notch, the system's one shape signature. Applied only to primary
+   * buttons and the active hotbar slot — never to panels, avatars, rows or
+   * inputs, where it reads as noise.
+   */
+  .notch-btn {
+    clip-path: polygon(0 0, 100% 0, 100% 66%, 90% 100%, 0 100%);
+  }
+
+  /** Wide elements take a shallower cut, or the bite swallows the label. */
+  .notch-wide {
+    clip-path: polygon(0 0, 100% 0, 100% 62%, 96% 100%, 0 100%);
+  }
+
+  /** Section label: `SECTION`, above a group. */
+  .label-section {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+  }
+
+  /**
+   * Telemetry: ping, coordinates, counts, timestamps, state names.
+   *
+   * 600, not the handoff's 500. At 10px with 0.12em+ tracking on a dark ground,
+   * mono strokes are thin enough to read as washed out at ratios well past 7:1
+   * — the fix for that is weight, not a lighter grey.
+   */
+  .telemetry {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /**
+   * Panel groups fuse with 1px gaps over a lit parent rather than per-child
+   * borders — stat blocks, telemetry tables, the legend, action lists.
+   */
+  .fused {
+    display: flex;
+    gap: 1px;
+    background: rgb(255 255 255 / 0.1);
+  }
 }

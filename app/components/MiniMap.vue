@@ -3,25 +3,31 @@ import { drawPlayerDot, drawSelfArrow, MAP_COLORS, mapProjection, paintWorld } f
 import type { UseGame } from '~/composables/useGame'
 
 /**
- * Round minimap centered on the player, with nearby streets and landmarks.
+ * Square minimap centered on the player, with nearby streets and landmarks, and
+ * a mono bar underneath carrying the two numbers the server owns: where you are
+ * and how much of the world you are holding.
  *
  * The drawing itself is `app/utils/mapDraw.ts`, shared with the full-screen
  * world map (`M`) so the two can never drift apart — this component only picks
- * the window: a circle, north-up, centred on you.
+ * the window: north-up, centred on you.
  */
 
 const props = defineProps<{ game: UseGame }>()
 
-const SIZE = 172
+const SIZE = 214
 /** Half-extent of the window, in tiles. The world is open now, so this is a
  *  zoom level rather than a fraction of the town. */
-const RANGE = 34
+const RANGE = 40
 
 const canvas = useTemplateRef('canvas')
 
 /** The same streamed world the scene walks on: the map can only show ground
  *  the server has actually given us, which is the point. */
-const { world } = useWorld()
+const { world, chunkCount } = useWorld()
+
+/** Where we are, for the bar. Rounded, because a tile is the unit anyone cares
+ *  about and a float would flicker every frame. */
+const at = reactive({ x: 0, y: 0 })
 
 function draw() {
   const el = canvas.value
@@ -39,12 +45,10 @@ function draw() {
   }
   const project = mapProjection(paint)
 
-  ctx.clearRect(0, 0, SIZE, SIZE)
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2)
-  ctx.clip()
+  at.x = Math.round(self.rx)
+  at.y = Math.round(self.ry)
 
+  ctx.clearRect(0, 0, SIZE, SIZE)
   ctx.fillStyle = MAP_COLORS.backdrop
   ctx.fillRect(0, 0, SIZE, SIZE)
 
@@ -57,15 +61,6 @@ function draw() {
     drawPlayerDot(ctx, x, y, player.color)
   }
   drawSelfArrow(ctx, SIZE / 2, SIZE / 2, self.ra)
-
-  ctx.restore()
-
-  // Rim.
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)'
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 1, 0, Math.PI * 2)
-  ctx.stroke()
 }
 
 let timer: ReturnType<typeof setInterval> | undefined
@@ -76,12 +71,21 @@ onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <template>
-  <canvas
-    ref="canvas"
-    :width="SIZE"
-    :height="SIZE"
-    role="img"
-    aria-label="Town map showing streets, gardens, the fountain square, Oracle and players"
-    class="pointer-events-auto drop-shadow-lg"
-  />
+  <div class="pointer-events-none w-53.5">
+    <div class="relative overflow-hidden rounded-[6px] shadow-[inset_0_0_0_1px_rgb(255_255_255/0.2)]">
+      <canvas
+        ref="canvas"
+        :width="SIZE"
+        :height="SIZE"
+        role="img"
+        aria-label="Map of the streamed world around you, with the town, players and anything built nearby"
+        class="block"
+      />
+      <span class="telemetry absolute left-2.5 top-2.5 font-semibold tracking-[0.14em] text-highlighted [text-shadow:0_1px_3px_#000]">N</span>
+    </div>
+    <div class="frost telemetry on-render mt-1.5 flex items-center justify-between rounded-[6px] px-3 py-1.5 tracking-widest">
+      <span class="text-highlighted">{{ at.x }}, {{ at.y }}</span>
+      <span class="text-muted">{{ chunkCount }} chunks</span>
+    </div>
+  </div>
 </template>

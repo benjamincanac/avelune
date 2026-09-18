@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import type { Surface } from '#shared/types/game'
-import { KIT_NAMES } from '#shared/utils/kit'
+import { KIT_NAMES, kitLabel } from '#shared/utils/kit'
 import { BUILD_ROT_STEP, DEED_LIMIT, EDIT_REACH, MAX_PIECES_PER_PLAYER } from '#shared/utils/building'
 import { SURFACE } from '#shared/utils/world'
 
@@ -34,12 +34,6 @@ const TOOL_SLOTS: Slot[] = [
   { id: 'demolish', label: 'Demolish', icon: 'i-lucide-hammer' },
 ]
 
-/** `Kit_WallWindow` reads as "Wall window" on a 9-slot bar. */
-function kitLabel(kind: string): string {
-  const words = kind.slice(4).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
-  return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
 const KIT_ICONS: Record<string, string> = {
   Kit_Wall: 'i-lucide-rectangle-vertical',
   Kit_WallWindow: 'i-lucide-app-window',
@@ -47,7 +41,8 @@ const KIT_ICONS: Record<string, string> = {
   Kit_Floor: 'i-lucide-square',
   Kit_Roof: 'i-lucide-triangle',
   Kit_RoofCorner: 'i-lucide-triangle-right',
-  Kit_Stairs: 'i-lucide-stairs',
+  // Lucide has no staircase; ascending bars are the closest silhouette it has.
+  Kit_Stairs: 'i-lucide-chart-no-axes-column-increasing',
   Kit_Fence: 'i-lucide-fence',
   Kit_Gate: 'i-lucide-archive',
   Kit_Torch: 'i-lucide-flame',

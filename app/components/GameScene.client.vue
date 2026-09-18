@@ -100,6 +100,18 @@ function triggerDash() {
 }
 
 /**
+ * When the map last closed.
+ *
+ * Closing it re-takes the pointer lock, and when the key that closed it was
+ * Escape the browser is still processing that same Escape: the lock is granted
+ * and then dropped again a moment later. That drop is the tail of the map
+ * interaction, not the player reaching for the menu, so the emit below ignores
+ * one inside this window.
+ */
+let mapClosedAt = 0
+const MAP_UNLOCK_GRACE = 600
+
+/**
  * Open or close the world map. Opening drops the pointer lock (the map is a
  * cursor surface) and releases every held key so nobody walks on blind; closing
  * takes the lock back the way the Escape menu's resume does.
@@ -107,6 +119,7 @@ function triggerDash() {
 function toggleMap() {
   if (map.open.value) {
     map.open.value = false
+    mapClosedAt = Date.now()
     requestLock()
     return
   }
@@ -295,9 +308,10 @@ function onPointerLockChange() {
   const locked = document.pointerLockElement != null
   const wasLocked = pointerLocked.value
   pointerLocked.value = locked
-  // Opening the map releases the lock on purpose — that is not the player
-  // reaching for the menu.
-  if (wasLocked && !locked && !altHeld.value && !map.open.value && document.hasFocus()) emit('unlock')
+  // Opening the map releases the lock on purpose, and closing it with Escape
+  // can bounce one — neither is the player reaching for the menu.
+  if (map.open.value || Date.now() - mapClosedAt < MAP_UNLOCK_GRACE) return
+  if (wasLocked && !locked && !altHeld.value && document.hasFocus()) emit('unlock')
 }
 
 /** Exposed so the page can chain a lock attempt onto fullscreen toggles. This
