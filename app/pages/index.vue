@@ -197,7 +197,7 @@ onMounted(async () => {
 
       <!-- Bottom: what the server is reporting, at a size you read from across
            the room, and what people are doing with it. -->
-      <div class="flex flex-col gap-14 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
+      <div class="relative flex flex-col gap-14 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
         <div class="fused w-full flex-wrap lg:w-fit lg:flex-nowrap">
           <div
             v-for="stat in [
@@ -219,10 +219,13 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Plain text on the edge wash. -->
+        <!-- Plain text on the edge wash. It only exists after the probe and is
+             taller than the counters, so on the one-screen frame it is pinned
+             out of flow: in flow it would grow this band and lift the centred
+             pitch above it. -->
         <WorldFeed
           :events="feed.events.value"
-          class="-mx-6 lg:mx-0 lg:-mr-9 lg:w-97"
+          class="-mx-6 lg:absolute lg:bottom-0 lg:-right-9 lg:mx-0 lg:w-97"
         />
       </div>
     </div>
