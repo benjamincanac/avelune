@@ -84,8 +84,6 @@ interface Session {
   moved: boolean
   joinedAt: number
   lastSeen: number
-  /** A greeting composed on join, spoken when they step through the gate. */
-  greeting?: Promise<string | null>
   /** Chunk keys this socket holds, the ones still owed to it, and the chunk it
    *  last synced around. */
   chunks: Set<string>
@@ -105,6 +103,32 @@ let loop: ReturnType<typeof setInterval> | undefined
 let tickCount = 0
 let weather: WeatherMode = 'auto'
 let timeOfDay: TimeOfDayMode = 'auto'
+
+/**
+ * Turn the shared sky. Players ask the Oracle for this (`oracleReply` calls
+ * these on its classifier's verdict, and its reply is the announcement); the
+ * dev commands below reach them too, so a harness can fix the sky without a
+ * model.
+ */
+function setWeather(mode: WeatherMode) {
+  weather = mode
+  broadcast({ t: 'weather', mode })
+}
+
+function setTimeOfDay(mode: TimeOfDayMode) {
+  timeOfDay = mode
+  broadcast({ t: 'time', mode })
+}
+
+/**
+ * Whether the dev-only chat commands are live.
+ *
+ * `/weather` and `/time` fix the sky without a model call, which is what a
+ * verification harness needs and what has no business in a public build, where
+ * players ask the Oracle. `nuxt dev` turns them on; a production build a
+ * verification harness drives asks for them by name.
+ */
+const DEV_COMMANDS = import.meta.dev || process.env.AVELUNE_DEV_COMMANDS === '1'
 
 /** Spawn position, jittered so simultaneous arrivals don't stack. */
 function spawnAt(): { x: number, y: number, z: number } {
@@ -681,7 +705,7 @@ function considerOracle(name: string, text: string) {
   // *what* it answers, these gate *how often* — together they prevent floods.
   if (oracleBusy || Date.now() < oracleQuietUntil) return
   oracleBusy = true
-  oracleReply([...hubChat], snapshot)
+  oracleReply([...hubChat], snapshot, { now: () => skyNow(Date.now()), setWeather, setTime: setTimeOfDay })
     .then((reply) => {
       if (reply) speak(reply)
     })
@@ -706,20 +730,20 @@ const GREET_RETRY = 1500
 const greetedAt = new Map<string, number>()
 
 /**
- * Start composing a greeting the moment a traveller joins, so the line is
- * ready by the time they walk the bridge and step through South Gate. The
- * model call takes seconds; the walk from the spawn bank takes about five, and
- * a greeting that arrives after they have already passed the Oracle reads as
- * an afterthought. Nothing is said here: `deliverGreeting` speaks it at the
- * gate, and a traveller who leaves without crossing is never greeted.
+ * Greet a traveller as they step through South Gate.
  *
- * Gated once per identity per `GREET_INTERVAL`, so a refresh or a tab
- * take-over stays silent. The slot is claimed here and released again if the
- * greeting is abandoned, so a traveller who arrived mid-conversation can still
- * be met later. The call runs outside the `oracleBusy` lock: that lock keeps
- * the Oracle from talking over itself, and composing is not talking.
+ * The line is written, not generated (`oracleGreeting` picks one to suit the
+ * company and the sky), so an arrival costs no model call however many arrive
+ * at once. Gated once per identity per `GREET_INTERVAL`, so walking back and
+ * forth through the gate, a refresh or a tab take-over stays silent.
+ *
+ * Never talks over a reply in flight or a cooldown: it waits, looking again
+ * every `GREET_RETRY`, and gives up once `GREET_WINDOW` has passed — a party
+ * arriving together is worth a short wait, a busy chat is not, and a greeting
+ * never queues indefinitely. Giving up, or the traveller leaving first,
+ * releases the slot so the next visit is greeted.
  */
-function prepareGreeting(session: Session) {
+function deliverGreeting(session: Session) {
   const { id, name } = session.player
   const now = Date.now()
   for (const [key, at] of greetedAt) {
@@ -727,26 +751,7 @@ function prepareGreeting(session: Session) {
   }
   if (greetedAt.has(id)) return
   greetedAt.set(id, now)
-  session.greeting = oracleGreeting(name, snapshot).catch(() => null)
-}
-
-/**
- * Say the prepared greeting as the traveller steps through South Gate.
- *
- * Never talks over a reply in flight or a cooldown: it waits, looking again
- * every `GREET_RETRY`, and gives up once `GREET_WINDOW` has passed — a party
- * arriving together is worth a short wait, a busy chat is not, and a greeting
- * never queues indefinitely. Dropped if the traveller is gone again.
- * Fire-and-forget like `considerOracle`: nothing here can throw into the tick
- * loop, and if the model was unreachable `oracleGreeting` still resolved to a
- * fixed in-character line, so an arrival is never met with silence.
- */
-function deliverGreeting(session: Session) {
-  const pending = session.greeting
-  if (!pending) return
-  session.greeting = undefined
-  const { id } = session.player
-  const deadline = Date.now() + GREET_WINDOW
+  const deadline = now + GREET_WINDOW
 
   const attempt = (delay: number) => {
     const timer = setTimeout(() => {
@@ -757,15 +762,7 @@ function deliverGreeting(session: Session) {
         // Wait out whatever the Oracle is saying, then look again.
         return attempt(Math.max(oracleQuietUntil - Date.now() + 200, GREET_RETRY))
       }
-      oracleBusy = true
-      pending
-        .then((line) => {
-          if (line) speak(line)
-        })
-        .catch(() => {})
-        .finally(() => {
-          oracleBusy = false
-        })
+      speak(oracleGreeting(name, { others: sessions.size - 1, ...skyNow(Date.now()) }))
     }, delay)
     // Never hold the process open just for a pending greeting.
     ;(timer as { unref?: () => void }).unref?.()
@@ -842,7 +839,6 @@ export function registerConnection(identity: Identity, send: (data: string) => v
   broadcast({ t: 'join', player }, player.id)
   recordEvent(player.name, 'join', 'entered the town')
   notePlayers(sessions.size)
-  prepareGreeting(session)
 
   return {
     player,
@@ -885,23 +881,21 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           const text = msg.text.trim().slice(0, MAX_CHAT_LENGTH)
           if (!text) return
           const [command, mode, ...extra] = text.toLowerCase().split(/\s+/)
-          if (command === '/weather') {
+          if (DEV_COMMANDS && command === '/weather') {
             if (extra.length || (mode !== 'auto' && mode !== 'clear' && mode !== 'overcast' && mode !== 'rain')) {
               send(JSON.stringify({ t: 'system', text: 'Usage: /weather clear | overcast | rain | auto' } satisfies ServerMessage))
               return
             }
-            weather = mode
-            broadcast({ t: 'weather', mode })
+            setWeather(mode)
             broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic weather restored.' : `Weather changed to ${mode}.` })
             return
           }
-          if (command === '/time') {
+          if (DEV_COMMANDS && command === '/time') {
             if (extra.length || (mode !== 'auto' && mode !== 'dawn' && mode !== 'day' && mode !== 'sunset' && mode !== 'night')) {
               send(JSON.stringify({ t: 'system', text: 'Usage: /time dawn | day | sunset | night | auto' } satisfies ServerMessage))
               return
             }
-            timeOfDay = mode
-            broadcast({ t: 'time', mode })
+            setTimeOfDay(mode)
             broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic day/night cycle restored.' : `Time of day changed to ${mode}.` })
             return
           }
@@ -988,10 +982,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
         broadcast({ t: 'leave', id: player.id })
         notePlayers(sessions.size)
       }
-      // Left without ever stepping through the gate: they were never greeted,
-      // so the next visit should be.
       releaseViewer(session)
-      if (session.greeting) greetedAt.delete(player.id)
       stopLoop()
     },
   }

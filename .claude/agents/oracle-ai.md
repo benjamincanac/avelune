@@ -48,11 +48,18 @@ in-character, and reactive to live multiplayer state.
   provider with `createGateway({ fetch: nativeFetch })`. **Never pass a bare
   string model id to `generateText`** — that resolves through the default
   provider on `globalThis.fetch` and reintroduces the loopback; route any new
-  outbound HTTP through `nativeFetch` too. Model id is a gateway string,
-  currently `anthropic/claude-haiku-4.5` for both the classifier and the
-  responder (chosen for latency — it's a live chat NPC). The portable AI SDK v7
-  `reasoning` param is what keeps it fast: `'none'` on the classifier gate,
-  `'minimal'` on the responder (enough for one `arena_state` call). If you swap
+  outbound HTTP through `nativeFetch` too. Model ids are gateway strings. The
+  classifier is `typesafe-ai/jev`, an evaluation model called through
+  `experimental_evaluate` + `gateway.evaluation()` (same string-id rule): one
+  boolean question, answered when `probability >= ADDRESSED_THRESHOLD`. The
+  probabilities are not calibrated across providers, so retune the threshold
+  from the `[oracle] classify` logs on any swap. The responder is
+  `deepseek/deepseek-v4.1-flash` (chosen for cost and latency — it's a live chat
+  NPC) with `reasoning: 'none'`: thinking tokens bill as output and one
+  `arena_state` call does not need them. Mind the mapping on Anthropic models:
+  the portable `reasoning: 'minimal'` has no budget to map to on Haiku 4.5 and
+  the gateway warns on every call, so pass an explicit
+  `providerOptions.anthropic.thinking` budget there. If you swap
   to another provider/model, re-tune `reasoning` per call (e.g. Gemini 3.x
   thinks by default, which adds latency). Anthropic fast mode is *not* reachable
   here — first-party-API-only, and the Oracle routes through the Gateway.
@@ -120,6 +127,22 @@ few times a minute at most, so nothing here may become per-tick work.
   ground: nothing can be dug or built there. The Oracle knows both, points
   would-be builders outside the gate, and speaks of builders and their works
   when asked what's new or who's around.
+- **The Oracle turns the shared sky, and Jev decides it, not the responder.**
+  The one classifier request asks four questions of the last line: `addressed`
+  (boolean), `turn` (boolean: does it want the sky changed or released at all),
+  and `weather` / `time` (choice: a mode, `auto`, or `keep`). `oracleReply`
+  applies a mode through the `SkyControl` injected by `game.ts` when the line is
+  addressed and both `turn` and the chosen mode clear `SKY_THRESHOLD`, then
+  tells the responder in the prompt exactly what was done and what the sky is
+  now. The responder has **no sky tools**. Root-caused live: given
+  `set_weather` / `set_time` it would claim a change without calling them
+  ("sunny", "let the sky be"), answer "it is already clear" in the rain off its
+  own earlier lines in the transcript, and turn the wrong thing ("stop the
+  rain" set rain). Keep `turn`: asked alone, the choice questions read "is it
+  night yet?" as a request for night. Adding or rewording a question shifts the
+  other scores a little, so rerun a labelled probe after touching any of them.
+  This replaced the public `/weather` and `/time` chat commands, which are
+  dev-only now.
 - **Facts about live state come only from the `arena_state` tool** — never invent
   names or numbers. If it can't know, "the stones keep that secret."
 - Answer live state as omens, not statistics.
@@ -133,17 +156,16 @@ few times a minute at most, so nothing here may become per-tick work.
   details (`server-net` owns frame handling), and never throws into the loop
   (fail closed to silence). Anti-flood gating (one reply in flight, then a
   cooldown) lives in the loop, not here.
-- Arrivals are greeted too, in two steps: the loop calls
-  `oracleGreeting(name, getState)` on join to *compose* the line (outside the
-  busy lock — composing is not talking), and *speaks* it the tick the player
-  crosses the South Gate line (`FORTIFICATIONS.gateZ`). Players spawn outside
-  on the far bank; the walk takes ~5s and the model call takes seconds, so
-  composing at the gate lands the bubble after they've already walked past the
-  Oracle. It skips the classifier and always resolves to a line (fixed
-  in-character fallback if the model fails, so an arrival is never met with
-  silence). Its gating is the loop's: once per *identity* per 30 minutes (a
-  reload or tab take-over must stay silent; leaving without ever crossing the
-  gate releases the slot), and at delivery waiting on a busy
+- Arrivals are greeted too, **from written lines, with no model call**:
+  `oracleGreeting(name, scene)` is a pure function that picks a line to suit the
+  company (`others`) and a notable sky (rain, else dawn/sunset/night). This is
+  deliberate: a greeting fires for every arrival and ran outside the busy lock,
+  so a bot run or reconnecting tabs fanned out into one responder call each and
+  that is where the gateway spend went. Do not put a model back behind it; vary
+  the pools instead. The loop speaks it the tick the player crosses the South
+  Gate line (`FORTIFICATIONS.gateZ`). Its gating is the loop's: once per
+  *identity* per 30 minutes, claimed at the gate (a reload, a tab take-over or
+  walking back through must stay silent), and at delivery waiting on a busy
   Oracle for at most 20s before being abandoned — it never queues indefinitely,
   and an abandoned greeting releases its 30-minute slot. Greeting and reply
   share the same `oracleBusy` / cooldown pair, so neither talks over the other.

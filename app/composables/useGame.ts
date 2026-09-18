@@ -433,7 +433,8 @@ export function useGame(): UseGame {
     const trimmed = text.trim().slice(0, MAX_CHAT_LENGTH)
     if (!trimmed) return
     send({ t: 'chat', text: trimmed })
-    if (/^\/(?:weather|time)(?:\s|$)/i.test(trimmed)) return
+    // The sky commands are dev-only; elsewhere the server treats them as chat.
+    if (import.meta.dev && /^\/(?:weather|time)(?:\s|$)/i.test(trimmed)) return
     // Show our own bubble and log entry immediately (the server doesn't echo).
     const self = selfId.value ? players.get(selfId.value) : undefined
     if (self) {

@@ -340,7 +340,7 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
               name="i-lucide-sparkles"
               class="size-3 text-primary"
             />
-            The Oracle listens — speak to it in chat
+            Ask the Oracle in chat. It knows the town and turns the sky.
           </span>
         </div>
       </Transition>

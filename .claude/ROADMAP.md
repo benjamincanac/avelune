@@ -21,8 +21,8 @@
 - [ ] Oracle sees nearby builds, building bots (plan phase 6)
 
 ### Core loop & simulation
-- [x] Shared `/time dawn|day|sunset|night|auto` command, independent of weather and synchronized on join.
-- [x] Shared `/weather clear|overcast|rain|auto` chat command, synchronized for connected players and new arrivals.
+- [x] Shared time of day (`dawn|day|sunset|night|auto`), independent of weather and synchronized on join. Players ask the Oracle for it; `/time` is a dev-only command.
+- [x] Shared weather (`clear|overcast|rain|auto`), synchronized for connected players and new arrivals. Players ask the Oracle for it; `/weather` is a dev-only command.
 - [x] Authoritative 20 Hz server sim; client prediction via shared kinematics (`shared/utils/maze.ts` → `stepBody`), input-aware reconcile that never drags you backward against your own input
 - [x] Third-person camera (wall-aware boom), raw-delta mouse-look, pointer lock + fullscreen (`F`)
 - [x] Jumpable rampart parapets: players can vault from the gallery into town or onto the outer berm, while walking still respects the rails.
@@ -109,7 +109,7 @@ both sides share.
 - [ ] Mobile/touch controls (virtual stick + look drag)
 
 ### 3. Oracle depth
-- [x] **Greets arrivals by name** — the responder composes the welcome on join and the game loop speaks it the tick the player crosses the South Gate line, so the bubble lands as they step through rather than after they've walked past; the newcomer is welcomed with the live roster in view (`oracleGreeting`, no classifier). Once per identity per 30 min, never over a reply in flight, abandoned after 20s of a busy Oracle, fixed in-character line if the model fails
+- [x] **Greets arrivals by name** — written in-character lines picked to suit the company and the sky (`oracleGreeting`, no model call, so arrivals cost nothing), spoken the tick the player crosses the South Gate line. Once per identity per 30 min, never over a reply in flight, abandoned after 20s of a busy Oracle
 - [ ] Give the Oracle more to see: time of day and weather in `arena_state`, so it can remark on the sky
 - [ ] AI announcer voice for shared events (joins, milestones) — deferred; see `memory/ai-announcer-tower-voice.md`
 

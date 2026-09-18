@@ -103,8 +103,10 @@ Connections close when a Vercel Function reaches its [max duration](https://verc
 
 ### Weather
 
-Type `/weather clear`, `/weather overcast`, or `/weather rain` in chat to change
-the weather for everyone. `/weather auto` restores the natural cycle.
+Ask the Oracle in chat to change the sky for everyone: clear, overcast or rain,
+and dawn, day, sunset or night. Ask it to let the sky be to restore the natural
+cycle. Weather and time of day are independent.
 
-Type `/time dawn`, `/time day`, `/time sunset`, or `/time night` to set the time
-of day for everyone. `/time auto` restores the natural cycle without changing weather.
+In `pnpm dev`, or on a build started with `AVELUNE_DEV_COMMANDS=1`, the same
+switches exist as chat commands: `/weather clear|overcast|rain|auto` and
+`/time dawn|day|sunset|night|auto`.
