@@ -6,9 +6,9 @@ import type { GameStatus } from '~/composables/useGame'
  *
  * The handshake is the thing this project exists to demonstrate, so it is not
  * hidden behind a spinner: the socket opening, the realm answering, terrain
- * streaming in and the player being placed are four real milestones, and the
- * bar is derived from how many have actually resolved plus how much terrain has
- * landed — never faked on a timer.
+ * streaming in, the models arriving and the player being placed are five real
+ * milestones, and the bar is derived from how many have actually resolved plus
+ * how much terrain and art has landed, never faked on a timer.
  *
  * Once you are in, it latches shut. Chunks stream in and out for the rest of
  * the session as you walk, and that is not a loading screen.
@@ -28,6 +28,7 @@ const props = defineProps<{
 }>()
 
 const world = useWorld()
+const assets = useAssets()
 
 /** Latched the first time everything resolves: after that, only a dropped
  *  socket brings the overlay back, and it comes back as a notice, not a list. */
@@ -63,7 +64,55 @@ watch(chunks, (count) => {
 onBeforeUnmount(() => clearTimeout(settleTimer))
 
 const terrain = computed(() => streamed.value > 0 && (chunks.value >= streamed.value || settled.value))
-const placed = computed(() => terrain.value && props.selfId != null)
+
+/**
+ * The scene's models: buildings, the nature and build kits, the characters in
+ * view and the Oracle. Without this step the overlay lifted on bare ground and
+ * the town popped in over the next few seconds.
+ *
+ * The same safety net as the terrain: a load that fails still settles, and if
+ * the scene never reports at all (no WebGL, a stalled request) the wait is
+ * capped once the terrain is in, so this screen cannot hold a player out.
+ */
+const ASSET_CAP = 20_000
+const assetsCapped = ref(false)
+let assetTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(terrain, (done) => {
+  clearTimeout(assetTimer)
+  if (!done) return
+  assetTimer = setTimeout(() => {
+    assetsCapped.value = true
+  }, ASSET_CAP)
+}, { immediate: true })
+
+onBeforeUnmount(() => clearTimeout(assetTimer))
+
+const modelsLoaded = computed(() => Math.min(assets.settled.value, assets.total.value))
+
+/**
+ * Loads are requested in waves: the kits at once, your own character only when
+ * the first `state` frame names you, the Oracle when its rig is first built.
+ * The count can therefore sit at "all done" between two waves, so it has to
+ * stay there for a beat before it counts.
+ */
+const ASSET_QUIET = 800
+const modelsQuiet = ref(false)
+let quietTimer: ReturnType<typeof setTimeout> | undefined
+
+watch([assets.total, assets.settled], ([all, done]) => {
+  clearTimeout(quietTimer)
+  modelsQuiet.value = false
+  if (!all || done < all) return
+  quietTimer = setTimeout(() => {
+    modelsQuiet.value = true
+  }, ASSET_QUIET)
+}, { immediate: true })
+
+onBeforeUnmount(() => clearTimeout(quietTimer))
+
+const models = computed(() => modelsQuiet.value || assetsCapped.value)
+const placed = computed(() => terrain.value && models.value && props.selfId != null)
 
 const steps = computed(() => [
   {
@@ -85,9 +134,15 @@ const steps = computed(() => [
     value: streamed.value ? `${chunks.value} / ${streamed.value} chunks` : '—',
   },
   {
+    label: 'Loading models',
+    done: models.value,
+    active: !models.value && assets.total.value > 0,
+    value: assets.total.value ? `${modelsLoaded.value} / ${assets.total.value} models` : '—',
+  },
+  {
     label: 'Placing you at the gate',
     done: placed.value,
-    active: terrain.value && !placed.value,
+    active: terrain.value && models.value && !placed.value,
     value: placed.value ? 'Ready' : '—',
   },
 ])
@@ -96,8 +151,9 @@ const steps = computed(() => [
  *  bar moves with the chunks rather than on its own clock. */
 const progress = computed(() => {
   const resolved = steps.value.filter(step => step.done).length
-  const partial = terrain.value || !streamed.value ? 0 : chunks.value / streamed.value
-  return Math.round(((resolved + partial) / steps.value.length) * 100)
+  const ground = terrain.value || !streamed.value ? 0 : chunks.value / streamed.value
+  const art = models.value || !assets.total.value ? 0 : modelsLoaded.value / assets.total.value
+  return Math.round(((resolved + ground + art) / steps.value.length) * 100)
 })
 
 watchEffect(() => {

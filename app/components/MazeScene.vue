@@ -585,6 +585,11 @@ const CHARACTER_SCALE = 0.72
 /** Movement states map to clips in the shared universal animation library. */
 const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', sprint: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
 
+/** Every model load is counted here, so the entry overlay can wait for the art
+ *  and not only for the socket. */
+const assets = useAssets()
+assets.reset()
+
 const characterAssets = new Map<string, CharacterAsset>()
 const characterLoading = new Set<string>()
 const characterRetryAt = new Map<string, number>()
@@ -592,7 +597,7 @@ const characterRetryAt = new Map<string, number>()
 function ensureCharacter(name: string) {
   if (characterAssets.has(name) || characterLoading.has(name) || Date.now() < (characterRetryAt.get(name) ?? 0)) return
   characterLoading.add(name)
-  loadCharacterAsset(name).then((asset) => {
+  assets.track(loadCharacterAsset(name)).then((asset) => {
     if (!sceneDisposed) characterAssets.set(name, asset)
   }).catch((error) => {
     characterRetryAt.set(name, Date.now() + 10000)
@@ -656,7 +661,7 @@ function releaseTemplates(templates: Iterable<Group>) {
 async function loadTemplates(dir: string, names: readonly string[]) {
   await Promise.all(names.map(async (name) => {
     try {
-      const gltf = await gltfLoader.loadAsync(`/models/${dir}/${name}.glb`)
+      const gltf = await assets.track(gltfLoader.loadAsync(`/models/${dir}/${name}.glb`))
       if (sceneDisposed) {
         releaseTemplates([gltf.scene])
         return
@@ -1238,7 +1243,7 @@ let oracleLoading = false
 function ensureOracle() {
   if (oracleTemplate || oracleLoading) return
   oracleLoading = true
-  gltfLoader.loadAsync('/models/monsters/MushroomKing.glb').then((gltf) => {
+  assets.track(gltfLoader.loadAsync('/models/monsters/MushroomKing.glb')).then((gltf) => {
     oracleTemplate = gltf.scene
     oracleClips = gltf.animations
   })
