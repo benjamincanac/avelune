@@ -4,7 +4,7 @@
  * get back to town when stuck, leave. A modal over the frozen render — it does
  * not pause the server, and the status module stays visible behind it saying so.
  *
- * Return is the only accent on the screen. Everything below it is the same
+ * Resume is the only accent on the screen. Everything below it is the same
  * frost weight, in the order you are likely to want them, and logging out gets
  * its own destructive treatment: as a bare ghost row it disappeared.
  */
@@ -83,12 +83,12 @@ const CONTROLS = [
       </div>
     </div>
 
-    <div class="flex flex-col gap-px px-7 pb-6.5 pt-[22px]">
+    <div class="flex flex-col gap-0.5 px-7 pb-6.5 pt-[22px]">
       <UButton
         block
         size="lg"
         icon="i-lucide-play"
-        label="Return to game"
+        label="Resume"
         :ui="{ base: 'justify-start' }"
         @click="emit('resume')"
       />
