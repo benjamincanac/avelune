@@ -70,6 +70,18 @@ import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
 import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
 import type { CharacterAsset } from '~/utils/characterModels'
 import { animationBlendDuration, locomotionTransitionTime, updateDashAnimation } from '~/utils/characterAnimation'
+import {
+  closeAudio,
+  createAmbience,
+  createFootstepState,
+  footSurfaceAt,
+  play,
+  rememberListener,
+  setAudioListener,
+  stepFootsteps,
+} from '~/utils/audio'
+import type { FootstepState } from '~/utils/audio'
+import { biomeAt } from '#shared/utils/biome'
 
 /**
  * Avelune's 3D world, built imperatively with three.js inside the Tres context.
@@ -1189,6 +1201,9 @@ function applyTool(target: ReturnType<NonNullable<typeof buildTools>['update']>)
   lastEditKey = key
   if (slot.id === 'demolish') {
     if (target.id) props.game.sendDemolish(target.id)
+    // The server is the authority, so the click goes either way. The sound
+    // reports what the ghost already showed.
+    play(target.ok && target.id ? 'remove' : 'refuse')
     return
   }
   if (slot.kind) {
@@ -1196,15 +1211,130 @@ function applyTool(target: ReturnType<NonNullable<typeof buildTools>['update']>)
     // of the rotation, so a pose sent back through it would land elsewhere. The
     // server snaps, exactly as the ghost did.
     props.game.sendBuild(slot.kind, target.rawX, target.rawY, build.rot.value, target.h)
+    play(target.ok ? 'place' : 'refuse')
     return
   }
   const mode = slot.id as 'raise' | 'lower' | 'flatten' | 'paint'
   const size = build.size.value
   const surface = build.surface.value
   props.game.sendTerraform(target.x, target.y, mode, size, mode === 'paint' ? surface : undefined)
+  play(!target.ok ? 'refuse' : mode === 'lower' ? 'remove' : 'place')
   if (target.ok) {
     stream.predictTerrain({ x: target.x, y: target.y, mode, size, surface: surface as SurfaceType, maxStep: TERRAFORM_STEP })
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sound                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Audio is a client-side cosmetic, like the critters: every sound is derived
+ * from what this frame already renders, nothing is sent or received, and no
+ * sound can move a player. It is off in the editor, which has no player to
+ * follow and no weather worth listening to.
+ *
+ * The engine is created by the first user gesture (`GameScene` calls
+ * `useAudio().unlock()`), so everything below is a no-op until then.
+ */
+const ambience = props.editor ? null : createAmbience()
+/** Beds move slowly; four updates a second is plenty and keeps a dozen
+ *  parameter ramps off the frame. */
+const AMBIENCE_INTERVAL = 0.25
+let ambienceIn = 0
+const audioForward = new Vector3()
+const AUDIO_UP = new Vector3(0, 1, 0)
+
+/** Per-body sound state, keyed by player id. Kept beside the rigs rather than
+ *  on them, because it is derived from the *rendered* body and a rig can be
+ *  rebuilt under it. */
+interface BodySound {
+  foot: FootstepState
+  x: number
+  y: number
+  z: number
+  airborne: boolean
+  /** Fastest descent seen during this fall, for the landing's weight. */
+  fall: number
+  dashing: boolean
+  swimming: boolean
+  /** Distance since the last swimming stroke. */
+  stroke: number
+}
+const bodySounds = new Map<string, BodySound>()
+
+/** A fall this fast lands at full weight. Terminal velocity off a rampart. */
+const LAND_FORCE_SPEED = 9
+/** How far a swimmer travels between strokes, in tiles. */
+const STROKE_STRIDE = 1.3
+
+/**
+ * Sound one rendered body: its footfalls, its jump and landing, its dash and
+ * whatever it does in the water. Self plays flat so it sits in the middle of
+ * the mix; everyone else is positioned at their rig and attenuated by the
+ * panner, which is also what culls the far half of a busy town.
+ */
+function soundBody(id: string, isSelf: boolean, x: number, y: number, z: number, dt: number, state: { airborne: boolean, dashing: boolean, sprinting: boolean, swimming: boolean }): void {
+  let body = bodySounds.get(id)
+  if (!body) {
+    body = { foot: createFootstepState(), x, y, z, airborne: state.airborne, fall: 0, dashing: state.dashing, swimming: state.swimming, stroke: 0 }
+    bodySounds.set(id, body)
+    return
+  }
+  const distance = Math.hypot(x - body.x, y - body.y)
+  const descent = dt > 0 ? (body.z - z) / dt : 0
+  const at = isSelf ? undefined : { x, y: z + 0.9, z: y }
+
+  if (state.airborne) body.fall = Math.max(body.fall, descent)
+  if (!body.airborne && state.airborne) play('jump', { gain: isSelf ? 0.7 : 0.55, position: at })
+  else if (body.airborne && !state.airborne) {
+    const force = Math.min(1, body.fall / LAND_FORCE_SPEED)
+    // A hop off a kerb is not a landing. Anything with real drop behind it is.
+    if (force > 0.12) play('land', { gain: isSelf ? 0.8 : 0.6, force, position: at })
+    body.fall = 0
+  }
+
+  if (!body.dashing && state.dashing) play('dash', { gain: isSelf ? 0.7 : 0.5, position: at })
+
+  if (!body.swimming && state.swimming) {
+    play('splash', { gain: isSelf ? 0.9 : 0.7, force: Math.min(1, 0.4 + body.fall / LAND_FORCE_SPEED), position: at })
+    body.stroke = 0
+  }
+  if (state.swimming) {
+    body.stroke += distance
+    if (body.stroke >= STROKE_STRIDE) {
+      body.stroke = 0
+      play('swim', { gain: isSelf ? 0.7 : 0.5, position: at })
+    }
+  }
+  else if (stepFootsteps(body.foot, { distance, dt, grounded: !state.airborne, swimming: false, sprinting: state.sprinting })) {
+    play('footstep', {
+      gain: isSelf ? 0.6 : 0.45,
+      surface: footSurfaceAt(hubWorld, x, y),
+      position: at,
+    })
+  }
+
+  body.x = x
+  body.y = y
+  body.z = z
+  body.airborne = state.airborne
+  body.dashing = state.dashing
+  body.swimming = state.swimming
+}
+
+// Arming a hotbar slot ticks once. The hotbar itself is `game-ui`'s, but the
+// sound belongs with the rest of the mix.
+if (!props.editor) {
+  watch(() => build.active.value?.id, (id) => {
+    if (id) play('arm')
+  })
+  // The Oracle's own voice: one soft chord as a line appears, not per word.
+  watch(() => oracle.speech.value?.until, (until) => {
+    if (!until) return
+    const at = oraclePos()
+    play('oracle', { gain: 0.8, position: { x: at.x, y: 2.2, z: at.y } })
+  })
 }
 
 /** Arrow keys turn as a no-mouse fallback. */
@@ -1503,6 +1633,15 @@ onBeforeRender(({ delta }) => {
     torchLight.position.set(headX, local.z + 1.7, headZ)
   }
 
+  // The ears go where the camera went, after it moved: a frame-old transform
+  // would pan the world against the view. Every positioned sound below this is
+  // placed against the listener remembered here.
+  if (ambience && camera.value) {
+    camera.value.getWorldDirection(audioForward)
+    rememberListener(camera.value.position)
+    setAudioListener(camera.value.position, audioForward, AUDIO_UP)
+  }
+
   // Aim after the camera has moved: the crosshair ray is the camera's own
   // forward axis, so a frame-old transform would aim a frame behind the view.
   if (buildTools) {
@@ -1533,12 +1672,33 @@ onBeforeRender(({ delta }) => {
     Math.max(0, rimSky.sunHeight) * (1 - rimSky.overcast * 0.5),
   )
 
+  // Wind, rain, thunder and the day/night beds, off the same clock the sky runs
+  // on. Levels ramp over seconds, so this does not want a frame.
+  if (ambience) {
+    ambienceIn -= dt
+    if (ambienceIn <= 0) {
+      const elapsed = AMBIENCE_INTERVAL - ambienceIn
+      ambienceIn = AMBIENCE_INTERVAL
+      ambience.update(elapsed, {
+        dayness: rimSky.dayness,
+        overcast: rimSky.overcast,
+        rain: rimSky.rain,
+        x: local.x,
+        y: local.y,
+        altitude: local.z,
+        biome: biomeAt(hubWorld.seed, local.x, local.y),
+        now: serverNow,
+      })
+    }
+  }
+
   // Reconcile player rigs with the roster.
   for (const [id, rig] of rigs) {
     if (!props.game.players.has(id)) {
       playerGroup.remove(rig.group)
       rig.dispose()
       rigs.delete(id)
+      bodySounds.delete(id)
       bumpSceneVersion()
     }
   }
@@ -1627,6 +1787,17 @@ onBeforeRender(({ delta }) => {
     else if (moving) setAnimation(rig, CLIP.run, 1.15)
     else setAnimation(rig, CLIP.idle)
     rig.mixer.update(dt)
+
+    // The same states the clips are picked from drive the sound, so a footfall
+    // and the leg that made it can never disagree.
+    if (ambience) {
+      soundBody(id, isSelf, player.rx, player.ry, player.rz, dt, {
+        airborne,
+        dashing: dashAnimating,
+        sprinting,
+        swimming: swimming != null,
+      })
+    }
 
     updateBubble(rig, player.bubble, now)
   }
@@ -1749,6 +1920,11 @@ function disposeScene() {
   townMaterials.dispose()
   retiredTemplates.length = 0
   atmosphere.dispose()
+  ambience?.dispose()
+  bodySounds.clear()
+  // Leaving the arena takes the context with it. The next entry unlocks a fresh
+  // one on its own first gesture.
+  closeAudio()
   bubbleLayer?.remove()
   bubbleLayer = null
   scene.value.remove(torchLight, floorGroup, playerGroup)
@@ -1757,8 +1933,10 @@ onMounted(() => emit('ready', disposeScene))
 onBeforeUnmount(disposeScene)
 
 if (import.meta.dev) {
+  // `audio.debug()` is how a headed run checks the mix without listening: the
+  // context state, the voice count, a per-sound tally and the master RMS.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters }
+  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters, audio: { ...useAudio(), play } }
 }
 </script>
 

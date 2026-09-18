@@ -7,7 +7,12 @@
  * Resume is the only accent on the screen. Everything below it is the same
  * frost weight, in the order you are likely to want them, and logging out gets
  * its own destructive treatment: as a bare ghost row it disappeared.
+ *
+ * It is also where the mixer lives. The world ducks under the menu rather than
+ * stopping, so dragging the slider is audible while you drag it.
  */
+import { play, setWorldDucked } from '~/utils/audio'
+
 defineProps<{
   fullscreen: boolean
   /** The world editor is a dev-only door. */
@@ -35,8 +40,31 @@ const CONTROLS = [
     { label: 'Use tool', keys: ['Click'] },
     { label: 'Brush / rotate', keys: ['[ ]', 'R'] },
     { label: 'Map / fullscreen', keys: ['M', 'F'] },
+    { label: 'Mute', keys: ['N'] },
   ],
 ]
+
+const audio = useAudio()
+
+/** The slider works in whole percent; the engine works in 0 to 1. */
+const level = computed({
+  get: () => Math.round(audio.volume.value * 100),
+  set: (value: number) => {
+    audio.volume.value = value / 100
+  },
+})
+
+onMounted(() => {
+  // By the time anyone is in here they have clicked their way into the arena,
+  // so the document is activated and this is never an autoplay attempt.
+  audio.unlock()
+  setWorldDucked(true)
+  play('menu')
+})
+onBeforeUnmount(() => {
+  setWorldDucked(false)
+  play('menu', { rate: 0.5 })
+})
 </script>
 
 <template>
@@ -80,6 +108,29 @@ const CONTROLS = [
             </div>
           </dl>
         </template>
+      </div>
+    </div>
+
+    <div class="px-7 pt-[22px]">
+      <p class="label-section pb-3 text-label">
+        Sound
+      </p>
+      <div class="flex items-center gap-5">
+        <USlider
+          v-model="level"
+          :min="0"
+          :max="100"
+          :disabled="audio.muted.value"
+          size="sm"
+          class="flex-1"
+        />
+        <span class="telemetry w-8 text-right text-label">{{ level }}</span>
+        <USwitch
+          v-model="audio.muted.value"
+          label="Mute"
+          size="sm"
+          :ui="{ label: 'text-[15px] leading-none text-toned' }"
+        />
       </div>
     </div>
 

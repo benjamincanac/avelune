@@ -152,6 +152,10 @@ world from the seed and the committed layout JSON, because it authors them.
 - `app/utils/textures.ts` — procedural/canvas textures and normal maps.
 - `app/utils/palette.ts` — the brand palette (`PALETTE` / `PALETTE_HEX`), shared
   with the 2D UI and the generated art. Use it instead of hardcoding accents.
+- `app/utils/audio/` and `app/composables/useAudio.ts` — the whole sound layer
+  (engine, named one-shots, ambient beds, footstep cadence) and the player's
+  volume and mute, persisted in `localStorage`. The mixer controls in
+  `GameMenu.vue` are the one piece of 2D interface this slice owns.
 
 ## Invariants & context
 1. **Client prediction uses the SHARED kinematics** (`shared/utils/maze.ts` →
@@ -437,6 +441,24 @@ place, and that is accepted. It reads the shared helpers (`surfaceHeight`,
 stands on the same terraformed ground as a player, stays out of the water and
 keeps its width out of walls. Flyers lift over low clutter (`FLY_OVER`) and treat
 anything taller as a wall, they do not take a roof as their ground mid-flight. Off in editor mode.
+
+**Sound is client-only, procedural and never on the wire.** `app/utils/audio/`
+owns one engine (a single `AudioContext`, a world bus and a UI bus, a limiter on
+the master, a shared noise buffer and a hard voice cap) and every sound is
+synthesized: there are no audio files in the repo and adding one is a new
+decision. Call sites only ever say `play('footstep', { surface, gain, position })`,
+so a graph can become a sample without touching them. Like the critters it is
+derived from what the frame already renders and reads shared helpers read-only,
+so nothing enters `shared/` state and no sound can move a player. Browsers refuse
+a context before a gesture: `useAudio().unlock()` is called from the first click
+or key in the arena and every entry point is a no-op until then, which is what
+keeps autoplay warnings out of the console. Beds are long-lived voices with
+ramped parameters, never rebuilt, because a rebuilt bed clicks. Weather, the
+day/night crossfade and thunder come off the server clock (`courtyardWeather`,
+`courtyardLightning`), so two players hear the same storm; birds and critter
+calls are local decoration and need not agree. The listener is set from the
+camera after it has moved, in the same place the boom is resolved. Audio is off
+in editor mode, and `disposeScene` closes the context.
 
 The camera boom's obstruction test is three things ORed: the wall grid and
 `surfaceHeight` for ground-based geometry, `isRampartCameraBlocked` for the

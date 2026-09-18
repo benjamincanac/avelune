@@ -26,6 +26,10 @@ const build = useBuild()
  *  movement, no mouse-look, no tool. */
 const map = useWorldMap()
 
+/** The mixer. Browsers refuse an `AudioContext` before a gesture, so the first
+ *  key or click in here is what starts it. */
+const audio = useAudio()
+
 /**
  * Fired when pointer lock is lost without us initiating it (Alt-cursor mode).
  * While locked the browser swallows the Escape keydown entirely, so this
@@ -149,6 +153,13 @@ function onKeyDown(event: KeyboardEvent) {
   // Editor mode owns keyboard/mouse (fly camera, placement) via its controller.
   if (props.editor) return
   if (isTyping()) return
+  // Any key in the world counts as the gesture the audio context waits for.
+  audio.unlock()
+  if (event.code === 'KeyN') {
+    event.preventDefault()
+    audio.toggleMute()
+    return
+  }
   if (event.code === 'KeyM') {
     event.preventDefault()
     toggleMap()
@@ -296,6 +307,7 @@ function onKeyUp(event: KeyboardEvent) {
  */
 function onClick(event: MouseEvent) {
   if (props.editor || map.open.value || event.button !== 0) return
+  audio.unlock()
   // Cursor mode: the HUD is live under the pointer, so only a click that lands
   // on the world canvas is a tool click.
   if (altHeld.value) {
@@ -461,6 +473,11 @@ function onVisibilityChange() {
   if (document.hidden) {
     build.release()
     releaseAll()
+    // A world nobody is looking at does not need to be heard either.
+    audio.suspend()
+  }
+  else {
+    audio.resume()
   }
 }
 

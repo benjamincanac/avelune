@@ -9,6 +9,7 @@ import { COURTYARD } from '#shared/utils/courtyard'
 import { LANDSCAPE_CENTER, worldTerrainHeight } from '#shared/utils/terrain'
 import { biomeAt } from '#shared/utils/biome'
 import type { Biome } from '#shared/utils/biome'
+import { play as playSound } from './audio'
 import { applyCharacterRim } from './characterRim'
 import { disposeCharacterSkeleton } from './characterModels'
 
@@ -478,6 +479,11 @@ export function createCritters(options: CrittersOptions) {
           }
           if (nearest < FLEE_RADIUS) {
             const length = Math.max(0.001, Math.hypot(threatX, threatY))
+            // One call as it bolts, and none while it keeps running. Sound is
+            // a client cosmetic exactly as the wildlife is.
+            if (critter.behaviour !== 'flee') {
+              playSound('critter', { gain: 0.3, rate: 0.7 + Math.random() * 0.7, position: { x: critter.x, y: critter.z + 0.3, z: critter.y } })
+            }
             critter.behaviour = 'flee'
             critter.until = now + 1400
             critter.targetX = critter.x + (threatX / length) * 5

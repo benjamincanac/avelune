@@ -121,7 +121,8 @@ both sides share.
 - [x] **Oracle works deployed**, confirmed in prod: prod Gateway calls were intermittently answered by the app's *own 404 page* — Nuxt nightly replaces `globalThis.fetch` with a router loopback once a warm instance renders any page/error ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)); fixed by pinning the Oracle's provider to the boot-captured `nativeFetch` (`server/utils/nativeFetch.ts` + plugin). Needs `AI_GATEWAY_API_KEY` on Vercel
 
 ### 2. Make the town worth standing in
-- [ ] Audio — nothing is implemented yet: footsteps, jump/land, dash whoosh, ambient wind/crowd, positional audio for other players (three.js `AudioListener`/`PositionalAudio`)
+- [x] **Audio** — `app/utils/audio/` synthesizes everything with raw Web Audio, so there is not an audio file in the repo: footsteps timed off travelled distance with a timbre per surface, jump, land scaled by fall speed, dash whoosh, water splash and swimming strokes, all of it for peers too at their rendered rig through a `PannerNode`. Beds for wind (rising with altitude and weather), rain, night crickets and day birdsong crossfaded on `dayness`, thunder derived from the same hashed strike the sky flashes, plus the fountain and the moat. Restrained UI ticks for arm, place, remove, refuse and the menu. The context is unlocked by the first click or key in the arena, `N` mutes, and the Escape menu carries a volume slider and a mute switch. Dev hook: `__maze.audio.debug()`. Not done: nothing for chat, emotes or a town crowd, and the Oracle gets one soft chord rather than a voice
+
 - [ ] Emotes / a wave or cheer clip, so players can interact without typing
 
 ### 3. Give building a reason
