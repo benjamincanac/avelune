@@ -15,8 +15,9 @@
 - [x] Streaming: `welcome.world`, `chunk`/`unchunk` for the 5×5 around each player, `terrain`/`place`/`remove` deltas, `state` filtered to 96 tiles (`server/utils/world.ts`, `app/composables/useWorld.ts`)
 - [x] Terraform (raise/lower/flatten/paint, brush 1..3) and build (12-piece kit on a 2 unit grid, stacking, ramps, ownership, 500 piece budget) with every rule in `shared/utils/building.ts` and enforced server-side; pointer-locked crosshair targeting, hotbar, ghost preview
 - [x] Elevation bands: non-town placements carry `z` as base elevation, walk under a raised floor, stand on it, climb `Kit_Stairs`
+- [x] Build targeting: the crosshair ray takes the first thing it meets, terrain or piece, and builds against the face it entered. Wall, window, door, fence and gate panels snap to the nearest cell edge and take its heading, so `R` flips them rather than turning them. A build carries the aimed height, a hit past `EDIT_REACH` is walked back rather than refused, `Alt` aims with the cursor, and building uses a shoulder camera (`app/utils/buildTools.ts`, `shared/utils/building.ts`)
 - [x] Persistence: Upstash Redis, one key per chunk, write-behind with CAS on `version`, drain on shutdown, in-memory store when unset; `scripts/world-admin.mjs`
-- [x] Tests: `pnpm test` runs world, rampart, terrain, building and chunk-store suites; `ws-test.mjs` covers streaming, terraform, felling, refusals; `spawn-bots.mjs --dig` load test (30 bots, ~1 ms average tick)
+- [x] Tests: `pnpm test` runs the world, rampart, moat, fountain, terrain, building, chunk-store, character, character-animation, index and icon-name suites; `ws-test.mjs` covers streaming, terraform, felling, refusals; `spawn-bots.mjs --dig` load test (30 bots, ~1 ms average tick)
 - [x] Deed plots: a `Kit_Deed` post claims a 16-tile square (`DEED_SIZE`, one per player) where only the owner terraforms, builds or clears wild growth; plot outlines on the ground and on the full map, refusals that name the owner
 - [x] Oracle sees the built world: `arena_state` carries pieces standing, top builders, the busiest spot worded as a direction from the gate, weather, time of day and the realm
 - [x] Building bots: `spawn-bots.mjs --build` claims a plot, levels it, raises a two-storey hut or a fence paddock on cells and edges, paves back to the road, and runs the shared `resolveBuild` before sending, so zero refused builds is the pass mark. Refuses to target the prod host
@@ -33,30 +34,35 @@
 - [x] Jump (`Space`) & dash (`Shift`) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward
 - [x] Elevation: solid props are walkable ledges in the shared authoritative plan; `SOLID_PROPS` distinguishes low vaultable clutter from tall unjumpable blockers
 - [x] Day/night cycle (15 min) + weather (clear→overcast→rain), synced via the server clock (`welcome.now`)
-- [x] Round WoW-style minimap (top-right), full arena, no fog
+- [x] Square minimap (top-right), north-up, no fog, with the player's tile coordinates and the loaded chunk count beneath it
 - [x] Protocol test suite (`scripts/ws-test.mjs`) — creates characters over `/api/auth`, then asserts `welcome`/`state`/`chat`/`pong`/`leave`/`kicked`
 - [x] Bot load-testing script (`scripts/spawn-bots.mjs`)
 
 ### UI redesign (design handoff: "Avelune UI — 2a Broadcast")
-- [x] One visual system across all seven screens — title, HUD, character creator, world map, game menu, chat, entry. Three type roles (Saira Condensed for structure, Archivo for prose, IBM Plex Mono for anything the server reports), one aqua accent, `.frost` panels, the corner notch on primary actions and the armed hotbar slot only, and the HUD rule that in-world text gets an edge wash rather than a panel. Tokens in `app/assets/css/main.css` + `app/app.config.ts`; the contract is in `.claude/agents/game-ui.md`
-- [x] Live data is content, not debug output: a real measured round trip (`useGame.rtt`, from the heartbeat), a world feed (`useFeed`, worded from `join`/`terrain`/`place`/`remove` in-game and from the server's own ring on the title screen), the roster, the day's peak and a nine-hour sparkline
-- [x] Entry screen shows the handshake step by step from real state — socket, realm, `N / 25` chunks, placement — and latches shut once you are in, surfacing only a dropped socket after that
-- [x] Protocol additions for it: `terrain` carries `by`/`mode`/`at` (a height has no owner the way a placement does), `welcome.world` carries `streamed`
-- [ ] Oracle provenance chip (`READ N CHUNKS · M PLAYERS`) — dropped, not faked: the persona forbids numbers and nothing counts them (handoff open question 4)
-- [ ] World-map plot hover tooltip (`PLOT 04 · TORVALD`, `18 PIECES · EDITED 14:01`) — dropped: per-plot piece counts and edit times aren't tracked
+- [x] One visual system across all seven screens: title, HUD, character creator, world map, game menu, chat and entry. Three type roles (Saira Condensed for structure, Archivo for prose, IBM Plex Mono for anything the server reports), one aqua accent, `.frost` panels, the corner notch on primary actions only, and the HUD rule that only what you click gets a panel. Interactive controls are Nuxt UI components styled through `ui`: the four button weights are `UButton` variants, the creator's choices are `URadioGroup`s. Tokens in `app/assets/css/main.css` and `app/app.config.ts`; the contract is in `.claude/agents/game-ui.md`
+- [x] Live data is content, not debug output: a real measured round trip (`useGame.rtt`, from the heartbeat), a world feed (`useFeed`, seeded from `welcome.feed` and then worded from `join`/`terrain`/`place`/`remove`; the title screen reads the same server ring from `/api/status`), the roster, the day's peak and a nine-hour sparkline
+- [x] Entry screen shows the handshake step by step from real state (socket, realm, `N / 25` chunks, placement) and latches shut once you are in, surfacing only a dropped socket after that
+- [x] Protocol additions for it: `terrain` carries `by`/`mode`/`at` (a height has no owner the way a placement does), `welcome.world` carries `streamed`, `welcome.feed` carries the server's recent feed rows
+- [ ] Oracle provenance chip (`READ N CHUNKS · M PLAYERS`): dropped rather than faked. The persona forbids numbers and nothing counts them (handoff open question 4)
+- [ ] World-map plot hover tooltip (`PLOT 04 · TORVALD`, `18 PIECES · EDITED 14:01`): dropped, since per-plot piece counts and edit times aren't tracked
+- [ ] Below ~1100px the handoff collapses the world feed to two rows and the roster to avatars only. The title screen stacks its clusters under `lg` instead
+- [ ] Move the Escape menu and the kicked overlay onto `UModal` with `:portal="false"`: dialog semantics, without teleporting out of the fullscreen game root the way a default portal would
+- [ ] Male and female read as the same size in the creator. The framing is faithful (posed head bone 1.604 against 1.522, so the male is 5.6% taller) but the female's Long hairstyle tops out near his scalp. The lever is the female rig's height or that hairstyle's volume, not the camera
+- [ ] At phone width the creator's options panel covers the character. Low priority while `/play` needs a keyboard
 
 ### Identity, onboarding & app shell
 - [x] Avelune branding, town wording in the UI, and metadata matching the current world. The identity cookie is `avelune_id`, so earlier characters re-onboard once.
 - [x] **Signed-cookie identity** (`server/utils/session.ts`, HMAC-SHA256, ~10-year `avelune_id` cookie); `GET`/`POST /api/auth`; WS upgrade gated on the cookie. Character is **permanent — no logout**
-- [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, name, Randomize, live draggable 3D turntable bust. Runtime cloth-only recolor (`app/utils/appearance.ts`)
-- [x] **Landing page** (`app/pages/index.vue`, prerendered): wordmark, pitch, the three feature lines, a live `N in town · <realm>` line from `GET /api/status`, controls, GitHub, and a Play button to `/play` that reads `Continue as <name>` when the auth probe finds a cookie. Backdrop is a still of the town (`public/landing.jpg`), not the 3D scene
+- [x] **Character creator** (`CharacterGate`): gender × outfit (Peasant/Ranger) × hairstyle × outfit colorway, name, Randomise, live draggable 3D turntable on a fixed camera, so a taller character reads taller. Runtime cloth-only recolor (`app/utils/appearance.ts`)
+- [x] **Title screen** (`app/pages/index.vue`, prerendered): the pitch and Play button beside a live roster, with the world feed, in-town/peak/round-trip counters and a nine-hour sparkline, all from `GET /api/status` (the round trip is the page's own measured fetch), then a How it works section with the controls. Play reads `Continue as <name>` when the auth probe finds a cookie. Lines that depend on the probe reserve their space, so hydration does not shift the layout. Backdrop is an aerial still shot from the world editor (`public/landing.jpg`, the run-mmo `still` mode), not the 3D scene
 - [x] **Direct entry**: `/play` (`app/pages/play.vue`, `noindex`) probes `/api/auth` — a returning player drops straight into the arena, a new visitor lands on character creation
 - [x] **In-game Escape menu** (WoW-style): controls reference + fullscreen + return-to-game (+ a dev-only world editor button). While pointer-locked the Escape keydown is browser-swallowed, so `GameScene` emits `unlock` on unintentional pointer-lock loss and the page opens the menu on it
 - [x] **Single session per identity**: `sessions` is keyed by identity id, so a second tab takes over — the newest socket wins and the old one gets a `kicked` frame (client stops reconnecting, shows an overlay with "play here instead"). `disconnect` is guarded by `sessions.get(id) === session` so the booted socket can't evict the live player
-- [x] Chat: bottom-left, arena-wide history, floating bubbles over rigs, system announcements (`announce()`)
+- [x] Chat: bottom-left, arena-wide history that scrolls at a fixed height and only follows new lines when you are already at the bottom; bubbles over rigs are DOM overlays; system announcements (`announce()`)
 
 ### AI showcase
-- [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. `anthropic/claude-haiku-4.5` via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); `MushroomKing.glb` body on the sand with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
+- [x] **Oracle AI NPC** — in-process, run by the game loop (`server/utils/oracle.ts`): a cheap classifier decides whether a chat line is addressed to it, then an in-character responder answers with an `arena_state` tool reading the live `snapshot()`. The classifier is a Jev evaluation model (`typesafe-ai/jev`) and the responder `deepseek/deepseek-v4.1-flash`, both via the Vercel AI Gateway. It speaks in the shared chat (no separate dialog); `MushroomKing.glb` body on the sand with a proximity hint. Deliberately in-process, not eve — see `memory/hub-oracle-ai-npc.md`
+- [x] The Oracle turns to face whoever it is answering or greeting: its `chat` lines carry `to`, and the scene turns the NPC toward that player
 
 ### World, art & assets
 - [x] Rebuilt sprint with forward lean, opposing arm drive and a faster stride. Jog and sprint preserve footfall phase through dash transitions.
@@ -134,14 +140,17 @@ both sides share.
 
 ## Known issues / verify-me
 
+- [ ] **Nitro 3.0.260903-beta cannot be adopted yet.** It needs a Nuxt 5 nightly >= 29814795, and those nightlies mount Nitro as a Vite environment whose dev hook calls `server.httpServer.on("upgrade")` while Nuxt runs Vite in middleware mode (`httpServer` is null): `nuxt dev` crashes, and Nuxt has no upgrade forwarding of its own. Prod builds were fine. Both pins stay on the June pair (reason in `pnpm-workspace.yaml`); worth an upstream issue since it blocks crossws 0.4.12
+
 - [ ] **Nitro-beta dev server can die/crash-loop under the arena's GLB load burst** (dev worker exits silently or "Dev worker failed after 3 retries"); a prod build (`pnpm build` + `NUXT_SESSION_PASSWORD=… node .output/server/index.mjs`) serves the same session rock-solid — use it for headless verification (see the run-mmo skill)
 - [ ] **The socket drops and reconnects mid-session**, emptying the streamed world until chunks land again (`useWorld.reset()`). Pre-existing — `driver.mjs map` reproduces it on the pre-redesign commit too, where it showed as a silent "0 chunks loaded" — but the redesign now says so out loud (the entry overlay's reconnect notice, the map's live pip going amber). Two flavours seen: a recycle after roughly three minutes, and a drop within seconds of the map-mode canvas click. Worth pinning down whether the close is Nitro/crossws, the platform, or something the click triggers
+- [ ] **Verify in a real browser** that Escape from the world map closes it without opening the menu. With the pointer locked, re-taking the lock in the same keystroke bounces it, so `GameScene` ignores a lock release within 600ms of the map closing. Headless never acquires pointer lock, so this path was not exercised
+- [ ] **Verify in a real browser** that arrow keys move the selection inside the creator's `URadioGroup`s. Click and focus work; arrows did not move it under headless SwiftShader
+- [ ] **Fonts 404 in `pnpm dev`**: `@nuxt/fonts` resolves the three families but this Vite/Rolldown beta ignores its dev middleware (`nuxt-fonts-public-assets ... hooks will be ignored`). Production emits the files, so judge type in a prod build
 - [ ] Ranger's **hairstyle selector has no visible effect** — the hood is always baked on and covers it; the intended "hooded ⇒ no hairstyle choice" isn't enforced in the gate UI
 - [ ] Pointer lock impossible in the Claude preview iframe (`WrongDocumentError`) — real tabs/deploy are fine; delta-look fallback covers embeds
 - [ ] Without pointer lock the OS cursor can pin at screen edges mid-turn (fullscreen `F` mitigates)
 - [x] Camera boom samples solid prop heights as well as the wall grid to avoid clipping into courtyard buildings
-- [ ] **Nitro 3.0.260903-beta cannot be adopted yet.** It needs a Nuxt 5 nightly >= 29814795, and those nightlies mount Nitro as a Vite environment whose dev hook calls `server.httpServer.on("upgrade")` while Nuxt runs Vite in middleware mode (`httpServer` is null): `nuxt dev` crashes, and Nuxt has no upgrade forwarding of its own. Prod builds were fine. Both pins stay on the June pair (reason in `pnpm-workspace.yaml`); worth an upstream issue since it blocks crossws 0.4.12
-
 - [x] ~~Character GLB WebP-support race crashes on cold concurrent loads~~ — mitigated: the convert script byte-sanitizes broken WebP refs; load a roster sequentially to warm WebP first (see `.claude/agents/scene-3d.md`)
 - [x] ~~`scripts/ws-test.mjs` broken by the signed-cookie gate~~ — it now does the `/api/auth` handshake and replays the cookie on the upgrade
 
@@ -149,12 +158,12 @@ both sides share.
 
 - Dev server: `pnpm dev` — or the preview harness via `~/GitHub/benjamincanac/.claude/launch.json` (name `mmo`, autoPort; port 3000 is occupied by another process on this machine)
 - Package manager is **pnpm**; `pnpm typecheck` / `pnpm lint`
-- Oracle needs `AI_GATEWAY_API_KEY` locally **and on Vercel** (OIDC is request-scoped — absent in the WS/game-loop context); model id is a Gateway string (`anthropic/claude-haiku-4.5` for both classifier and responder); identity secret is `NUXT_SESSION_PASSWORD`
+- Oracle needs `AI_GATEWAY_API_KEY` locally **and on Vercel** (OIDC is request-scoped — absent in the WS/game-loop context); model ids are Gateway strings (`typesafe-ai/jev` for the classifier through `gateway.evaluation`, `deepseek/deepseek-v4.1-flash` for the responder); identity secret is `NUXT_SESSION_PASSWORD`
 - Blender 5.1.2 at `/Applications/Blender.app/Contents/MacOS/Blender` — asset scripts run headless (`--background --python scripts/<x>.py -- <args>`); kit conversion uses `npx @gltf-transform/cli optimize`
 - Quaternius packs download from Google Drive folders linked on quaternius.com pack pages (`gdown --folder`); the Universal characters + Modular Fantasy Outfits are itch.io-only behind Cloudflare (manual download, then run `convert_universal_characters.py`)
-- World persistence is Upstash Redis through the Vercel marketplace: `NUXT_UPSTASH_REDIS_REST_URL` and `NUXT_UPSTASH_REDIS_REST_TOKEN` (the bare `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` a linked store sets are read too). Both unset means the in-memory store, which is what local dev and every test run on — the world simply resets with the process. Every key is scoped by realm (`AVELUNE_REALM`, else `VERCEL_REGION`, else `local`): one stored world per region. Chunks are administered with `pnpm exec jiti scripts/world-admin.mjs <export|import|wipe|reset> [--realm fra1]`
+- World persistence is Upstash Redis through the Vercel marketplace: `NUXT_UPSTASH_REDIS_REST_URL` and `NUXT_UPSTASH_REDIS_REST_TOKEN` (the bare `UPSTASH_REDIS_REST_*` names the Upstash integration sets, and the `KV_REST_API_URL` / `KV_REST_API_TOKEN` a marketplace store sets, are read too). Both unset means the in-memory store, which is what local dev and every test run on — the world simply resets with the process. Every key is scoped by realm (`AVELUNE_REALM`, else `VERCEL_REGION`, else `local`): one stored world per region. Chunks are administered with `pnpm exec jiti scripts/world-admin.mjs <export|import|wipe|reset> [--realm fra1]`
 - Protocol testing: `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
 - Repo: `github.com/benjamincanac/avelune` (branch `main`)
 - **Shared-code invariant:** anything affecting gameplay position/collision/elevation or edit validation must live in `shared/utils/` (`maze.ts`, `world.ts`, `building.ts`) so server and prediction agree; client-only code renders it
-- Headless verification: `pnpm build` then `NUXT_SESSION_PASSWORD=x PORT=<port> node .output/server/index.mjs`; the run-mmo driver has `arena`, `walk`, `meadow` and `build` modes
+- Headless verification: `pnpm build` then `NUXT_SESSION_PASSWORD=x PORT=<port> node .output/server/index.mjs`; the run-mmo driver's modes are `arena`, `walk`, `meadow`, `build`, `target`, `map`, `gate`, `landing` and the dev-only `still`
 - Domain subagents live in `.claude/agents/` (`world-sim`, `server-net`, `scene-3d`, `game-ui`, `oracle-ai`, `assets`); see `CLAUDE.md`
