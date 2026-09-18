@@ -29,9 +29,10 @@ UAL2 = os.path.join(PACKS, "universal-animation-library-2", "Unreal-Godot", "UAL
 
 # Keep in sync with CLIPS_UAL1/CLIPS_UAL2 in convert_universal_characters.py.
 CLIPS_UAL1 = ["Idle_Loop", "Walk_Loop", "Jog_Fwd_Loop", "Sprint_Loop",
-              "Jump_Start", "Jump_Loop", "Jump_Land", "Roll", "Dance_Loop", "Death01"]
+              "Jump_Start", "Jump_Loop", "Jump_Land", "Roll", "Dance_Loop", "Death01",
+              "Spell_Simple_Shoot"]
 CLIPS_UAL2 = ["Slide_Start", "Slide_Loop", "Sword_Regular_A", "Yes",
-              "Sword_Dash", "Shield_Dash"]
+              "Sword_Dash", "Shield_Dash", "Idle_FoldArms_Loop", "OverhandThrow"]
 # Exported name -> library action, plus the pelvis lift baked into each.
 RENAMED = {"Swim_Loop": "Swim_Fwd_Loop", "Swim_Idle": "Swim_Idle_Loop"}
 LIFT = {"Swim_Loop": 0.80, "Swim_Idle": 0.60}
