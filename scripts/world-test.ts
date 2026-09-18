@@ -8,6 +8,7 @@ import {
   SPRINT_MULTIPLIER,
   PLAYER_RADIUS,
   isWalkable,
+  slideBody,
   getFountainWaterContact,
   stepBody,
   surfaceHeight,
@@ -97,6 +98,40 @@ test('diagonal building collision follows the visible Three.js Y rotation', () =
     const body = walk(bodyAt(start.x, start.y), -s, -c, 8, PLAYER_SPEED, world)
     const localY = (body.x - prop.x) * s + (body.y - prop.y) * c
     assert.ok(localY > prop.by!)
+    assert.equal(body.z, 0)
+  }
+})
+
+test('a body keeps its whole width out of every town building', () => {
+  for (const prop of townProps.filter(p => /Courtyard_(Inn|Shop|Tower)/.test(p.kind))) {
+    const c = Math.cos(prop.rot)
+    const s = Math.sin(prop.rot)
+    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * SPRINT_MULTIPLIER, PLAYER_SPEED * DASH_MULTIPLIER]) {
+      for (let i = 0; i < 16; i++) {
+        const a = Math.PI / 8 * i + 0.13
+        const body = bodyAt(prop.x + Math.cos(a) * (prop.r + 1.5), prop.y + Math.sin(a) * (prop.r + 1.5))
+        if (surfaceHeight(plan, body.x, body.y) !== 0) continue
+        // Far enough to reach the facade, not far enough to slide off to the ramparts.
+        walk(body, -Math.cos(a), -Math.sin(a), Math.ceil(3 / (speed * dt)), speed)
+        const lx = Math.abs((body.x - prop.x) * c - (body.y - prop.y) * s) - prop.bx!
+        const ly = Math.abs((body.x - prop.x) * s + (body.y - prop.y) * c) - prop.by!
+        assert.ok(Math.hypot(Math.max(lx, 0), Math.max(ly, 0)) >= PLAYER_RADIUS - 1e-6, `${prop.kind} at ${prop.x},${prop.y} let a body in from ${a.toFixed(2)}`)
+        assert.ok(body.z < 1, `${prop.kind} at ${prop.x},${prop.y} lifted a body to ${body.z}`)
+      }
+    }
+  }
+})
+
+// The client eases its predicted body toward the server's. Around a corner that
+// straight line crosses the footprint, and a body inside one lands on the roof.
+test('a reconcile nudge across a building corner stays outside it', () => {
+  const inn = townProps.find(p => p.kind === 'Courtyard_Inn')!
+  const world = soloWorld({ ...inn, x: 52, y: 52, rot: 0 })
+  const body = bodyAt(52 + inn.bx! + 0.4, 52 + inn.by! - 0.2)
+  const target = { x: 52 + inn.bx! - 0.2, y: 52 + inn.by! + 0.4 }
+  for (let i = 0; i < 40; i++) {
+    slideBody(world, body, (target.x - body.x) * 0.3, (target.y - body.y) * 0.3)
+    stepBody(world, body, 0, 0, dt)
     assert.equal(body.z, 0)
   }
 })
@@ -202,12 +237,14 @@ test('fountain footprints and water contact follow rotated per-axis scale', () =
 
 test('bench blocks walking, supports jump landings, and allows walking off', () => {
   const prop = townProps.find(p => p.kind === 'Courtyard_Bench')!
-  const body = bodyAt(prop.x, prop.y - prop.by! - 0.2)
-  walk(body, 0, 1, 10)
-  assert.ok(body.y < prop.y - prop.by!)
+  // From the open side: the bench backs onto an inn, and a body has no room
+  // to stand between the two.
+  const body = bodyAt(prop.x, prop.y + prop.by! + 0.6)
+  walk(body, 0, -1, 10)
+  assert.ok(body.y >= prop.y + prop.by! + PLAYER_RADIUS)
   body.vz = JUMP_VELOCITY
   body.grounded = false
-  walk(body, 0, 1, 4)
+  walk(body, 0, -1, 5)
   walk(body, 0, 0, 30)
   assert.ok(body.y > prop.y - prop.by! && body.y < prop.y + prop.by!)
   assert.equal(body.z, prop.top)
@@ -319,9 +356,13 @@ test('town streets and every building frontage remain connected to spawn', () =>
     assert.ok(queue.some(node => Math.hypot(node.x - x, node.y - y) < 0.6), `frontage of ${prop.kind} at ${prop.x},${prop.y} is inaccessible`)
   }
   // The narrow defensive berm between the moat and ramparts is not a street.
+  // Nor is a lone sample wedged between two facades: the ring above probes
+  // eight points, and a body is a full disc that does not fit the gap leading in.
+  const stranded = (x: number, y: number) => nodes.has(key(x, y)) && !reached.has(key(x, y))
   const disconnected = [...nodes].filter(([position, node]) =>
     !reached.has(position) && node.x > COURTYARD.min + 1 && node.x < COURTYARD.max - 1
-    && node.y > COURTYARD.min + 1 && node.y < COURTYARD.max - 1,
+    && node.y > COURTYARD.min + 1 && node.y < COURTYARD.max - 1
+    && (stranded(node.x + spacing, node.y) || stranded(node.x - spacing, node.y) || stranded(node.x, node.y + spacing) || stranded(node.x, node.y - spacing)),
   )
   assert.equal(disconnected.length, 0, `isolated dry ground: ${disconnected.slice(0, 6).map(([position]) => position).join('; ')}`)
 })

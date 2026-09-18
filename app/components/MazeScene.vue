@@ -40,6 +40,7 @@ import {
   getSwimmingContact,
   isPieceCameraBlocked,
   isRampartCameraBlocked,
+  slideBody,
   stepBody,
 } from '#shared/utils/maze'
 import { TERRAFORM_STEP, applyPlace, chunkCoord, chunkKey, cornerHeight, createWorld, isTownChunk, parseChunkKey, worldProps } from '#shared/utils/world'
@@ -1412,17 +1413,15 @@ onBeforeRender(({ delta }) => {
       const tx = dx / len
       const ty = dy / len
       const along = ex * tx + ey * ty
-      local.x += (ex - along * tx) * k
-      local.y += (ey - along * ty) * k
-      if (along > 0) {
-        local.x += along * tx * k
-        local.y += along * ty * k
-      }
+      const ahead = Math.max(0, along)
+      // Through the shared collision, never a raw add: the straight line to the
+      // server's position can cross a building's corner, and a body whose centre
+      // lands inside a footprint is lifted onto the roof by the next step.
+      slideBody(hubWorld, local, (ex - along * tx + ahead * tx) * k, (ey - along * ty + ahead * ty) * k)
     }
     else if (Math.hypot(ex, ey) > RECONCILE_IDLE_FREEZE) {
       // Idle: only chase real disagreement; small stop-overshoot is left be.
-      local.x += ex * k
-      local.y += ey * k
+      slideBody(hubWorld, local, ex * k, ey * k)
     }
   }
 

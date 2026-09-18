@@ -313,6 +313,20 @@ A banded piece is resolved by height, not by footprint alone:
 - otherwise the body passes **underneath**, which is what makes a second-storey
   `Kit_Floor` a ceiling rather than a wall.
 
+Those tests read the body's **centre**, which is what decides where feet stand.
+The body's **width** is `hitsSolidPiece`: a disc of `PLAYER_RADIUS` against every
+piece that is a wall at this height, ground-based or banded, so a character stops
+at a facade instead of sinking a shoulder into it. It refuses only a move that
+*deepens* an overlap, so a body already touching a wall can slide and walk away.
+Slabs no thicker than `STEP_MAX` (a `Kit_Floor`) are exempt, or a stair tread
+catches the landing slab's edge from below.
+
+**Every horizontal displacement of a body goes through `slideBody`**, the
+exported horizontal half of `stepBodyOnce`. The landing snap has no step limit
+(terraforming can raise the ground under a player), so a centre that gets inside
+a tall footprint is lifted to its roof. A raw `x += error` in the client's
+reconcile did exactly that around building corners.
+
 `BODY_HEIGHT` (= `MOAT.bodyHeight`) is the shared player height. `occupancyGrid`
 rasters by `height`, not `top`, so a slab two storeys up is not a minimap wall.
 `isPieceCameraBlocked` is the banded twin of `isRampartCameraBlocked` — the

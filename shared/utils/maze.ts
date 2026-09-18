@@ -321,6 +321,54 @@ export function hitsRaisedPiece(world: World, x: number, y: number, feet: number
 }
 
 /**
+ * How far a disc of `radius` reaches into a prop's footprint, zero or less when
+ * it stands clear. Inside a box the depth is measured to the nearest face, so a
+ * body that somehow starts inside can always walk back out.
+ */
+function footprintOverlap(prop: PropSpec, x: number, y: number, radius: number): number {
+  const dx = x - prop.x
+  const dy = y - prop.y
+  if (prop.bx == null || prop.by == null) return radius + prop.r - Math.hypot(dx, dy)
+  const c = Math.cos(prop.rot)
+  const s = Math.sin(prop.rot)
+  const lx = Math.abs(dx * c - dy * s) - prop.bx
+  const ly = Math.abs(dx * s + dy * c) - prop.by
+  if (lx <= 0 && ly <= 0) return radius - Math.max(lx, ly)
+  return radius - Math.hypot(Math.max(lx, 0), Math.max(ly, 0))
+}
+
+/** Whether a piece is a wall to a body whose feet are here: too tall to step
+ *  onto, and, for an elevated one, not high enough to walk under. A slab no
+ *  thicker than a step (a kit floor) is left to the centre tests: a stair tread
+ *  brings the body up to its edge from below, and the shoulder would catch it. */
+function isWallAt(prop: PropSpec, feet: number): boolean {
+  if (prop.height <= STEP_MAX || isHeightAwareKind(prop.kind) || prop.kind === 'Courtyard_Fountain') return false
+  if (prop.kind === 'Courtyard_BridgeRail' && feet < -0.5) return false
+  if (feet >= prop.top - STEP_MAX) return false
+  return prop.base == null || feet + BODY_HEIGHT > prop.base
+}
+
+/**
+ * Whether moving a disc of `radius` from one point to another pushes it into a
+ * piece that is a wall at this height. `surfaceHeight` and `hitsRaisedPiece`
+ * test the body's centre, which is what decides where feet stand. This is what
+ * keeps the body's width out of walls, so a character stops at a facade instead
+ * of sinking its shoulder into it.
+ *
+ * Only a move that deepens an overlap is refused. A body already touching a
+ * wall (landed beside it, or a piece was placed against it) can slide along it
+ * and walk away.
+ */
+export function hitsSolidPiece(world: World, fromX: number, fromY: number, x: number, y: number, feet: number, radius = PLAYER_RADIUS): boolean {
+  for (const prop of propsNear(world, x, y, radius)) {
+    if (!isWallAt(prop, feet)) continue
+    const overlap = footprintOverlap(prop, x, y, radius)
+    if (overlap > 0 && overlap > footprintOverlap(prop, fromX, fromY, radius) + 1e-9) return true
+  }
+  return false
+}
+
+/**
  * A display-only wall grid for one chunk: every wall-height solid prop
  * overlapping it, rasterized to its 32×32 tiles. Deterministic and cheap —
  * computed on the client for the minimap, never read by the server. Lets
@@ -402,6 +450,30 @@ export function stepBody(world: World, body: KinematicBody, dx: number, dy: numb
   for (let i = 0; i < steps; i++) stepBodyOnce(world, body, dx / steps, dy / steps, dt / steps)
 }
 
+/** Whether a body with its feet at `feet` may move from one point to another:
+ *  nothing there too tall to step onto, and no wall, rail or moat obstacle. */
+function canEnter(world: World, fromX: number, fromY: number, x: number, y: number, feet: number): boolean {
+  return bodySurfaceHeight(world, x, y, feet) - feet <= STEP_MAX
+    && !hitsRaisedPiece(world, x, y, feet)
+    && !hitsSolidPiece(world, fromX, fromY, x, y, feet)
+    && !hitsRampartRail(rampartsAt(world, x, y), x, y, feet, PLAYER_RADIUS, STEP_MAX)
+    && !hitsMoatObstacle(x, y, feet, PLAYER_RADIUS)
+}
+
+/**
+ * The horizontal half of a step: move by (dx, dy), axis-separated so tall props
+ * block like walls but slide. Exported because *every* horizontal displacement
+ * of a body has to come through here, the client's reconcile nudges included. A
+ * raw `x += error` can carry the centre across a building's corner, and the
+ * landing snap in `stepBodyOnce` then lifts the body onto the roof.
+ */
+export function slideBody(world: World, body: Pick<KinematicBody, 'x' | 'y' | 'z'>, dx: number, dy: number) {
+  if (dx === 0 && dy === 0) return
+  const walled = moveWithCollision(world, body.x, body.y, dx, dy)
+  if (canEnter(world, body.x, body.y, walled.x, body.y, body.z)) body.x = walled.x
+  if (canEnter(world, body.x, body.y, body.x, walled.y, body.z)) body.y = walled.y
+}
+
 function stepBodyOnce(world: World, body: KinematicBody, dx: number, dy: number, dt: number) {
   let depth = moatWaterDepth(body.x, body.y, body.z)
   for (const prop of propsNear(world, body.x, body.y)) depth = Math.max(depth, getFountainWaterContact(prop, body)?.depth ?? 0)
@@ -412,12 +484,7 @@ function stepBodyOnce(world: World, body: KinematicBody, dx: number, dy: number,
     : 1 - 0.4 * Math.min(1, depth / 0.5)
   dx *= speed
   dy *= speed
-  // Horizontal, axis-separated so tall props block like walls but slide.
-  if (dx !== 0 || dy !== 0) {
-    const walled = moveWithCollision(world, body.x, body.y, dx, dy)
-    if (bodySurfaceHeight(world, walled.x, body.y, body.z) - body.z <= STEP_MAX && !hitsRaisedPiece(world, walled.x, body.y, body.z) && !hitsRampartRail(rampartsAt(world, walled.x, body.y), walled.x, body.y, body.z, PLAYER_RADIUS, STEP_MAX) && !hitsMoatObstacle(walled.x, body.y, body.z, PLAYER_RADIUS)) body.x = walled.x
-    if (bodySurfaceHeight(world, body.x, walled.y, body.z) - body.z <= STEP_MAX && !hitsRaisedPiece(world, body.x, walled.y, body.z) && !hitsRampartRail(rampartsAt(world, body.x, walled.y), body.x, walled.y, body.z, PLAYER_RADIUS, STEP_MAX) && !hitsMoatObstacle(body.x, walled.y, body.z, PLAYER_RADIUS)) body.y = walled.y
-  }
+  slideBody(world, body, dx, dy)
 
   // Vertical: gravity, then land on (or step up to) whatever is below.
   const surface = bodySurfaceHeight(world, body.x, body.y, body.z)

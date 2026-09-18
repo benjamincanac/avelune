@@ -162,7 +162,10 @@ world from the seed and the committed layout JSON, because it authors them.
    *perpendicular* to travel (and forward to catch up) while driving — never
    backward into it — and freeze small disagreement while idle. A plain
    "always ease toward `self`" blend brings back the rubber-band-into-invisible-
-   walls and the release-a-key glide; keep the `RECONCILE_*` split intact.
+   walls and the release-a-key glide; keep the `RECONCILE_*` split intact. The
+   nudges are applied with the shared `slideBody`, never added to `local.x/y`
+   raw: the line to the server's position can cut a building's corner, and a
+   centre inside a footprint is snapped onto the roof by the next `stepBody`.
 2. **The world arrives over the socket; nothing is generated here.** Chunks,
    their heights, their surface raster and their placements all come as frames
    and land in `game-ui`'s `useWorld`. `MazeScene` and `MiniMap` read that one
@@ -430,8 +433,10 @@ spawn point, mounted and unmounted with the chunk's detail level and capped at
 reaches the wire, nothing enters `shared/` state, and a critter can never move,
 block or collide with a player. Two players do not see the same bunny in the same
 place, and that is accepted. It reads the shared helpers (`surfaceHeight`,
-`isWalkable`, `getSwimmingContact`) **read-only**, so a critter stands on the same
-terraformed ground as a player and stays out of the water. Off in editor mode.
+`isWalkable`, `getSwimmingContact`, `hitsSolidPiece`) **read-only**, so a critter
+stands on the same terraformed ground as a player, stays out of the water and
+keeps its width out of walls. Flyers lift over low clutter (`FLY_OVER`) and treat
+anything taller as a wall, they do not take a roof as their ground mid-flight. Off in editor mode.
 
 The camera boom's obstruction test is three things ORed: the wall grid and
 `surfaceHeight` for ground-based geometry, `isRampartCameraBlocked` for the

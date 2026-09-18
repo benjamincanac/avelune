@@ -2,7 +2,7 @@ import { AnimationMixer, Box3, Group, Mesh, SkinnedMesh, Texture, Vector3 } from
 import type { AnimationAction, AnimationClip, Object3D } from 'three'
 import type { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
-import { getSwimmingContact, isWalkable, surfaceHeight, terrainHeight } from '#shared/utils/maze'
+import { getSwimmingContact, hitsSolidPiece, isWalkable, surfaceHeight, terrainHeight } from '#shared/utils/maze'
 import type { World } from '#shared/utils/world'
 import { CHUNK_SIZE, chunkKey, isTownChunk } from '#shared/utils/world'
 import { COURTYARD } from '#shared/utils/courtyard'
@@ -107,6 +107,11 @@ const FLEE_RADIUS = 4
 const HOME_RADIUS = 7
 /** Below this `dayness` the nocturnal cast is out. */
 const NIGHT_DAYNESS = 0.3
+/** What a flyer lifts over without going round: benches, stalls, fences.
+ *  Anything taller is a wall to it, the same as to a walker. */
+const FLY_OVER = 1.2
+/** A critter's collision disc is half its height, up to this. */
+const BODY_RADIUS_MAX = 0.5
 /** Turn rate, radians per second. */
 const TURN_RATE = 6
 
@@ -237,12 +242,19 @@ export function createCritters(options: CrittersOptions) {
    * All three tests are the shared read-only helpers, so a critter stands on the
    * same terraformed ground player rendering puts a player on.
    */
-  function standable(x: number, y: number, from: number | null, flying: boolean): number | null {
-    // A flyer is allowed over roofs and walls; a walker is not.
+  function standable(x: number, y: number, from: number | null, flying: boolean, fromX = x, fromY = y, radius = 0): number | null {
+    // A flyer crosses water and cliffs; a walker does not.
     if (!flying && !isWalkable(world, Math.floor(x), Math.floor(y))) return null
-    const h = surfaceHeight(world, x, y, from === null || flying ? Number.POSITIVE_INFINITY : from + 0.6)
+    // A flyer clears what it can lift over. Anything taller is a wall to it as
+    // well: the ground under a roof used to be the roof, which sent a pigeon
+    // straight up a facade and let a ghost drift through a house.
+    const lift = flying ? FLY_OVER : 0
+    const h = surfaceHeight(world, x, y, from === null ? Number.POSITIVE_INFINITY : from + (flying ? FLY_OVER : 0.6))
     if (!Number.isFinite(h)) return null
-    if (!flying && from !== null && Math.abs(h - from) > 0.7) return null
+    if (from !== null && (flying ? h - from > FLY_OVER : Math.abs(h - from) > 0.7)) return null
+    // The height tests above read one point. The body has a width, so the step
+    // is also refused when it would push that width into a wall.
+    if (from !== null && hitsSolidPiece(world, fromX, fromY, x, y, from + lift, radius)) return null
     // A spawn asks with no step to compare against, so the highest surface wins
     // and a walker would hatch on a roof or a wall top. Walkers start on the
     // ground; a flyer may perch up there.
@@ -497,7 +509,7 @@ export function createCritters(options: CrittersOptions) {
             const step = Math.min(speed, distance)
             const nx = critter.x + (toX / distance) * step
             const ny = critter.y + (toY / distance) * step
-            const ground = standable(nx, ny, critter.z - (spec.hover ?? 0), !!spec.hover)
+            const ground = standable(nx, ny, critter.z - (spec.hover ?? 0), !!spec.hover, critter.x, critter.y, Math.min(BODY_RADIUS_MAX, spec.height / 2))
             if (ground === null) {
               // Walked into water, a wall or a hole: stop here and pick again.
               critter.behaviour = 'idle'
