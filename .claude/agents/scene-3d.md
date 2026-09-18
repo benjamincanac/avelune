@@ -160,6 +160,12 @@ world from the seed and the committed layout JSON, because it authors them.
   rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
   dome too, since it has no world surface for the normal pass. Text sprites also disable depth writes
   while retaining depth testing against the world.
+- **Chat bubbles are DOM, not sprites.** `MazeScene.vue` projects each speaker's
+  head anchor in the frame loop and moves a `.chat-bubble` element (styled in
+  `main.css`) inside a layer appended next to the canvas. Do not put them back on
+  a `CanvasTexture`: three allocates texture storage once, so a canvas resized for
+  a longer message never re-uploads and the bubble keeps showing the previous
+  line. Nameplates stay sprites because their canvas never changes size.
 - **Props render instanced, not cloned.** `app/utils/chunkProps.ts` batches each
   chunk's placements into one `InstancedMesh` per kind per chunk via
   `instantiateModule`. The

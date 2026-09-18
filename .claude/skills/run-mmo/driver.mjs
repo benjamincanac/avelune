@@ -3,7 +3,7 @@
 // WebGL game — there is no server-rendered "page" to assert on; you must drive the
 // live canvas. This is the harness the /run-mmo skill points at.
 //
-// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk|meadow|build|map|gate|landing]
+// Usage:  node .claude/skills/run-mmo/driver.mjs [arena|walk|chat|meadow|build|map|gate|landing]
 //   arena  (default) enter the arena and screenshot it
 //   walk   arena, then hold forward for a few seconds before shooting
 //   meadow walk out of the south gate, turn back toward the hills, shoot
@@ -64,7 +64,10 @@ async function detectUrl() {
 
 const url = await detectUrl()
 const errors = []
-const browser = await chromium.launch({ headless: true, args: GL_ARGS })
+// MMO_HEADED=1 opens a real window on the real GPU: full frame rate, which
+// anything timed (chat bubbles) needs.
+const HEADED = process.env.MMO_HEADED === '1'
+const browser = await chromium.launch({ headless: !HEADED, args: HEADED ? [] : GL_ARGS })
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text())
@@ -375,3 +378,37 @@ console.log('ERRORS', errors.length)
 // the menu's CharacterLineup components (pre-existing, unrelated to the game scene).
 for (const e of [...new Set(errors)].slice(0, 20)) console.log('  -', e)
 await browser.close()
+if (mode === 'chat') {
+  // Two lines of different lengths: the second has to replace the first in the
+  // bubble, not trail it. Bubbles are DOM and live 4 s, far less than a
+  // SwiftShader screenshot takes, so each one is waited for by its text and
+  // then pinned as a static clone the scene's frame loop no longer touches.
+  await modelsQuiet()
+  await page.locator('canvas').first().click({ position: { x: 640, y: 400 } }).catch(() => {})
+  await page.waitForTimeout(600)
+  const pin = async (want, label) => {
+    const found = await page.waitForFunction(({ text, npc }) => {
+      const el = [...document.querySelectorAll('.chat-bubble:not([hidden]):not([data-pinned])')]
+        .find(el => npc ? 'npc' in el.dataset : el.textContent === text)
+      if (!el) return false
+      const copy = el.cloneNode(true)
+      copy.dataset.pinned = ''
+      copy.style.opacity = '1'
+      copy.style.animation = 'none'
+      el.parentElement.append(copy)
+      return el.textContent
+    }, want, { timeout: 30000, polling: 100 }).then(h => h.jsonValue()).catch(e => `ERR ${e.message.slice(0, 120)}`)
+    console.log('BUBBLE', label, JSON.stringify(found))
+  }
+  const unpin = () => page.evaluate(() => document.querySelectorAll('.chat-bubble[data-pinned]').forEach(el => el.remove()))
+  const long = 'Oracle, how many of us are in town right now and what should I build first?'
+  await say('hey')
+  await pin({ text: 'hey' }, 'short')
+  await page.screenshot({ path: OUT.replace(/\.png$/, '-short.png'), timeout: 300000 })
+  await unpin()
+  await say(long)
+  await pin({ text: long }, 'long')
+  // The Oracle answers a few seconds later, over its own head.
+  await pin({ npc: true }, 'oracle')
+}
+

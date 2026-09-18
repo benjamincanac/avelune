@@ -393,7 +393,7 @@ defineExpose({ pointerLocked, requestLock, toggleMap })
 <template>
   <div
     ref="root"
-    class="size-full select-none"
+    class="relative size-full select-none"
     :class="editor || altHeld || map.open.value ? 'cursor-default' : 'cursor-none'"
     @click="onClick"
     @wheel="onWheel"

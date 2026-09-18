@@ -49,7 +49,9 @@ NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/i
 ```
 
 **2. Drive it.** The game lives at **`/play`** (`/` is the static landing page),
-and every mode but `landing` drives that. Seven modes: `arena` (default) enters and shoots the spawn;
+and every mode but `landing` drives that. Eight modes: `arena` (default) enters and shoots the spawn;
+`chat` says a short line, then a long one addressed to the Oracle, and shoots
+each bubble (`-short` beside `MMO_OUT`, then `MMO_OUT` with the long line and the Oracle's reply);
 `walk` also holds `W` for a few seconds first; `meadow` walks out of the south
 gate and turns back so the shot shows streamed terrain; `build` walks out, arms
 a kit wall from the hotbar and clicks twice so the second piece stacks on the
@@ -106,14 +108,10 @@ character** → type a name → **Enter** → WASD move, mouse look, Space jump,
 - **Headless WebGL needs GPU flags.** Chromium has no GPU in this context; the
   driver launches with `--use-gl=angle --use-angle=swiftshader
   --enable-unsafe-swiftshader --ignore-gpu-blocklist` or the canvas is black.
-- **Headless (SwiftShader) won't show *runtime-updated* `CanvasTexture`s.** Text
-  drawn once at rig creation renders fine (nameplates), but anything redrawn on a
-  canvas at render time with `texture.needsUpdate = true` — **chat/speech bubbles**
-  especially — never appears in a headless shot even though the sprite is visible,
-  scaled, and positioned. This is a SwiftShader re-upload limitation, not a bug in
-  the scene. To eyeball a bubble/dynamic-texture change, run Playwright **headed**
-  (`chromium.launch({ headless: false })`, no GL flags) so the real GPU handles the
-  re-upload; drive chat with Enter → type → Enter.
+- **Chat bubbles outlive nothing under SwiftShader.** They are DOM elements
+  (`.chat-bubble`) that last 4 s, and a headless screenshot takes far longer than
+  that. `chat` mode waits for each bubble by its text, pins a static clone of it,
+  then shoots, and prints `BUBBLE <label> <text>` (`null` means it never showed).
 - **Playwright is global and CJS.** `import { chromium } from 'playwright'` fails
   ("Named export not found") — the driver uses `createRequire` + the absolute path.
 - **Movement keys need canvas focus but not pointer lock.** They're global keydown

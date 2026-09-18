@@ -118,6 +118,71 @@ html {
   }
 
   /**
+   * Speech over a character's head (MazeScene positions these every frame).
+   * The one exception to the rule above: speech has to read as a bubble, so it
+   * gets a body, but a flat one. No blur, since a moving `backdrop-filter` is a
+   * fresh composite pass over the canvas on every frame.
+   */
+  .chat-bubble-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    contain: strict;
+  }
+
+  .chat-bubble {
+    --bubble-ring: rgb(255 255 255 / 0.16);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: max-content;
+    max-width: 260px;
+    margin-top: -7px;
+    padding: 7px 12px 8px;
+    border-radius: 12px;
+    background: rgb(8 17 20 / 0.86);
+    box-shadow:
+      inset 0 0 0 1px var(--bubble-ring),
+      0 6px 18px rgb(0 0 0 / 0.35);
+    color: rgb(255 255 255 / 0.96);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: center;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+    transform-origin: 50% calc(100% + 7px);
+    will-change: transform, opacity;
+    animation: chat-bubble-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  }
+
+  .chat-bubble[hidden] {
+    display: none;
+  }
+
+  /* The tail: a rotated square tucked under the body, so both share one fill. */
+  .chat-bubble::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 10px;
+    height: 10px;
+    background: rgb(8 17 20);
+    opacity: 0.86;
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .chat-bubble[data-npc] {
+    --bubble-ring: rgb(127 208 255 / 0.45);
+    max-width: 320px;
+    color: #dff3ff;
+  }
+
+  /**
    * The corner notch, the system's one shape signature. Applied only to primary
    * buttons and the active hotbar slot — never to panels, avatars, rows or
    * inputs, where it reads as noise.
@@ -165,5 +230,14 @@ html {
     display: flex;
     gap: 1px;
     background: rgb(255 255 255 / 0.1);
+  }
+}
+
+/* Scale is composed with the per-frame transform, so the pop-in animates the
+   individual `scale` property and leaves `transform` to the scene. */
+@keyframes chat-bubble-in {
+  from {
+    opacity: 0;
+    scale: 0.85;
   }
 }

@@ -175,11 +175,9 @@ interface OracleRig {
   group: Group
   mixer: AnimationMixer
   /** Speech bubble mirroring the players' — shows the Oracle's latest chat line. */
-  bubble: Sprite
-  bubbleCanvas: HTMLCanvasElement
-  bubbleTexture: CanvasTexture
+  bubble: HTMLDivElement
   bubbleText: string
-  /** World-space bottom edge of the bubble; it grows upward from here. */
+  /** Height above the rig's origin that the bubble's tail points at. */
   bubbleBaseY: number
 }
 let oracleRig: OracleRig | null = null
@@ -708,11 +706,9 @@ interface Rig {
   /** Last observed dash state, so stale remote snapshots never retrigger it. */
   wasDashing: boolean
   dashAnimUntil: number
-  bubble: Sprite
-  bubbleCanvas: HTMLCanvasElement
-  bubbleTexture: CanvasTexture
+  bubble: HTMLDivElement
   bubbleText: string
-  /** World-space bottom edge of the bubble; it grows upward from here. */
+  /** Height above the rig's origin that the bubble's tail points at. */
   bubbleBaseY: number
   /** Ground decal under the feet; fades out as the character leaves the floor. */
   blob: Mesh<PlaneGeometry, MeshBasicMaterial>
@@ -783,17 +779,14 @@ function makeTextSprite(
   const ctx = canvas.getContext('2d')!
   draw(ctx, canvas)
   const texture = new CanvasTexture(canvas)
-  // Text stays crisp without mipmap blur, and the bubble canvas grows to a
-  // non-power-of-two height, so skip mipmaps entirely.
+  // Text stays crisp without mipmap blur.
   texture.minFilter = LinearFilter
   // The canvas holds sRGB pixels. Left unmarked they are read as linear and
-  // re-encoded on output, which lifts the near-black bubble fill to grey.
+  // re-encoded on output, which washes the colours out.
   texture.colorSpace = SRGBColorSpace
-  // Names and bubbles are UI, not lit geometry: keep them out of the ACES
+  // Names are UI, not lit geometry: keep them out of the tone
   // curve and the fog so they read the same at noon and at midnight.
   const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false, fog: false }))
-  // Bubbles keep the default box only until their first message, then rescale
-  // themselves to fit their wrapped text.
   sprite.scale.set(options.scaleX, options.scaleY, 1)
   return { sprite, canvas, texture }
 }
@@ -813,110 +806,71 @@ function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name
   ctx.fillText(name, canvas.width / 2, canvas.height / 2)
 }
 
-/* Chat-bubble geometry. The canvas stays a fixed 512px wide; its height grows
- * with the wrapped line count and the sprite is rescaled to match (see
- * BUBBLE_TEXELS_PER_UNIT), so text keeps a constant, crisp size instead of
- * being squished onto a single line. */
-const BUBBLE_CANVAS_WIDTH = 512
-const BUBBLE_FONT = '500 36px Archivo, ui-sans-serif, sans-serif'
-const BUBBLE_LINE_HEIGHT = 46
-const BUBBLE_PAD_X = 26
-const BUBBLE_PAD_Y = 18
-const BUBBLE_RADIUS = 22
-/** The little pointer under the box, aimed at the speaker. */
-const BUBBLE_TAIL_W = 26
-const BUBBLE_TAIL_H = 14
-const BUBBLE_MAX_TEXT_WIDTH = BUBBLE_CANVAS_WIDTH - BUBBLE_PAD_X * 2
-const BUBBLE_MAX_LINES = 6
-/** Canvas px per world unit — keeps texel density constant as the box grows.
- *  Higher = smaller bubble in the world (text stays crisp, just physically
- *  smaller than the nameplate). */
-const BUBBLE_TEXELS_PER_UNIT = 500
-const BUBBLE_WIDTH_UNITS = BUBBLE_CANVAS_WIDTH / BUBBLE_TEXELS_PER_UNIT
+/* Chat bubbles are DOM, not sprites: a canvas texture went through the post
+ * pipeline and lost its glass, and three allocates texture storage once, so a
+ * bubble whose canvas grew for a longer message kept showing the previous one.
+ * Each bubble is a `.chat-bubble` element (main.css) in a layer over the canvas,
+ * moved every frame to its speaker's projected position. */
+let bubbleLayer: HTMLDivElement | null = null
+const bubbleAnchor = new Vector3()
+/** Bubbles hold their size up close, shrink with distance and drop out here. */
+const BUBBLE_FULL_SIZE_DISTANCE = 9
+const BUBBLE_MIN_SCALE = 0.6
+const BUBBLE_MAX_DISTANCE = 56
+const BUBBLE_FADE_MS = 300
 
-/** Greedily wrap `text` into lines no wider than `maxWidth`, hard-breaking any
- *  single word that overflows on its own. `ctx.font` must already be set. */
-function wrapBubbleLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const lines: string[] = []
-  let line = ''
-  const flush = () => {
-    if (line) lines.push(line)
-  }
-  for (const word of text.split(/\s+/)) {
-    if (!word) continue
-    const candidate = line ? `${line} ${word}` : word
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      line = candidate
-      continue
-    }
-    // The word won't fit on the current line: start a new one with it, then
-    // hard-break the word itself if it's still too wide on its own.
-    flush()
-    line = word
-    while (ctx.measureText(line).width > maxWidth && line.length > 1) {
-      let cut = line.length - 1
-      while (cut > 1 && ctx.measureText(line.slice(0, cut)).width > maxWidth) cut--
-      lines.push(line.slice(0, cut))
-      line = line.slice(cut)
-    }
-  }
-  flush()
-  return lines
+function makeBubble(npc = false) {
+  const el = document.createElement('div')
+  el.className = 'chat-bubble'
+  if (npc) el.dataset.npc = ''
+  el.hidden = true
+  return el
 }
 
-/** Draw a rounded speech bubble, wrapping long messages across lines. Returns
- *  the canvas height so the caller can rescale the sprite to keep text crisp. */
-function drawBubble(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, text: string) {
-  ctx.font = BUBBLE_FONT
-  let lines = wrapBubbleLines(ctx, text, BUBBLE_MAX_TEXT_WIDTH)
-  if (lines.length > BUBBLE_MAX_LINES) {
-    lines = lines.slice(0, BUBBLE_MAX_LINES)
-    lines[BUBBLE_MAX_LINES - 1] = `${lines[BUBBLE_MAX_LINES - 1]!.slice(0, -1).trimEnd()}…`
+/** Show `message` over a rig while it lasts, pinned above `bubbleBaseY`. */
+function updateBubble(rig: Pick<Rig, 'group' | 'bubble' | 'bubbleText' | 'bubbleBaseY'>, message: { text: string, until: number } | null | undefined, now: number) {
+  const el = rig.bubble
+  if (!message || message.until <= now) {
+    if (rig.bubbleText) {
+      rig.bubbleText = ''
+      el.hidden = true
+    }
+    return
   }
-  let textWidth = 0
-  for (const line of lines) textWidth = Math.max(textWidth, ctx.measureText(line).width)
+  const canvas = renderer.instance?.domElement
+  if (!canvas?.parentElement) return
+  if (!bubbleLayer) {
+    bubbleLayer = document.createElement('div')
+    bubbleLayer.className = 'chat-bubble-layer'
+    canvas.parentElement.append(bubbleLayer)
+  }
+  if (el.parentElement !== bubbleLayer) bubbleLayer.append(el)
 
-  // Leave a 2px gutter so the ring stroke isn't clipped at the canvas edge.
-  const boxWidth = Math.min(textWidth + BUBBLE_PAD_X * 2, BUBBLE_CANVAS_WIDTH - 4)
-  const boxHeight = Math.max(lines.length, 1) * BUBBLE_LINE_HEIGHT + BUBBLE_PAD_Y * 2
-  const totalHeight = boxHeight + BUBBLE_TAIL_H + 2
+  bubbleAnchor.copy(rig.group.position)
+  bubbleAnchor.y += rig.bubbleBaseY
+  const distance = bubbleAnchor.distanceTo(camera.value.position)
+  camera.value.updateMatrixWorld()
+  bubbleAnchor.project(camera.value)
+  // NDC z leaves [-1, 1] behind the camera and past the far plane.
+  if (distance > BUBBLE_MAX_DISTANCE || Math.abs(bubbleAnchor.z) > 1) {
+    el.hidden = true
+    return
+  }
 
-  // Resizing the canvas clears it and resets the 2D context, so re-set state.
-  canvas.height = totalHeight
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.font = BUBBLE_FONT
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-
-  // One path for the rounded box plus its tail, so the ring outlines both. The
-  // look mirrors the HUD's glass panels (black/35 + a faint white ring).
-  const cx = canvas.width / 2
-  const left = cx - boxWidth / 2
-  const right = cx + boxWidth / 2
-  const top = 2
-  const bottom = top + boxHeight
-  const r = BUBBLE_RADIUS
-  ctx.beginPath()
-  ctx.moveTo(left + r, top)
-  ctx.arcTo(right, top, right, bottom, r)
-  ctx.arcTo(right, bottom, left, bottom, r)
-  ctx.lineTo(cx + BUBBLE_TAIL_W / 2, bottom)
-  ctx.lineTo(cx, bottom + BUBBLE_TAIL_H)
-  ctx.lineTo(cx - BUBBLE_TAIL_W / 2, bottom)
-  ctx.arcTo(left, bottom, left, top, r)
-  ctx.arcTo(left, top, right, top, r)
-  ctx.closePath()
-  ctx.fillStyle = 'rgba(10, 12, 18, 0.9)'
-  ctx.fill()
-  ctx.lineWidth = 2
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
-  ctx.stroke()
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
-  lines.forEach((line, i) => {
-    ctx.fillText(line, cx, top + BUBBLE_PAD_Y + BUBBLE_LINE_HEIGHT * (i + 0.5))
-  })
-  return totalHeight
+  if (rig.bubbleText !== message.text) {
+    rig.bubbleText = message.text
+    el.textContent = message.text
+    // Restart the pop-in for a new line on a bubble that is already showing.
+    el.style.animation = 'none'
+    void el.offsetWidth
+    el.style.animation = ''
+  }
+  const x = (bubbleAnchor.x + 1) / 2 * canvas.clientWidth
+  const y = (1 - bubbleAnchor.y) / 2 * canvas.clientHeight
+  const scale = Math.max(BUBBLE_MIN_SCALE, Math.min(1, BUBBLE_FULL_SIZE_DISTANCE / distance))
+  el.hidden = false
+  el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${scale.toFixed(3)})`
+  el.style.opacity = String(Math.min(1, (message.until - now) / BUBBLE_FADE_MS))
 }
 
 function createRig(player: GamePlayer): Rig | null {
@@ -967,13 +921,9 @@ function createRig(player: GamePlayer): Rig | null {
   name.sprite.position.y = headHeight + NAME_GAP + NAME_SPRITE.scaleY / 2
   group.add(name.sprite)
 
-  // Bubbles are centered on their sprite and grow upward from this bottom edge,
-  // which sits just clear of the top of the nameplate.
+  // The bubble's tail sits just clear of the top of the nameplate.
   const bubbleBaseY = headHeight + NAME_GAP + NAME_SPRITE.scaleY + 0.04
-  const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
-  bubble.sprite.position.y = bubbleBaseY + bubble.sprite.scale.y / 2
-  bubble.sprite.visible = false
-  group.add(bubble.sprite)
+  const bubble = makeBubble()
 
   const blob = makeBlobShadow()
   group.add(blob)
@@ -988,8 +938,7 @@ function createRig(player: GamePlayer): Rig | null {
       disposeCharacterSkeleton(model)
       name.texture.dispose()
       name.sprite.material.dispose()
-      bubble.texture.dispose()
-      bubble.sprite.material.dispose()
+      bubble.remove()
       blob.material.dispose()
       // The outfit swap clones the cloth materials per rig; the shared texture
       // and the template's own materials stay.
@@ -1001,9 +950,7 @@ function createRig(player: GamePlayer): Rig | null {
     current: CLIP.idle,
     wasDashing: false,
     dashAnimUntil: 0,
-    bubble: bubble.sprite,
-    bubbleCanvas: bubble.canvas,
-    bubbleTexture: bubble.texture,
+    bubble,
     bubbleText: '',
     bubbleBaseY,
     blob,
@@ -1250,10 +1197,7 @@ function createOracleRig(): OracleRig | null {
 
   // Speech bubble (hidden until the Oracle speaks in chat), like the players'.
   const bubbleBaseY = ORACLE_HEIGHT + NAME_GAP + NAME_SPRITE.scaleY + 0.04
-  const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
-  bubble.sprite.position.set(0, bubbleBaseY + bubble.sprite.scale.y / 2, 0)
-  bubble.sprite.visible = false
-  group.add(bubble.sprite)
+  const bubble = makeBubble(true)
 
   floorGroup.add(group)
   atmosphere.setupShadows()
@@ -1267,11 +1211,10 @@ function createOracleRig(): OracleRig | null {
       disposeCharacterSkeleton(model)
       label.texture.dispose()
       label.sprite.material.dispose()
-      bubble.texture.dispose()
-      bubble.sprite.material.dispose()
+      bubble.remove()
       glow.dispose()
     },
-    group, mixer, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY,
+    group, mixer, bubble, bubbleText: '', bubbleBaseY,
   }
 }
 
@@ -1524,22 +1467,7 @@ onBeforeRender(({ delta }) => {
     else setAnimation(rig, CLIP.idle)
     rig.mixer.update(dt)
 
-    // Chat bubble: redraw when the text changes, fade out at the end.
-    if (player.bubble && player.bubble.until > now) {
-      if (rig.bubbleText !== player.bubble.text) {
-        rig.bubbleText = player.bubble.text
-        const height = drawBubble(rig.bubbleCanvas.getContext('2d')!, rig.bubbleCanvas, player.bubble.text)
-        rig.bubbleTexture.needsUpdate = true
-        rig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
-        rig.bubble.position.y = rig.bubbleBaseY + rig.bubble.scale.y / 2
-      }
-      rig.bubble.visible = true
-      rig.bubble.material.opacity = Math.min(1, (player.bubble.until - now) / 300)
-    }
-    else {
-      rig.bubble.visible = false
-      rig.bubbleText = ''
-    }
+    updateBubble(rig, player.bubble, now)
   }
 
   waterActors.length = props.game.players.size
@@ -1573,21 +1501,7 @@ onBeforeRender(({ delta }) => {
     oracleRig.group.position.z = op.y
     oracleRig.group.rotation.y = op.rot
     const speech = oracle.speech.value
-    if (speech && speech.until > now) {
-      if (oracleRig.bubbleText !== speech.text) {
-        oracleRig.bubbleText = speech.text
-        const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, speech.text)
-        oracleRig.bubbleTexture.needsUpdate = true
-        oracleRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
-        oracleRig.bubble.position.y = oracleRig.bubbleBaseY + oracleRig.bubble.scale.y / 2
-      }
-      oracleRig.bubble.visible = true
-      oracleRig.bubble.material.opacity = Math.min(1, (speech.until - now) / 300)
-    }
-    else {
-      oracleRig.bubble.visible = false
-      oracleRig.bubbleText = ''
-    }
+    updateBubble(oracleRig, speech, now)
   }
   oracle.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < ORACLE_NEAR : false
 })
@@ -1653,6 +1567,8 @@ function disposeScene() {
   townMaterials.dispose()
   retiredTemplates.length = 0
   atmosphere.dispose()
+  bubbleLayer?.remove()
+  bubbleLayer = null
   scene.value.remove(torchLight, floorGroup, playerGroup)
 }
 onMounted(() => emit('ready', disposeScene))
