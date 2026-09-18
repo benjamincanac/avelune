@@ -4,8 +4,6 @@ allowBuilds:
   unrs-resolver: false
   vue-demi: false
 
-minimumReleaseAge: 2880
-
 # Pin the whole tree (incl. @nuxt/nitro-server-nightly, which pins
 # ^3.0.260522-beta) onto the Nitro build that ships native Vercel WebSocket
 # support via crossws/adapters/vercel. Prerelease semver means the caret range
