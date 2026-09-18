@@ -156,11 +156,6 @@ onMounted(async () => {
     <!-- The stage. One neutral radial, so the character is the only thing at
          full brightness and an outfit change reads on the model. -->
     <div class="absolute inset-0 bg-[radial-gradient(66%_62%_at_50%_40%,#16222b_0%,#0c1216_48%,#070d0f_100%)]" />
-    <!-- The ground under the feet. Placed as a fraction of the stage rather than
-         a fixed offset from the bottom: the camera frames the figure by its own
-         height, so the boots land at the same 72% whatever the window is. -->
-    <div class="absolute left-1/2 top-[72%] h-px w-105 -translate-x-1/2 -translate-y-1/2 bg-[linear-gradient(90deg,rgb(111_240_218/0),rgb(111_240_218/0.5),rgb(111_240_218/0))]" />
-    <div class="absolute left-1/2 top-[72%] h-15 w-110 -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(50%_50%,rgb(111_240_218/0.16),rgb(111_240_218/0))]" />
 
     <!-- Big 3D character stage (transparent canvas over the backdrop). -->
     <CharacterPreview

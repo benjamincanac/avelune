@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AnimationMixer, Box3, PerspectiveCamera, SkinnedMesh, Vector3 } from 'three'
+import { AnimationMixer, Box3, CanvasTexture, PerspectiveCamera, SRGBColorSpace, SkinnedMesh, Vector3 } from 'three'
 import type { Group } from 'three'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
@@ -9,11 +9,11 @@ import { disposeCharacterSkeleton, loadCharacterAsset, preloadCharacterAssets } 
 
 /**
  * The selected character inside the preview canvas. Rendered as a Tres
- * <primitive>; the turntable spin, animation mixer, and framing camera are all
+ * <primitive>; the drag turntable, animation mixer, and framing camera are all
  * driven from Tres's render loop (useLoop) — the same load → clone → Idle_Loop
  * pipeline as the in-world rigs. The chosen outfit colorway is applied.
  */
-const props = defineProps<{ character: string, outfitColor: number }>()
+const props = defineProps<{ character: string, outfitColor: number, autoSpin?: boolean }>()
 
 const model = shallowRef<Group | null>(null)
 let mixer: AnimationMixer | null = null
@@ -37,7 +37,7 @@ async function rebuild() {
   // Stand the figure on the origin rather than centring it on it. Characters
   // are not all the same height (1.78–1.84), so centring put every pair of
   // boots at a different depth in frame; standing them on a shared floor means
-  // the stage's ground glow lands under the boots whoever is there.
+  // the floor disc sits under the boots whoever is there.
   next.updateMatrixWorld(true)
   const bounds = new Box3().setFromObject(next)
   const center = bounds.getCenter(new Vector3())
@@ -55,6 +55,42 @@ async function rebuild() {
   model.value = next
 }
 
+/**
+ * The floor under the boots. It is a disc in the scene rather than a glow in
+ * the page, so it takes the camera's perspective: the ellipse wraps both feet
+ * whatever depth they stand at, where a flat line could only meet one of them.
+ * A dark core reads as the contact shadow, the accent wash and rim as the stage.
+ */
+const FLOOR_RADIUS = 1.15
+function floorTexture() {
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const half = size / 2
+  const glow = ctx.createRadialGradient(half, half, 0, half, half, half)
+  glow.addColorStop(0, 'rgb(111 240 218 / 0.5)')
+  glow.addColorStop(0.6, 'rgb(111 240 218 / 0.2)')
+  glow.addColorStop(1, 'rgb(111 240 218 / 0)')
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, size, size)
+  const shadow = ctx.createRadialGradient(half, half, 0, half, half, half * 0.5)
+  shadow.addColorStop(0, 'rgb(0 0 0 / 0.75)')
+  shadow.addColorStop(0.55, 'rgb(0 0 0 / 0.45)')
+  shadow.addColorStop(1, 'rgb(0 0 0 / 0)')
+  ctx.fillStyle = shadow
+  ctx.fillRect(0, 0, size, size)
+  ctx.strokeStyle = 'rgb(111 240 218 / 0.75)'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.arc(half, half, half * 0.8, 0, Math.PI * 2)
+  ctx.stroke()
+  const texture = new CanvasTexture(canvas)
+  texture.colorSpace = SRGBColorSpace
+  return texture
+}
+const floor = floorTexture()
+
 const { camera: cameraManager } = useTresContext()
 const { onBeforeRender } = useLoop()
 
@@ -68,25 +104,25 @@ const { onBeforeRender } = useLoop()
  *
  * `CENTRE` is the world height the camera looks at, chosen so the feet (now at
  * y = 0) land 72% down the frame: the bottom of the gate is not free, the
- * summary line and the name field stack there, and the stage's ground glow is
- * positioned at the matching 72%. `DISTANCE` leaves the tallest character about
+ * summary line and the name field stack there. `DISTANCE` leaves the tallest character about
  * a seventh of the frame in air above the head.
  */
 const CENTRE = 0.66
 const DISTANCE = 4.9
 
-// Turntable: auto-spins until the user grabs the character, then drag rotates it.
+// Turntable: drag rotates the character. With `autoSpin` it also turns on its
+// own until the user grabs it.
 let yaw = 0
 let dragging = false
 let lastX = 0
-let autoSpin = true
+let grabbed = false
 let cameraConfigured = false
 
 function onPointerDown(e: PointerEvent) {
   // Only the character stage (the canvas) drags — not the control panels.
   if (!(e.target instanceof HTMLCanvasElement)) return
   dragging = true
-  autoSpin = false
+  grabbed = true
   lastX = e.clientX
 }
 function onPointerMove(e: PointerEvent) {
@@ -113,7 +149,7 @@ onBeforeRender(({ delta }) => {
     }
     cam.lookAt(0, CENTRE, 0)
   }
-  if (autoSpin && !dragging) yaw += delta * 0.35
+  if (props.autoSpin && !grabbed) yaw += delta * 0.35
   if (model.value) model.value.rotation.y = yaw
   mixer?.update(delta)
 })
@@ -129,6 +165,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   token++
   mixer?.stopAllAction()
+  floor.dispose()
   if (model.value) {
     mixer?.uncacheRoot(model.value)
     disposeCharacterSkeleton(model.value)
@@ -143,6 +180,19 @@ watch(() => [props.character, props.outfitColor], () => {
 </script>
 
 <template>
+  <!-- Just under y = 0 so the soles never z-fight it. -->
+  <TresMesh
+    :rotation-x="-Math.PI / 2"
+    :position-y="-0.002"
+  >
+    <TresCircleGeometry :args="[FLOOR_RADIUS, 64]" />
+    <TresMeshBasicMaterial
+      :map="floor"
+      :transparent="true"
+      :depth-write="false"
+      :tone-mapped="false"
+    />
+  </TresMesh>
   <primitive
     v-if="model"
     :object="model"
