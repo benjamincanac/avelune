@@ -270,7 +270,7 @@ onMounted(async () => {
         variant="subtle"
         size="sm"
         icon="i-lucide-dices"
-        label="Randomise"
+        label="Randomize"
         @click="randomize"
       />
     </div>
