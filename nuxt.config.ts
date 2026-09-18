@@ -1,3 +1,5 @@
+import devWsUpgrade from './build/devWsUpgrade.ts'
+
 // Site metadata, single source of truth for SEO. Previously in app.config.ts +
 // useSiteSeo(), but every value here is static, so it lives in the build-time
 // head config instead of a runtime composable.
@@ -21,7 +23,7 @@ const canonical = `${siteUrl}/`
 const ogImage = `${siteUrl}${site.ogImage}`
 
 export default defineNuxtConfig({
-  modules: ['@nuxt/ui', '@tresjs/nuxt'],
+  modules: ['@nuxt/ui', '@tresjs/nuxt', devWsUpgrade],
 
   devtools: { enabled: false },
 

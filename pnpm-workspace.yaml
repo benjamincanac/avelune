@@ -4,16 +4,22 @@ allowBuilds:
   unrs-resolver: false
   vue-demi: false
 
-# Pin the whole tree (incl. @nuxt/nitro-server-nightly, which pins
-# ^3.0.260522-beta) onto the Nitro build that ships native Vercel WebSocket
-# support via crossws/adapters/vercel. Prerelease semver means the caret range
-# won't pick this up on its own.
+# Pin the whole tree (incl. @nuxt/nitro-server-nightly, which pins a caret range
+# on an older beta) onto one Nitro build. Prerelease semver means the caret range
+# won't pick this up on its own. 3.0.260903-beta needs a Nuxt 5 nightly >=
+# 29814795 (older ones import a removed `writeTypes` builder export) and
+# h3 >= 2.0.1-rc.31.
 #
-# Do not move to 3.0.260903-beta yet: it needs a Nuxt 5 nightly >= 29814795
-# (older ones import a removed `writeTypes` builder export), and those nightlies
-# mount Nitro as a Vite environment whose dev hook does
-# `server.httpServer.on("upgrade")` while Nuxt runs Vite in middleware mode
-# (httpServer is null), so `nuxt dev` crashes and dev WebSockets have no
-# upgrade path. Prod builds were fine. Revisit when Nuxt forwards upgrades.
+# Those nightlies mount Nitro as a Vite environment, which brings two dev-only
+# landmines:
+# - Nitro's dev hook does `server.httpServer.on("upgrade")` while Nuxt runs Vite
+#   in middleware mode (httpServer is null), so `nuxt dev` crashes and dev
+#   WebSockets have no upgrade path. build/devWsUpgrade.ts bridges it. Drop it
+#   when Nuxt forwards upgrades.
+# - `vue` must be a direct dependency. Nuxt sets `resolve.dedupe: ['vue']`, so
+#   Vite resolves it from the project root. Under pnpm there is no root
+#   `node_modules/vue` unless it is listed, the externalization check fails, the
+#   ssr environment inlines `vue/index.mjs` and its CJS `index.js`, and every
+#   render 500s with `module is not defined`.
 overrides:
-  nitro: 3.0.260610-beta
+  nitro: 3.0.260903-beta
