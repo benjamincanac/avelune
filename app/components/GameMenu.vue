@@ -119,6 +119,16 @@ const CONTROLS = [
         </template>
       </UButton>
       <UButton
+        v-if="dev"
+        block
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-pencil-ruler"
+        label="World editor"
+        :ui="{ base: 'justify-start', leadingIcon: 'text-dimmed', label: 'flex-1 text-left' }"
+        @click="emit('edit')"
+      />
+      <UButton
         block
         color="neutral"
         variant="subtle"
@@ -131,16 +141,6 @@ const CONTROLS = [
           <span class="telemetry text-label">If stuck</span>
         </template>
       </UButton>
-      <UButton
-        v-if="dev"
-        block
-        color="neutral"
-        variant="subtle"
-        icon="i-lucide-pencil-ruler"
-        label="World editor"
-        :ui="{ base: 'justify-start', leadingIcon: 'text-dimmed', label: 'flex-1 text-left' }"
-        @click="emit('edit')"
-      />
       <UButton
         block
         color="error"
