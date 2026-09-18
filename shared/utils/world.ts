@@ -9,7 +9,7 @@
  * without any of it travelling over the socket.
  *
  * The authored town is a *protected footprint*: the moat's outer square plus a
- * margin, and the gate road out to where it ends. Its pieces are seeded from
+ * margin, and the landing of the gate bridge. Its pieces are seeded from
  * the committed JSON at boot and player edits never reach those tiles. The
  * chunks the footprint touches (`isTownChunk`) are created up front and never
  * evicted, but the ground in them outside the footprint is ordinary editable
@@ -163,9 +163,8 @@ export const WORLD_TILE_MAX = (WORLD_BOUNDS.maxCx + 1) * CHUNK_SIZE
 /**
  * The tiles player edits may never touch, inclusive on both ends: the moat's
  * outer square plus `TOWN_MARGIN`, the bank stair with the same margin, and
- * exactly the paved approach from the bridge to the end of the road. It hugs
- * the geometry on purpose: the first tile beside the road or past its end is
- * where a player continues it.
+ * exactly the tiles under the gate bridge's landing. It hugs the geometry on
+ * purpose: the first tile past the bridge is where a player starts a road.
  */
 export const PROTECTED_FOOTPRINT = [
   {
@@ -181,12 +180,12 @@ export const PROTECTED_FOOTPRINT = [
     maxY: MOAT_STAIRS.zEnd,
   },
   {
-    // The road plane spans `gateX ± bridgeWidth / 2` and ends at `exteriorMax`,
-    // so these are its tiles and nothing beside them.
+    // The bridge deck spans `gateX ± bridgeWidth / 2` and lands at `bridgeEnd`,
+    // so these are the tiles under it and nothing beside them.
     minX: FORTIFICATIONS.gateX - FORTIFICATIONS.bridgeWidth / 2,
     maxX: FORTIFICATIONS.gateX + FORTIFICATIONS.bridgeWidth / 2 - 1,
     minY: FORTIFICATIONS.moatOuterMax,
-    maxY: FORTIFICATIONS.exteriorMax - 1,
+    maxY: FORTIFICATIONS.bridgeEnd - 1,
   },
 ] as const
 

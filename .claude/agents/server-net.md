@@ -187,7 +187,7 @@ bytes between it and clients.
    enforced here.** `checkTerraform`, `resolveBuild` and `checkDemolish` are
    pure predicates the client runs for its ghost preview and the server runs to
    decide — reach (6 tiles), the protected tile footprint (`isProtectedTile`,
-   which ends right after the gate road, not a chunk band later), placeable
+   which ends right after the gate bridge, not a chunk band later), placeable
    kinds, AABB overlap,
    support height, ownership and the 500-piece budget. The `build` frame's
    optional `h` — the world height the client's aim ray hit — is passed
@@ -247,7 +247,7 @@ only an index rebuild.
   (two clients: it mints each a character over `POST /api/auth`, carries the
   cookie into the upgrade, then asserts welcome/state/chat/pong/leave/kicked,
   the spawn chunk neighbourhood, a terraform round trip, the footprint edge —
-  the gate road refused while the grass six tiles beside it is editable from
+  the gate bridge refused while the grass six tiles beside spawn is editable from
   spawn — and a felled tree).
 - `pnpm test` includes `scripts/chunk-store-test.ts`: the store against
   `scripts/upstash-fake.mjs` (a stand-in for the Upstash REST endpoint) and,

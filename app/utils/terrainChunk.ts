@@ -268,7 +268,7 @@ export function updateTerrainMesh(mesh: Mesh, chunk: Chunk, sample: HeightSample
 
 /** Whether a tile is open ground the meadow's grass may grow on. Inside the
  *  protected footprint the raster says nothing useful, so the town's own
- *  geometry (plaza, moat, bridge and approach) is what is excluded instead;
+ *  geometry (plaza, moat and bridge) is what is excluded instead;
  *  everywhere else, the outer tiles of a town chunk included, the raster
  *  decides — which is what keeps grass and flowers off a player's flagstones. */
 export function isGrassTile(chunk: Chunk, lx: number, ly: number): boolean {
@@ -276,7 +276,5 @@ export function isGrassTile(chunk: Chunk, lx: number, ly: number): boolean {
   const y = chunk.cy * CHUNK_SIZE + ly + 0.5
   if (!isProtectedTile(x, y)) return chunk.surface[ly * CHUNK_SIZE + lx] === SURFACE.grass
   if (x > COURTYARD.min && x < COURTYARD.max && y > COURTYARD.min && y < COURTYARD.max) return false
-  if (isInMoat(x, y) || isOnMoatStairs(x, y) || isOnGateBridge(x, y)) return false
-  const f = FORTIFICATIONS
-  return !(Math.abs(x - f.gateX) < f.bridgeWidth / 2 + 0.3 && y >= f.bridgeEnd && y <= f.exteriorMax)
+  return !(isInMoat(x, y) || isOnMoatStairs(x, y) || isOnGateBridge(x, y))
 }

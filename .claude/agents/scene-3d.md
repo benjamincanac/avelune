@@ -321,7 +321,7 @@ excluded from GTAO.
 The protected town renders its terrain too, sunk `TOWN_CLEARANCE` below zero so
 every plaza plane in `courtyardScene` — the lowest sits at -0.025 — stays on top
 of it instead of z-fighting. **Protection is a tile footprint, not a chunk**:
-`isProtectedTile(x, y)` is the moat ring plus the gate road strip, and
+`isProtectedTile(x, y)` is the moat ring plus the gate bridge's landing, and
 `isTownChunk(cx, cy)` is only "this chunk overlaps it", used for seeding and for
 keeping the town permanently detailed. Every rendering special case is keyed to
 the tile, so a town chunk's outer tiles are ordinary meadow that grows grass,

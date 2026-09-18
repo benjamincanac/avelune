@@ -478,18 +478,18 @@ test('small pieces snap to their own grid so two crates sit side by side', () =>
 /* Protected footprint                                                        */
 /* -------------------------------------------------------------------------- */
 
-test('building stops at the end of the gate road, not a chunk later', () => {
+test('building stops at the end of the gate bridge, not a chunk later', () => {
   const world = createWorld()
   const f = FORTIFICATIONS
-  const onRoad = { x: f.gateX, y: f.exteriorMax - 2 }
-  const past = { x: f.gateX, y: f.exteriorMax + 2 }
+  const onRoad = { x: f.gateX, y: f.bridgeEnd - 1 }
+  const past = { x: f.gateX, y: f.bridgeEnd + 3 }
 
   const refused = resolveBuild(world, { kind: 'Kit_Crate', ...onRoad, rot: 0 }, onRoad, { owner: 'builder', id: 'r1', pieces: 0 })
   assert.equal(refused.ok, false)
   assert.equal(refused.ok === false && refused.reason, 'the town is protected')
 
   const allowed = resolveBuild(world, { kind: 'Kit_Crate', ...past, rot: 0 }, past, { owner: 'builder', id: 'r2', pieces: 0 })
-  assert.ok(allowed.ok, `a build past the road was refused: ${allowed.ok === false && allowed.reason}`)
+  assert.ok(allowed.ok, `a build past the bridge was refused: ${allowed.ok === false && allowed.reason}`)
 
   // Well inside the old protected chunk band, but clear of the footprint.
   const beside = { x: 30, y: 150 }
@@ -499,8 +499,8 @@ test('building stops at the end of the gate road, not a chunk later', () => {
   // Terraform follows the same footprint, and the moat bank stair is inside it.
   assert.equal(checkTerraform(world, { x: MOAT_STAIRS.x, y: MOAT_STAIRS.zStart + 2, mode: 'raise', size: 1 }, { x: MOAT_STAIRS.x, y: MOAT_STAIRS.zStart + 2 }).ok, false)
   assert.equal(checkTerraform(world, { x: beside.x, y: beside.y, mode: 'raise', size: 1 }, beside).ok, true)
-  // A brush straddling the edge of the road is refused for the corner inside it.
-  const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.exteriorMax - 2 }
+  // A brush straddling the edge of the landing is refused for the corner inside it.
+  const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.bridgeEnd - 1 }
   assert.equal(checkTerraform(world, { x: edge.x, y: edge.y, mode: 'raise', size: 1 }, edge).ok, true)
   assert.equal(checkTerraform(world, { x: edge.x - 1, y: edge.y, mode: 'raise', size: 3 }, edge).ok, false)
 })

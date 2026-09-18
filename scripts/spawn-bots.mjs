@@ -68,8 +68,7 @@ const DIG_EVERY = 1200
 /** ms between build/terraform requests from the edit pump. `EDITS_PER_SECOND`
  *  is 8, so this leaves headroom for a settled bot's digging on top. */
 const EDIT_EVERY = 150
-/** The mouth of the gate road: where a paved path from a plot rejoins the town.
- *  y 140 is the first buildable tile, so paving stops a tile short of it. */
+/** Where a paved path from a plot rejoins the town, out in front of the gate. */
 const ROAD = { x: 72, y: 142 }
 /** Stop building this far short of the budget, so a rebuild always fits. */
 const PIECE_HEADROOM = 8

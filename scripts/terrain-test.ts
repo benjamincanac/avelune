@@ -233,28 +233,29 @@ test('generated vegetation is deterministic and keeps out of the town', () => {
   }
 })
 
-test('protection is a tile footprint that stops right after the gate road', () => {
+test('protection is a tile footprint that stops right after the gate bridge', () => {
   const f = FORTIFICATIONS
-  // The road out of the south gate, and one tile past its end.
-  assert.equal(isProtectedTile(f.gateX, f.exteriorMax - 2), true)
-  assert.equal(isProtectedTile(f.gateX, f.exteriorMax - 1), true)
-  // The first tile past the visible road is where a player continues it.
-  assert.equal(isProtectedTile(f.gateX, f.exteriorMax), false)
-  // Beside the road, still inside the old chunk band.
+  // The bridge's landing outside the south gate, and one tile past it.
+  assert.equal(isProtectedTile(f.gateX, f.bridgeEnd - 2), true)
+  assert.equal(isProtectedTile(f.gateX, f.bridgeEnd - 1), true)
+  // The first tile past the bridge is where a player starts a road.
+  assert.equal(isProtectedTile(f.gateX, f.bridgeEnd), false)
+  // Beside the gate, still inside the old chunk band.
   assert.equal(isProtectedTile(f.gateX + 12, f.exteriorMax - 10), false)
   assert.equal(isProtectedTile(30, 150), false)
   // The moat's outer ring keeps its margin, and the bank stair with it.
   assert.equal(isProtectedTile(f.moatOuterMax - 1 + TOWN_MARGIN, 72), true)
   assert.equal(isProtectedTile(f.moatOuterMax + TOWN_MARGIN, 72), false)
-  // Beside the road, the first tile is buildable.
-  assert.equal(isProtectedTile(f.gateX + f.bridgeWidth / 2 - 1, f.exteriorMax - 5), true)
-  assert.equal(isProtectedTile(f.gateX + f.bridgeWidth / 2, f.exteriorMax - 5), false)
+  // Beside the bridge's landing, the first tile is buildable.
+  assert.equal(isProtectedTile(f.gateX + f.bridgeWidth / 2 - 1, f.bridgeEnd - 1), true)
+  assert.equal(isProtectedTile(f.gateX + f.bridgeWidth / 2, f.bridgeEnd - 1), false)
   for (let z = MOAT_STAIRS.zStart; z <= MOAT_STAIRS.zEnd; z++) {
     assert.equal(isProtectedTile(MOAT_STAIRS.x, z), true, `the bank stair is exposed at ${z}`)
   }
   // The chunk predicate is the coarse one: it holds the town's seeded pieces,
-  // and the road pushes it one chunk south of the moat square.
-  assert.equal(isTownChunk(2, 4), true)
+  // and the bridge's landing keeps it inside the moat square's chunks.
+  assert.equal(isTownChunk(2, 3), true)
+  assert.equal(isTownChunk(2, 4), false)
   assert.equal(isTownChunk(0, 4), false)
   assert.equal(isTownChunk(4, 2), false)
 })
@@ -269,10 +270,12 @@ test('the ground outside the footprint is level grass, not paved town', () => {
   const ly = 136 - chunk.cy * CHUNK_SIZE
   const surface = chunk.surface[ly * CHUNK_SIZE + lx]
   assert.ok(surface === SURFACE.grass || surface === SURFACE.dirt, `expected meadow, got ${surface}`)
-  const road = world.getChunk(2, 4)!
-  const rx = FORTIFICATIONS.gateX - road.cx * CHUNK_SIZE
-  const ry = 136 - road.cy * CHUNK_SIZE
-  assert.equal(road.surface[ry * CHUNK_SIZE + rx], SURFACE.path)
+  // Straight out of the gate it is meadow too: no road is laid past the bridge.
+  const gate = world.getChunk(2, 4)!
+  const gx = FORTIFICATIONS.gateX - gate.cx * CHUNK_SIZE
+  const gy = 136 - gate.cy * CHUNK_SIZE
+  const outside = gate.surface[gy * CHUNK_SIZE + gx]
+  assert.ok(outside === SURFACE.grass || outside === SURFACE.dirt, `expected meadow, got ${outside}`)
 })
 
 test('the wild scatter reads as meadow with copses in it', () => {

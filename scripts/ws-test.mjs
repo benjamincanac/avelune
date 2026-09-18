@@ -197,14 +197,15 @@ const refusal = a.frames.findLast(f => f.t === 'reject')
 check('terraform inside the walls is refused', refusal?.reason === 'the town is protected', refusal?.reason)
 check('a refusal stays private', !b.frames.slice(bMark).some(f => f.t === 'reject' || f.t === 'terrain'))
 
-// Protection is a tile footprint now, not a chunk band: the gate road is
-// refused, and the grass beside it — six tiles away, still inside the chunks
-// that used to be off limits — is editable without walking anywhere.
+// Protection is a tile footprint now, not a chunk band: a brush reaching the
+// gate bridge's landing is refused, and the grass beside spawn — six tiles
+// away, still inside the chunks that used to be off limits — is editable
+// without walking anywhere.
 const onRoad = positionOf(a)
-send(a, { t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y) + 5, mode: 'raise', size: 1 })
+send(a, { t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y) - 6, mode: 'raise', size: 3 })
 await sleep(200)
 const roadRefusal = a.frames.findLast(f => f.t === 'reject')
-check('the gate road is protected', roadRefusal?.reason === 'the town is protected', roadRefusal?.reason)
+check('the gate bridge is protected', roadRefusal?.reason === 'the town is protected', roadRefusal?.reason)
 let beside = null
 for (const dx of [-6, 6, -5, 5]) {
   const aMark = a.frames.length

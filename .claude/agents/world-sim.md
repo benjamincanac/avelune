@@ -192,11 +192,11 @@ independently.
 4. **The town is a protected footprint, not a chunk band.**
    `PROTECTED_FOOTPRINT` in `world.ts` hugs the geometry: the moat's outer
    square plus a 1-tile `TOWN_MARGIN` (`[22, 121]`), the bank stair with the
-   same margin, and exactly the road's tiles (`x` `[68, 75]`, `y` `[121, 139]`),
-   so the first tile beside or past the road is buildable. `isProtectedTile` tests it
+   same margin, and exactly the tiles under the bridge's landing (`x` `[68, 75]`,
+   `y` `[121, 122]`), so the first tile beside or past the bridge is buildable. `isProtectedTile` tests it
    and is what `checkTerraform` / `resolveBuild` / `checkDemolish` refuse on — a
    brush is refused if any corner it writes lands inside — so building starts
-   the tile after the road ends instead of thirty tiles later.
+   the tile after the bridge ends instead of thirty tiles later.
    `isTownChunk(cx, cy)` is the coarser fact: a chunk overlapping the footprint,
    seeded from the town JSON by `seedTown`, created up front and never evicted.
    Its tiles outside the footprint are ordinary editable ground.
@@ -315,7 +315,7 @@ agent are told what moved.
   stack-versus-overlap verdicts `resolveBuild` returns, the aim height (which
   storey a crate lands on, a ground-floor wall put back in its slot, the
   `no room there` refusal, and a bogus `h` being ignored or clamped), plus the
-  per-piece snap grid and the footprint edge at the end of the gate road. `world-test.ts` checks spawn, the world edge, town obstacles,
+  per-piece snap grid and the footprint edge at the end of the gate bridge. `world-test.ts` checks spawn, the world edge, town obstacles,
   diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
   covers bilinear heights, the slope rule, terraform-then-walk, chunk-border
   sync, generation determinism, the encode round trip, and the protected

@@ -178,22 +178,18 @@ export type ChunkProps = ReturnType<typeof createChunkProps>
 
 /** How far the road sits above the ground it is laid on. Enough to clear the
  *  terrain it shares its corner heights with, small enough that the edge of a
- *  paved run does not read as a kerb. The town's own approach plane uses the
- *  same trick at -0.025 over its dead-level ground. */
+ *  paved run does not read as a kerb. */
 const ROAD_LIFT = 0.02
 
-/** World units per tile of the stone map. The gate approach maps the texture
- *  once across its 8-unit width, so this keeps the grain the same size where a
- *  player's road meets it. */
+/** World units per tile of the stone map: one repeat every 8 tiles, the width
+ *  of the gate bridge a road usually starts from. */
 const ROAD_UV_SCALE = 1 / 8
 
 /**
- * A player's paving: the same road the gate approach is, continued wherever
- * someone paints the `path` surface.
+ * A player's paving, laid wherever someone paints the `path` surface.
  *
- * It is one flat mesh per chunk rather than a slab per tile, for the same
- * reason the approach is one plane: a run of tiles has to read as a continuous
- * road, not as a line of coasters. Every path tile's quad is indexed out of the
+ * It is one flat mesh per chunk rather than a slab per tile: a run of tiles has
+ * to read as a continuous road, not as a line of coasters. Every path tile's quad is indexed out of the
  * chunk's own 33×33 corner grid, so neighbouring tiles share their vertices and
  * there is no seam down the middle of a road; UVs are in world tiles, so the
  * stone carries across chunk borders too.
@@ -218,7 +214,7 @@ export function createPavingBank(materials: TownMaterials) {
           if (chunk.surface[ly * CHUNK_SIZE + lx] !== SURFACE.path) continue
           // The town paves itself in `courtyardScene`, and the raster inside the
           // protected footprint is a uniform `path` placeholder — a road there
-          // would be a second layer over the authored square and its approach.
+          // would be a second layer over the authored square.
           // Same integer tile coordinate as `surfaceFor` and the tint pass, or
           // the inclusive edge of the footprint is paved on one side only.
           if (isProtectedTile(originX + lx, originY + ly)) continue
