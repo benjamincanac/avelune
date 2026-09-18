@@ -1,11 +1,13 @@
 import type { Ref } from 'vue'
+import type { WorldEvent } from '#shared/types/game'
 
 /**
  * The world feed: what other people are doing to the world, right now.
  *
  * It is a HUD surface rather than a log, so it holds a handful of rows and no
- * history. `useGame` fills it from the frames it already receives — there is no
- * feed frame on the wire — which is why attribution is only as good as the
+ * history. `useGame` starts it from the rows `welcome` carries, then fills it
+ * from the frames it already receives — there is no feed frame on the wire —
+ * which is why attribution is only as good as the
  * protocol: a placement carries its owner, and `terrain` carries `by` for the
  * same reason. The title screen reads the server's own copy of this from
  * `/api/status`, worded identically, since it has no socket to watch.
@@ -27,14 +29,16 @@ export interface FeedEvent {
   kind: string
 }
 
-/** What the server reports on `/api/status` — a `FeedEvent` without the id. */
-export type WorldEvent = Omit<FeedEvent, 'id'>
+/** What the server reports on `/api/status` and in `welcome`: a `FeedEvent`
+ *  without the id. */
+export type { WorldEvent }
 
 export interface UseFeed {
   /** Newest first. */
   events: Ref<FeedEvent[]>
   record: (name: string, kind: string, text: string) => void
-  /** Adopt the server's rows — the title screen's only source. */
+  /** Adopt the server's rows: the title screen's only source, and what the HUD
+   *  starts from on `welcome`. */
   adopt: (events: WorldEvent[]) => void
   reset: () => void
 }

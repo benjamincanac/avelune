@@ -206,7 +206,7 @@ Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/
 `now` clock/`world` — `{chunkSize, bounds, seed, persistent}` (`persistent` is `chunkStore().kind !== 'memory'`), all a client needs to build
 its empty `World` — plus `pieces`, this identity's owned-piece total across the
 whole world, and `deeds`, how many plots they hold, both of which
-`server/utils/pieces.ts` holds and the store survives a redeploy with), `join`, `leave`, `state` (only players that moved, at 10 Hz,
+`server/utils/pieces.ts` holds and the store survives a redeploy with, and `feed`, the world feed's ring buffer that `/api/status` also serves), `join`, `leave`, `state` (only players that moved, at 10 Hz,
 filtered to `STATE_RANGE`), `chat` (`{id, text}` — the Oracle broadcasts under the
 reserved `ORACLE_ID`), `chunk`/`unchunk` (a whole chunk as `encodeChunk` writes
 it, `h`/`s` base64), `terrain` (`[cornerIndex, quantised height]` pairs into the

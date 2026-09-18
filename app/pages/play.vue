@@ -73,8 +73,6 @@ onMounted(async () => {
 /** Enter the arena as the saved character. */
 function play() {
   view.value = 'playing'
-  // The gate's rows came off `/api/status`; from here the socket is the source.
-  feed.reset()
   game.connect()
 }
 

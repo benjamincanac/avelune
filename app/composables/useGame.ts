@@ -228,6 +228,9 @@ export function useGame(): UseGame {
         clockOffset = msg.now - Date.now()
         weather.value = msg.weather
         timeOfDay.value = msg.timeOfDay
+        // Start from the server's recent rows, the live frames take over from
+        // here. Without this the feed stays hidden until someone next acts.
+        feed.adopt(msg.feed)
         // Adopt the spawn heading so the first move doesn't overwrite it,
         // then resume held keys across a reconnect.
         lookAngle = msg.self.angle

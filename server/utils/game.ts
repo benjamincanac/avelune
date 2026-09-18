@@ -1,4 +1,4 @@
-import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode } from '#shared/types/game'
+import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode, WorldEvent } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import {
   DASH_COOLDOWN,
@@ -506,16 +506,6 @@ export interface ArenaState {
 /* The live surface: peak, history and the world feed                          */
 /* -------------------------------------------------------------------------- */
 
-/** One thing that happened in the world, worded the way the feed reads it. */
-export interface WorldEvent {
-  at: number
-  name: string
-  text: string
-  /** Same actor doing the same kind of thing again replaces the row instead of
-   *  stacking: a wall goes up in a dozen clicks and the feed shows one line. */
-  kind: string
-}
-
 /** The feed surfaces show three rows; a few spare cover a burst of activity. */
 const FEED_LIMIT = 6
 const FEED_COALESCE = 6_000
@@ -838,6 +828,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     // spread over the whole world, and the client only ever holds 25 chunks.
     pieces: pieceCount(player.id),
     deeds: deedCount(player.id),
+    feed: worldFeed,
   } satisfies ServerMessage))
   // The ground before anything standing on it: the spawn neighbourhood goes out
   // on the same tick as the welcome, so no `state` can ever name a player on a

@@ -63,7 +63,8 @@ check(
   !!self && self.z === 0 && typeof a.welcome.now === 'number'
   && ['auto', 'clear', 'overcast', 'rain'].includes(a.welcome.weather)
   && ['auto', 'dawn', 'day', 'sunset', 'night'].includes(a.welcome.timeOfDay)
-  && a.welcome.seed === undefined && a.welcome.records === undefined,
+  && a.welcome.seed === undefined && a.welcome.records === undefined
+  && Array.isArray(a.welcome.feed),
   `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`,
 )
 

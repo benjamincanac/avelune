@@ -286,12 +286,13 @@ int16Height][]` deltas, quantised exactly as `Chunk.heights`), `place`,
 brush it was), `mode` and `at` (`[x, y]`): a height carries no owner the way a
 placement does, so this is the only way the world feed can attribute ground
 work, and a corner index is not a place anyone can read. `welcome` carries
-`{self, players, now, world, pieces, deeds}` —
+`{self, players, now, world, pieces, deeds, feed}` —
 `self` is always a `Player`, `now` is the server clock the client's day/night +
 weather run on, `world` is `{chunkSize, bounds, seed, realm, persistent, streamed}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD; `streamed` is how many chunks the server streams around a settled player, which the client cannot derive and the entry screen needs as a denominator), and `pieces` is how many
 pieces this identity owns in the *whole* world (only the server can count that;
 a client holds 25 chunks), and `deeds` how many plots they hold, counted the
-same way. `place` and `remove` carry optional `pieces`/`deeds` with the same
+same way. `feed` is the server's recent `WorldEvent` rows, newest first, which
+the HUD feed starts from; after that the client words its own rows from the live frames. `place` and `remove` carry optional `pieces`/`deeds` with the same
 meaning, present only on the copy sent to the player whose edit it was — every
 other viewer gets the frame without them and ignores the fields. `state` is filtered
 per session to players within 96 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping; the Oracle

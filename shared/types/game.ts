@@ -102,12 +102,23 @@ export interface WorldInfo {
   streamed: number
 }
 
+/** One thing that happened in the world, worded the way the feed reads it. */
+export interface WorldEvent {
+  at: number
+  name: string
+  text: string
+  /** Same actor doing the same kind of thing again replaces the row instead of
+   *  stacking: a wall goes up in a dozen clicks and the feed shows one line. */
+  kind: string
+}
+
 /** Messages the server sends to the client. */
 export type ServerMessage
   /** `pieces` is how many pieces this identity owns in the whole world, and
    *  `deeds` how many plots they hold — only the server can count either: a
-   *  client holds twenty-five chunks of it. */
-  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number, deeds: number }
+   *  client holds twenty-five chunks of it. `feed` is the server's recent rows,
+   *  newest first, so the HUD feed is not blank until someone next acts. */
+  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number, deeds: number, feed: WorldEvent[] }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
