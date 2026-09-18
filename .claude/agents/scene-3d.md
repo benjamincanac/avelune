@@ -379,6 +379,75 @@ box, as `hubEditor` does and for the same reason (sparse geometry a triangle ray
 slips between). It runs from the render loop *after* the camera has moved, or it
 aims a frame behind the view.
 
+**The ray takes the first thing it meets, and remembers which face.** Terrain and
+piece boxes are both tested and the nearest wins; `faceNormal` reads the entered
+face off the box. With a kit piece armed, a hit on a top face targets the same
+cell (the shared rules stack it, and on a panel the across-axis coordinate is
+taken from the panel so a storey lands on the same edge line), and a hit on a
+side face targets the neighbour across that face — half a cell out for a cell
+piece, a whisker out for a panel, which lands it on the shared edge. Aiming at a
+floor's side therefore puts a wall on that edge, and aiming at a wall's end
+continues the run. The ghost is posed from `resolveBuild`'s own placement, not
+from the local snap, so its height is the storey the server would give it.
+
+The target also carries `h`, the world height of the hit, and `applyTool` sends
+it with the `build` frame: terrain gives its own height, a top face gives that
+piece's `top` (the face rule in one number — stack on what you clicked), and
+any other face gives the height of the hit point itself, so aiming at the lower
+half of an upstairs wall's neighbour resolves to the storey under it rather
+than to the roof above. The ghost passes the same `h` to `resolveBuild`, so the
+preview already stands where the server will put the piece.
+
+**Nothing under the crosshair is ever out of reach.** A hit past `EDIT_REACH` is
+walked back down the ray (bisected, since distance from the actor grows along
+it) to the farthest point still in range, less `REACH_SLACK` for the rounding
+and snapping that follow; a kit pose that still lands long is pulled in a cell
+at a time. Red is therefore a real refusal — protected, claimed, occupied — and
+always carries its reason.
+
+**Raw aim on the wire.** `snapPlacement`'s edge snap reads the flip out of the
+rotation, so a pose fed back through it snaps somewhere else. `BuildTarget`
+carries `rawX`/`rawY` alongside the posed `x`/`y`, and `MazeScene.applyTool`
+sends the raw pair; the server snaps, exactly as the ghost did.
+
+**Cursor mode.** While Alt frees the pointer, `GameScene` writes it into
+`view.cursorX/cursorY` (NDC) and `MazeScene` hands buildTools a `getPointer`,
+so the ray is unprojected through the cursor instead of the screen centre. Only
+a click whose target is the world canvas fires the tool, so the HUD stays
+clickable.
+
+**Shoulder camera.** Arming a tool eases the boom out to one side
+(`SHOULDER_SIDE`), up a little and in a little; disarming eases it back, and `V`
+(`build.shoulder`) flips the side. Centred, the crosshair passes through the
+character and lands on ground its own back hides. The clipped thing is the
+offset seat: the boom direction is `normalize(camera - head)` and `clipBoom`
+runs along that, so a shoulder pressed to a wall still comes in. The look target
+carries the same lateral offset, or the view axis would toe in at the player's
+own ear.
+
+**The boom is a polar orbit, and `view.pitch` is radians below the horizon.** It
+used to be an ad-hoc pair (camera up by `pitch * 1.8`, target down by
+`pitch * 1.2`) which topped out around 28° at full extension, so the tiles
+around the player's own feet could not be aimed at. It now orbits a pivot at
+`PIVOT_HEIGHT` and the crosshair looks down at exactly `pitch`. An armed tool
+raises the ceiling from `PITCH_MAX` to `PITCH_MAX_TOOL` (~80°, both in
+`useBuild`) — `GameScene` clamps the input, `MazeScene` eases the view back up
+when the tool is put away. Steep pitch also shortens the boom by `STEEP_CLOSE`,
+or the camera would hang four tiles overhead and the tile under the crosshair
+would be a postage stamp; that is also what brings the camera inside
+`SELF_FADE_DISTANCE`, where `fadeSelf` dissolves the local character so you can
+see your own tile. Fading rather than hiding, because the rig's materials are
+per-clone (`appearance.ts`) and nothing else shares them. The ray itself never
+needed the character excluded — players are not placements, so `propsNear` has
+never returned one.
+
+**Hold to repeat.** `build.press()` / `build.release()` mark the left button
+down and `MazeScene` re-applies the armed tool every `1000 / EDITS_PER_SECOND`
+ms. Raise, lower and flatten repeat on one spot (a step per interval);
+everything else needs a new target, tracked as `lastEditKey` and cleared on each
+press, so a click on the same tile twice is two edits while a drag across it is
+one.
+
 The brush highlight is a small quad whose vertices are re-fitted to the terrain
 each frame, so it lies on a slope instead of cutting through it; the demolish
 highlight is a `Box3Helper`. The ghost is the armed kit template `clone(true)`

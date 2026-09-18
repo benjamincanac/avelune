@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isEdgeKind } from '#shared/utils/building'
 import { BUILD_PAGES, SURFACE_NAMES, useBuild } from '~/composables/useBuild'
 
 /**
@@ -24,6 +25,9 @@ const build = useBuild()
 const slots = computed(() => BUILD_PAGES[build.page.value]?.slots ?? [])
 const page = computed(() => BUILD_PAGES[build.page.value])
 const isTerraform = computed(() => build.active.value != null && !build.active.value.kind && build.active.value.id !== 'demolish')
+// A panel takes its heading from the edge it snaps to, so `R` only flips which
+// way it faces — a degree readout would be a lie.
+const isPanel = computed(() => !!build.active.value?.kind && isEdgeKind(build.active.value.kind))
 </script>
 
 <template>
@@ -75,10 +79,19 @@ const isTerraform = computed(() => build.active.value != null && !build.active.v
       <span><span class="text-highlighted">Tab</span> {{ page?.label }} {{ build.page.value + 1 }}/{{ BUILD_PAGES.length }}</span>
       <span v-if="isTerraform"><span class="text-highlighted">[ ]</span> Brush {{ build.size.value }}</span>
       <span v-if="build.active.value?.id === 'paint'"><span class="text-highlighted">Q</span> {{ SURFACE_NAMES[build.surface.value] }}</span>
-      <span v-if="build.active.value?.kind"><span class="text-highlighted">R</span> {{ Math.round(build.rot.value / (Math.PI / 2)) % 4 * 90 }}°</span>
+      <span v-if="build.active.value?.kind"><span class="text-highlighted">R</span> {{ isPanel ? 'Flip' : `${Math.round(build.rot.value / (Math.PI / 2)) % 4 * 90}°` }}</span>
       <span>Reach {{ build.reach }}</span>
       <span>{{ build.pieces.value }}/{{ build.budget }} pieces</span>
       <span>{{ build.deeds.value }}/{{ build.plots }} plots</span>
+    </div>
+
+    <!-- The controls that have no state to show, so they have no home in the
+         line above: how to see past your own shoulder, how to lay a run of
+         tiles, and how to aim with the cursor instead of the crosshair. -->
+    <div class="telemetry on-render flex flex-wrap items-center justify-center gap-x-4.5 gap-y-1.5 text-muted">
+      <span><span class="text-highlighted">V</span> Shoulder</span>
+      <span>Hold to repeat</span>
+      <span><span class="text-highlighted">Alt</span> Cursor</span>
     </div>
   </div>
 </template>

@@ -62,7 +62,7 @@ export interface UseGame {
    *  `terrain` delta, or a `reject`. */
   sendTerraform: (x: number, y: number, mode: 'raise' | 'lower' | 'flatten' | 'paint', size: 1 | 2 | 3, surface?: Surface) => void
   /** Place a kit piece. The server snaps the pose and assigns the id. */
-  sendBuild: (kind: string, x: number, y: number, rot: number) => void
+  sendBuild: (kind: string, x: number, y: number, rot: number, h?: number) => void
   /** Take a piece away, if it is yours or unowned. */
   sendDemolish: (id: string) => void
 }
@@ -447,8 +447,8 @@ export function useGame(): UseGame {
     send({ t: 'terraform', x, y, mode, size, surface })
   }
 
-  function sendBuild(kind: string, x: number, y: number, rot: number) {
-    send({ t: 'build', kind, x, y, rot })
+  function sendBuild(kind: string, x: number, y: number, rot: number, h?: number) {
+    send({ t: 'build', kind, x, y, rot, h })
   }
 
   function sendDemolish(id: string) {

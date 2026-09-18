@@ -3,6 +3,7 @@ import { AgXToneMapping, PCFShadowMap } from 'three'
 import { TresCanvas } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
 import type { UseGame } from '~/composables/useGame'
+import { PITCH_MAX, PITCH_MAX_TOOL, PITCH_MIN } from '~/composables/useBuild'
 
 /**
  * Client-only wrapper: hosts the Tres renderer and owns all input.
@@ -47,18 +48,34 @@ const held: MoveInput = { forward: false, back: false, left: false, right: false
  */
 const view = {
   yaw: -Math.PI / 2,
-  pitch: 0.15,
+  /** Radians below the horizon (see `PITCH_*` in `useBuild`). */
+  pitch: 0.2,
   turnLeft: false,
   turnRight: false,
   /** One-shot action queues, consumed by the scene's prediction loop. */
   jumpQueued: false,
   dashQueued: false,
+  /**
+   * Cursor-mode aim, in normalized device coordinates.
+   *
+   * While Alt frees the cursor the crosshair is not where you are pointing, so
+   * the scene aims the build ray through this instead of down the camera's own
+   * forward axis. `cursorActive` is false the rest of the time, which is the
+   * signal to go back to the screen centre.
+   */
+  cursorActive: false,
+  cursorX: 0,
+  cursorY: 0,
 }
 
 const root = ref<HTMLDivElement | null>(null)
 const pointerLocked = ref(false)
 /** Set once a lock request fails, so clicks act instead of retrying forever. */
 let lockDenied = false
+/** Lock requests made since the last one that was actually granted. */
+let lockAttempts = 0
+/** How long a request has to be granted before we count it unanswered. */
+const LOCK_GRACE = 700
 
 /**
  * Hold Alt to surface the OS cursor and freeze mouse-look, so the HUD buttons
@@ -189,6 +206,11 @@ function onKeyDown(event: KeyboardEvent) {
     build.rotate()
     return
   }
+  if (event.code === 'KeyV') {
+    event.preventDefault()
+    build.flipShoulder()
+    return
+  }
   if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
     event.preventDefault()
     build.nudgeSize(event.code === 'BracketLeft' ? -1 : 1)
@@ -224,6 +246,8 @@ function onKeyUp(event: KeyboardEvent) {
   if (event.code === 'AltLeft' || event.code === 'AltRight') {
     if (altHeld.value) {
       altHeld.value = false
+      view.cursorActive = false
+      build.release()
       if (relockOnAltUp) requestLock()
       relockOnAltUp = false
     }
@@ -260,16 +284,42 @@ function onKeyUp(event: KeyboardEvent) {
  * one that knows where the crosshair actually points.
  */
 function onClick(event: MouseEvent) {
-  if (props.editor || map.open.value || altHeld.value || event.button !== 0) return
+  if (props.editor || map.open.value || event.button !== 0) return
+  // Cursor mode: the HUD is live under the pointer, so only a click that lands
+  // on the world canvas is a tool click.
+  if (altHeld.value) {
+    if (onWorldCanvas(event)) build.fire()
+    return
+  }
   // Only a click while already looking around fires the armed tool. The click
   // that captures the mouse is a lock request, not an edit.
   // Where pointer lock is unavailable or was refused (embeds, headless
   // browsers), cursor steering takes over and every click is an edit.
-  const lockable = typeof HTMLElement !== 'undefined' && 'requestPointerLock' in HTMLElement.prototype
-  if (pointerLocked.value || !lockable || lockDenied) {
+  if (canEdit()) {
     build.fire()
+    // Keep asking while we act. Once the lock is written off, nothing else
+    // would ever request it again, and a browser that refused only temporarily
+    // (Chrome bars a re-lock for ~1.25s after an Escape-exit) would be stuck
+    // steering by raw deltas for the rest of the session.
+    if (!pointerLocked.value) attemptLock()
     return
   }
+  attemptLock()
+}
+
+/**
+ * Ask for the pointer lock, and notice when nothing answers.
+ *
+ * A refused request throws or rejects, and that path has always been covered.
+ * A request that is simply *ignored* — headless Chromium, an embed without the
+ * permission — resolves nothing at all, and every click after it is spent
+ * asking again while the hotbar never fires. So an unanswered request counts
+ * against us, and two of them is a refusal. Two rather than one because
+ * Chrome refuses a re-lock for ~1.25s after an Escape-exit, and that one is
+ * temporary. A lock that is finally granted clears the verdict.
+ */
+function attemptLock() {
+  lockAttempts++
   try {
     const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
     request?.catch?.(() => {
@@ -280,6 +330,22 @@ function onClick(event: MouseEvent) {
     // Pointer lock not available here; cursor steering still works.
     lockDenied = true
   }
+  window.setTimeout(() => {
+    if (!pointerLocked.value && lockAttempts >= 2) lockDenied = true
+  }, LOCK_GRACE)
+}
+
+/** Whether this pointer event landed on the world canvas rather than on a HUD
+ *  panel floating over it. Only the world's own canvas is inside `root`. */
+function onWorldCanvas(event: MouseEvent): boolean {
+  return event.target instanceof HTMLCanvasElement && !!root.value?.contains(event.target)
+}
+
+/** Whether a left button press is an edit rather than the click that captures
+ *  the mouse. */
+function canEdit(): boolean {
+  const lockable = typeof HTMLElement !== 'undefined' && 'requestPointerLock' in HTMLElement.prototype
+  return pointerLocked.value || !lockable || lockDenied
 }
 
 /** The wheel walks the hotbar, as it does in every game that has one. */
@@ -289,11 +355,31 @@ function onWheel(event: WheelEvent) {
   build.cycleSlot(event.deltaY > 0 ? 1 : -1)
 }
 
-/** Right-click dashes; the context menu is suppressed below so it can. */
+/**
+ * Right-click dashes; the context menu is suppressed below so it can.
+ *
+ * The left button starts a drag: the scene repeats the armed tool as the target
+ * moves under it, at the server's own edit rate. The click handler above still
+ * fires the first edit, so a click too quick to span a frame is not swallowed —
+ * the scene drops the duplicate by target.
+ */
 function onMouseDown(event: MouseEvent) {
-  if (props.editor || map.open.value || event.button !== 2 || isTyping()) return
-  event.preventDefault()
-  triggerDash()
+  if (props.editor || map.open.value || isTyping()) return
+  if (event.button === 2) {
+    event.preventDefault()
+    triggerDash()
+    return
+  }
+  if (event.button !== 0) return
+  if (altHeld.value) {
+    if (onWorldCanvas(event)) build.press()
+    return
+  }
+  if (canEdit()) build.press()
+}
+
+function onMouseUp() {
+  build.release()
 }
 
 function onContextMenu(event: MouseEvent) {
@@ -308,6 +394,12 @@ function onPointerLockChange() {
   const locked = document.pointerLockElement != null
   const wasLocked = pointerLocked.value
   pointerLocked.value = locked
+  if (locked) {
+    lockDenied = false
+    lockAttempts = 0
+  }
+  // Losing the mouse loses the drag with it.
+  if (wasLocked && !locked) build.release()
   // Opening the map releases the lock on purpose, and closing it with Escape
   // can bounce one — neither is the player reaching for the menu.
   if (map.open.value || Date.now() - mapClosedAt < MAP_UNLOCK_GRACE) return
@@ -318,19 +410,23 @@ function onPointerLockChange() {
  *  is a lock request, not a click — it must not fire the armed tool. */
 function requestLock() {
   if (props.editor || map.open.value || altHeld.value || pointerLocked.value) return
-  try {
-    const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
-    request?.catch?.(() => {})
-  }
-  catch {
-    // Pointer lock not available here; cursor steering still works.
-  }
+  attemptLock()
 }
 
 function onMouseMove(event: MouseEvent) {
   if (props.editor || map.open.value) return
-  // Alt frees the cursor for the HUD — don't steer while it's held.
-  if (altHeld.value) return
+  // Alt frees the cursor for the HUD — don't steer while it's held. The build
+  // ray follows the pointer instead, so track it in normalized coordinates.
+  if (altHeld.value) {
+    const canvas = root.value?.querySelector('canvas')
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    view.cursorX = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    view.cursorY = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    view.cursorActive = Math.abs(view.cursorX) <= 1 && Math.abs(view.cursorY) <= 1
+    return
+  }
   // Same raw-delta look in both modes; without pointer lock, only while the
   // pointer is over the world so the HUD stays usable.
   if (!pointerLocked.value) {
@@ -338,7 +434,10 @@ function onMouseMove(event: MouseEvent) {
     if (!overWorld) return
   }
   view.yaw += event.movementX * MOUSE_SENSITIVITY
-  view.pitch = Math.min(0.7, Math.max(-0.4, view.pitch + event.movementY * 0.0022))
+  // Radians below the horizon. An armed tool unlocks the steep range so the
+  // crosshair can reach your own feet; the scene eases it back on disarm.
+  const floor = build.active.value ? PITCH_MAX_TOOL : PITCH_MAX
+  view.pitch = Math.min(floor, Math.max(PITCH_MIN, view.pitch + event.movementY * 0.0022))
   props.game.setLook(view.yaw)
 }
 
@@ -348,7 +447,10 @@ function onFocusIn() {
 }
 
 function onVisibilityChange() {
-  if (document.hidden) releaseAll()
+  if (document.hidden) {
+    build.release()
+    releaseAll()
+  }
 }
 
 /**
@@ -358,6 +460,8 @@ function onVisibilityChange() {
 function onWindowBlur() {
   altHeld.value = false
   relockOnAltUp = false
+  view.cursorActive = false
+  build.release()
   releaseAll()
 }
 
@@ -366,6 +470,7 @@ onMounted(() => {
   document.addEventListener('pointerlockerror', onPointerLockError)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('focusin', onFocusIn)
   window.addEventListener('blur', onWindowBlur)
   document.addEventListener('pointerlockchange', onPointerLockChange)
@@ -375,12 +480,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   // The map is shared state; leaving the arena must not leave it up.
   map.open.value = false
+  build.release()
   disposeScene?.()
   disposeScene = undefined
   window.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('pointerlockerror', onPointerLockError)
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('focusin', onFocusIn)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('pointerlockchange', onPointerLockChange)

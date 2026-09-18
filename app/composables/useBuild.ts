@@ -15,6 +15,19 @@ import { SURFACE } from '#shared/utils/world'
  * and does the sending, the same way it already owns prediction.
  */
 
+/**
+ * Camera pitch limits, in radians below the horizon.
+ *
+ * Walking, the view stays in a comfortable band. With a tool armed it has to
+ * reach the tile you are standing on — and the eight around it — so the floor
+ * drops to `PITCH_MAX_TOOL`, near straight down. They live here because the
+ * extra range exists only for the hotbar: `GameScene` clamps mouse input with
+ * them and `MazeScene` eases the view back up when the tool is put away.
+ */
+export const PITCH_MIN = -0.35
+export const PITCH_MAX = 0.55
+export const PITCH_MAX_TOOL = 1.5
+
 export type ToolId = 'raise' | 'lower' | 'flatten' | 'paint' | 'demolish'
 
 export interface Slot {
@@ -94,6 +107,15 @@ export interface UseBuild {
   targetHint: Ref<string>
   /** One-shot: a left click the scene consumes on its next frame. */
   fireQueued: Ref<boolean>
+  /** The left button is down: the scene repeats the armed tool as the target
+   *  moves, rate-limited to the server's own edit budget. */
+  holding: Ref<boolean>
+  /** Bumped on every press. The scene watches it to forget the last target it
+   *  edited, so clicking the same tile twice is two edits and holding the
+   *  button across it is one. */
+  pressId: Ref<number>
+  /** Which shoulder the camera looks over while a tool is armed. `V` flips it. */
+  shoulder: Ref<1 | -1>
   reach: number
   budget: number
   plots: number
@@ -105,6 +127,9 @@ export interface UseBuild {
   rotate: () => void
   nudgeSize: (delta: number) => void
   fire: () => void
+  press: () => void
+  release: () => void
+  flipShoulder: () => void
 }
 
 let singleton: UseBuild | null = null
@@ -124,6 +149,12 @@ export function useBuild(): UseBuild {
   const targetOk = ref(false)
   const targetHint = ref('')
   const fireQueued = ref(false)
+  const holding = ref(false)
+  const pressId = ref(0)
+  // Over the right shoulder by default, because the hotbar and its refusal chip
+  // sit under the middle of the screen and a left-shoulder default would put
+  // the ghost behind them.
+  const shoulder = ref<1 | -1>(1)
 
   const active = computed(() => BUILD_PAGES[page.value]?.slots[slot.value])
 
@@ -167,6 +198,19 @@ export function useBuild(): UseBuild {
     fireQueued.value = true
   }
 
+  function press() {
+    pressId.value++
+    holding.value = true
+  }
+
+  function release() {
+    holding.value = false
+  }
+
+  function flipShoulder() {
+    shoulder.value = shoulder.value === 1 ? -1 : 1
+  }
+
   singleton = {
     page,
     slot,
@@ -179,6 +223,9 @@ export function useBuild(): UseBuild {
     targetOk,
     targetHint,
     fireQueued,
+    holding,
+    pressId,
+    shoulder,
     reach: EDIT_REACH,
     budget: MAX_PIECES_PER_PLAYER,
     plots: DEED_LIMIT,
@@ -190,6 +237,9 @@ export function useBuild(): UseBuild {
     rotate,
     nudgeSize,
     fire,
+    press,
+    release,
+    flipShoulder,
   }
   return singleton
 }

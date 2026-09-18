@@ -306,6 +306,27 @@ if (built) {
   await sleep(250)
   const gone = a.frames.slice(aMark).find(f => f.t === 'remove')
   check('removing your own piece gives the budget back', gone?.id === built.mine.piece.id && gone?.pieces === 0, `pieces=${gone?.pieces}`)
+
+  // The aim height on the wire: the same pose three times, and `h` alone
+  // decides whether a crate stacks or is refused for the slot being taken.
+  const pose = { kind: 'Kit_Crate', x: built.mine.piece.x, y: built.mine.piece.y, rot: 0 }
+  const place = async (frame) => {
+    const mark = a.frames.length
+    send(a, frame)
+    await sleep(250)
+    return a.frames.slice(mark).find(f => f.t === 'place' || f.t === 'reject')
+  }
+  const lower = await place({ t: 'build', ...pose })
+  const upper = lower?.t === 'place' ? await place({ t: 'build', ...pose, h: lower.piece.z + 1 }) : null
+  check('a build aimed a storey up stacks on the piece below', upper?.t === 'place' && upper.piece.z === lower.piece.z + 1, upper?.t === 'place' ? `z=${upper.piece.z}` : upper?.reason)
+  const again = lower?.t === 'place' ? await place({ t: 'build', ...pose, h: lower.piece.z }) : null
+  check('a build aimed back at the taken slot is refused', again?.t === 'reject', again?.t === 'place' ? `z=${again.piece.z}` : again?.reason)
+  for (const frame of [lower, upper]) {
+    if (frame?.t === 'place') {
+      send(a, { t: 'demolish', id: frame.piece.id })
+      await sleep(150)
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */

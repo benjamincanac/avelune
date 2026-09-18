@@ -49,13 +49,14 @@ NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/i
 ```
 
 **2. Drive it.** The game lives at **`/play`** (`/` is the static landing page),
-and every mode but `landing` drives that. Eight modes: `arena` (default) enters and shoots the spawn;
+and every mode but `landing` drives that. Nine modes: `arena` (default) enters and shoots the spawn;
 `chat` says a short line, then a long one addressed to the Oracle, and shoots
 each bubble (`-short` beside `MMO_OUT`, then `MMO_OUT` with the long line and the Oracle's reply);
 `walk` also holds `W` for a few seconds first; `meadow` walks out of the south
 gate and turns back so the shot shows streamed terrain; `build` walks out, arms
 a kit wall from the hotbar and clicks twice so the second piece stacks on the
-first; `map` presses `M` after arrival and shoots the full-screen world map; `gate`
+first; `target` teleports to a fixed meadow tile and shoots the build targeting
+in five frames (see below); `map` presses `M` after arrival and shoots the full-screen world map; `gate`
 stops on `/play`'s character-creation gate and shoots it at 1280x800 and again at
 400x800 (`/tmp/mmo-gate.png` and `/tmp/mmo-gate-400.png`) without entering a
 name; `landing` does the same two shots for `/` (`/tmp/mmo-landing.png` and
@@ -65,6 +66,27 @@ MMO_URL=http://localhost:4321 node .claude/skills/run-mmo/driver.mjs walk
 MMO_URL=http://localhost:4321 MMO_TIME=day node .claude/skills/run-mmo/driver.mjs build
 MMO_URL=http://localhost:4321 node .claude/skills/run-mmo/driver.mjs landing
 ```
+**`target` mode** is the deterministic one, and it needs two things: a server
+started with `AVELUNE_DEV_COMMANDS=1` so the dev-only `/tp <x> <y>` chat command
+is live, and a **real GPU** — it launches headed by default, because SwiftShader
+renders slowly enough to starve the socket and a reconnect respawns the session
+in town mid-run. `MMO_HEADED=0` forces it headless anyway; `MMO_HEADED=1` runs
+any other mode headed. It
+waits for the model queue to drain, fixes the sun, teleports to a known meadow
+tile and writes five shots beside `MMO_OUT`: `-ghost` (the shoulder camera with
+a kit wall's ghost on open ground), `-stack` (aimed at a placed wall's broad
+face: the ghost climbs to the storey above on the same edge), `-run` (aimed at
+its end face: the ghost continues the wall along that edge), `-hut` (four panels
+ringing one cell, with a doorway), `-feet` (the steep look an armed tool unlocks,
+with the brush on the player's own tile) and `-paint` (a run of paving laid by
+holding the button and walking). Knobs: `MMO_TP_X`/`MMO_TP_Y`, `MMO_HUT_X`/`MMO_HUT_Y`,
+`MMO_PAINT_X`/`MMO_PAINT_Y`, `MMO_PITCH`, `MMO_HUT_PITCH`.
+
+```bash
+AVELUNE_DEV_COMMANDS=1 NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef PORT=4399 node .output/server/index.mjs &
+MMO_URL=http://localhost:4399 node .claude/skills/run-mmo/driver.mjs target
+```
+
 It prints the HUD label + WebGL status and writes the screenshot to
 `/tmp/mmo-<mode>.png`. **Open the screenshot and look at it** — a black frame, or
 `SCENE …"w":0`, means it never entered the game (see Gotchas).
@@ -79,14 +101,31 @@ ERRORS 2
 Env knobs: `MMO_URL` (skip port autodetect — recommended), `MMO_OUT` (screenshot
 path), `MMO_PW` (Playwright install location), `MMO_TIME` / `MMO_WEATHER` (fix
 the sky through the chat commands before shooting), `MMO_STATS` (fps / mesh /
-triangle counts), `MMO_HUD=0` (hide every 2D overlay, for a clean scenery still
-— this is how `public/landing.jpg`, the landing page's backdrop, is reshot:
-`MMO_HUD=0 MMO_OUT=/tmp/still.png … arena`, then
-`sips -s format jpeg -s formatOptions 78 /tmp/still.png --out public/landing.jpg`), and for `meadow` / `build`: `MMO_BACK` (ms walking out of the
+triangle counts), `MMO_HUD=0` (hide every 2D overlay, for a clean scenery still from a player's
+camera), and for `meadow` / `build`: `MMO_BACK` (ms walking out of the
 gate), `MMO_TURN` (px of yaw for the about-turn, ~507 px per 90°) and
 `MMO_PITCH`. Framing out in the meadow is luck of the draw — the player can end
 up wedged against a boulder or inside a tree, collapsing the camera boom onto
 its own face. Vary `MMO_BACK` / `MMO_TURN` and shoot again.
+
+**`still` mode** shoots the town with nobody in it, and it is how
+`public/landing.jpg`, the landing page's backdrop, is reshot. It opens the dev
+world editor (`/play?editor=1`, so it needs `pnpm dev`, not a prod build), which
+builds the town from the seed with no socket: no player, no nameplate, no
+reconnect to race. It waits for the model queue, fixes the sun on the game's own
+refs (`MMO_TIME`, default `day`; `MMO_WEATHER`, default `clear`), seats the
+editor's fly camera through the dev hook `window.__editor.seat`, hides
+everything but the canvas and shoots at `MMO_SIZE` (default `2560x1440`).
+`MMO_CAM` is `x,y,z,yaw,pitch` in editor tiles and degrees: the town spans
+0..144 on x and z, the gate faces +z at x 72, y is height, yaw 0 looks toward
+-z and turns left as it grows, negative pitch looks down.
+```bash
+MMO_URL=http://localhost:4321 MMO_CAM="114,30,158,40,-24" MMO_OUT=/tmp/still.png node .claude/skills/run-mmo/driver.mjs still
+sips -Z 1920 -s format jpeg -s formatOptions 75 /tmp/still.png --out public/landing.jpg
+```
+Frame it at `MMO_SIZE=1280x720` first, a full-size SwiftShader frame takes
+minutes. The landing page darkens the left third, so keep the subject in the
+right two thirds.
 
 ## Run (human path)
 Run the project's dev command (`pnpm dev`, or the `--port`/`NUXT_IGNORE_LOCK=1`
@@ -138,6 +177,17 @@ character** → type a name → **Enter** → WASD move, mouse look, Space jump,
   Reliable: `canvas.dispatchEvent(new MouseEvent('mousemove', { movementX: dx,
   bubbles: true }))` — ~507 px per 90° (`MOUSE_SENSITIVITY` 0.0031 rad/px); split
   large deltas into ~10 events. Same idea with `movementY` for pitch.
+- **The headless socket reconnects, and a reconnect respawns you in town.** The
+  main thread starves the WebSocket long enough to miss a heartbeat — while the
+  ~180 GLB requests drain, and again on every screenshot, which under SwiftShader
+  blocks for tens of seconds. That is why `target` runs headed. The server closes the socket and the client opens a
+  fresh session at the spawn point, thirty tiles from wherever the run was
+  working, and clicks in between are eaten silently. So `target` mode waits for
+  the model queue before it starts, reads its teleports back (`tpTo` resends
+  `/tp` until the minimap's coordinate bar agrees, and prints `TP FAILED` if it
+  never does), and calls `settle` after every screenshot to wait out the
+  reconnect banner and put the player back. `placeOnce` clicks until the piece
+  counter actually moves rather than trusting one click.
 - **Benign console noise (ignore):** a web-font `.woff2` 404, and
   `props.characters is not iterable` from the menu's `CharacterLineup` components
   (pre-existing, unrelated to the game scene). The driver dedupes and prints these.

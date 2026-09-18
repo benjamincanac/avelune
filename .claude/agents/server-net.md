@@ -179,7 +179,13 @@ bytes between it and clients.
    decide — reach (6 tiles), the protected tile footprint (`isProtectedTile`,
    which ends right after the gate road, not a chunk band later), placeable
    kinds, AABB overlap,
-   support height, ownership and the 500-piece budget. The two limits that are
+   support height, ownership and the 500-piece budget. The `build` frame's
+   optional `h` — the world height the client's aim ray hit — is passed
+   straight into `resolveBuild` as the request's aim height: it only narrows
+   which real surface may support the piece (so a wall replaced under an upper
+   storey goes back in its slot instead of onto the roof), the server still
+   derives `z` itself, and a missing or nonsense `h` falls back to the old
+   highest-surface rule. The two limits that are
    *not* in those predicates are server-owned state: the 8-edits-per-second
    token bucket (`spendEdit`, shared by all three verbs, and a refusal still
    costs a token) and `maxStep: TERRAFORM_STEP` on every `applyTerrain` call, so
@@ -292,6 +298,16 @@ The server includes `welcome.weather` and broadcasts `{ t: "weather", mode }`.
 `{ t: "system", text }` carries command feedback, with usage errors sent only to
 the caller. The client stores `game.weather` and passes it to the sky renderer;
 `auto` uses the existing server clock cycle. Commands skip chat bubbles and the Oracle.
+
+`/tp <x> <y>` is dev-only as well: it moves the caller's own body to a tile, snapping `z`
+to `bodySurfaceHeight` and forcing a chunk sync first so there is ground to read
+(a destination whose chunks are still in flight parks the body above them and
+lets it settle as they land). Non-finite or out-of-world coordinates are
+refused to the caller alone. It is live only when `import.meta.dev` or
+`AVELUNE_DEV_COMMANDS=1` is set, which is how a verification harness drives a
+production build to a known spot; without the flag all three are ordinary chat
+lines. It exists so a rendering or building change can be shot from the same
+place every run rather than walked to.
 
 `/time dawn|day|sunset|night|auto`, dev-only too, independently controls the shared sun phase.
 `welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases

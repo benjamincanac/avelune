@@ -166,12 +166,38 @@ The hotbar is armed at all times and a left click in the world uses it, so
 — `requestLock()` is the separate path that must NOT fire the tool. Keys: 1-9
 arm a slot, the wheel walks them, `Tab` turns the page (tools + four kit pieces,
 then the rest of the kit), `Q` cycles the paint surface, `R` turns the ghost a
-quarter turn, `[` and `]` size the brush.
+quarter turn (a *flip* for the kit's panels, which take their heading from the
+edge they snap to — the bar says `R Flip` for those), `[` and `]` size the
+brush, and `V` flips which shoulder the camera looks over while a tool is armed.
+While a tool is armed the downward pitch clamp opens up to `PITCH_MAX_TOOL`
+(~80°, in `useBuild` beside `PITCH_MIN`/`PITCH_MAX`) so the crosshair reaches
+the tile you are standing on; `MazeScene` eases it back into the walking band on
+disarm.
+
+**A pointer-lock request that is never answered used to kill the hotbar.** A
+refusal throws or rejects and sets `lockDenied`, so clicks act instead; a
+request that is silently ignored (headless Chromium, an embed without the
+permission) resolved nothing, and every click after it was spent asking again.
+`attemptLock` now counts unanswered requests and calls two of them a refusal —
+two because Chrome's ~1.25s cooldown after an Escape-exit legitimately refuses
+one — and a granted lock clears the verdict.
+
+Holding the left button repeats the armed tool: `onMouseDown` calls
+`build.press()` and a window-level `mouseup` (plus blur, tab hide and pointer-
+lock loss) calls `build.release()`, and `MazeScene` does the rate limiting.
+While Alt frees the cursor, `GameScene` tracks the pointer in NDC on
+`view.cursorX/cursorY` so the ray aims there instead of at the screen centre,
+and only a click whose target is the world canvas counts — that is what keeps
+the HUD panels clickable in the same mode. The one-line hint under the hotbar's
+telemetry (`V Shoulder`, `Hold to repeat`, `Alt Cursor`) is the only place these
+three are written down, because none of them has any state to show.
 
 Aiming is not a cursor: the target is a ray from the camera down its own forward
 axis, which is where the crosshair sits, marched against the shared heightfield
 and bounding-box-picked against placements (`app/utils/buildTools.ts`, driven
-from `MazeScene`'s render loop *after* the camera has moved). The ghost is the
+from `MazeScene`'s render loop *after* the camera has moved). It takes the first
+thing it hits and reads the face, so a hit on a piece's side targets the cell
+across it; nothing it lands on is ever out of reach. The ghost is the
 kit template cloned with a flat translucent material, green or red from
 `resolveBuild` — the same predicate the server decides with. A red ghost still
 sends its verb; the server is the authority and may see a frame we do not.

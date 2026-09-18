@@ -64,8 +64,12 @@ export type ClientMessage
     /** Move terrain under the brush. The server validates reach, protection,
      *  rate and the step; it never trusts the resulting height. */
     | { t: 'terraform', x: number, y: number, mode: TerraformKind, size: 1 | 2 | 3, surface?: Surface }
-    /** Place a piece. The server snaps it, computes its `z` and assigns its id. */
-    | { t: 'build', kind: string, x: number, y: number, rot: number }
+    /** Place a piece. The server snaps it, computes its `z` and assigns its id.
+     *  `h` is the world height the client's aim ray hit: a hint that bounds
+     *  which surface under the footprint may support the piece, so a wall
+     *  replaced under an upper storey goes back in its slot instead of onto the
+     *  roof. Optional — without it the highest surface wins, as it always did. */
+    | { t: 'build', kind: string, x: number, y: number, rot: number, h?: number }
     /** Remove a piece by id — the owner's own, or an unowned generated one. */
     | { t: 'demolish', id: string }
     | { t: 'ping' }

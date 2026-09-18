@@ -6,9 +6,10 @@ import {
   DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
+  bodySurfaceHeight,
   stepBody,
 } from '#shared/utils/maze'
-import { CHUNK_SIZE, TERRAFORM_STEP, TERRAFORM_VERBS, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
+import { CHUNK_SIZE, TERRAFORM_STEP, TERRAFORM_VERBS, WORLD_TILE_MAX, WORLD_TILE_MIN, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
 import type { Chunk, SurfaceType } from '#shared/utils/world'
 import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { EDITS_PER_SECOND, checkDemolish, checkTerraform, isKitKind, refusalText, resolveBuild } from '#shared/utils/building'
@@ -123,12 +124,18 @@ function setTimeOfDay(mode: TimeOfDayMode) {
 /**
  * Whether the dev-only chat commands are live.
  *
- * `/weather` and `/time` fix the sky without a model call, which is what a
- * verification harness needs and what has no business in a public build, where
- * players ask the Oracle. `nuxt dev` turns them on; a production build a
- * verification harness drives asks for them by name.
+ * `/weather` and `/time` fix the sky and `/tp` moves a body without the sim's
+ * consent, which is exactly what makes a rendering or building change
+ * verifiable from a script — and exactly what has no business in a public
+ * build. `nuxt dev` turns it on; a production build a verification harness
+ * drives asks for it by name.
  */
 const DEV_COMMANDS = import.meta.dev || process.env.AVELUNE_DEV_COMMANDS === '1'
+
+/** How high above the ground a teleport parks a body whose destination chunk is
+ *  still in flight from the store: the tick freezes it until the chunk lands,
+ *  then it falls the last little way onto real ground. */
+const TELEPORT_HOVER = 40
 
 /** Spawn position, jittered so simultaneous arrivals don't stack. */
 function spawnAt(): { x: number, y: number, z: number } {
@@ -881,6 +888,30 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           const text = msg.text.trim().slice(0, MAX_CHAT_LENGTH)
           if (!text) return
           const [command, mode, ...extra] = text.toLowerCase().split(/\s+/)
+          if (DEV_COMMANDS && command === '/tp') {
+            const tx = Number(mode)
+            const ty = Number(extra[0])
+            if (extra.length !== 1 || !Number.isFinite(tx) || !Number.isFinite(ty)) {
+              send(JSON.stringify({ t: 'system', text: 'Usage: /tp <x> <y>' } satisfies ServerMessage))
+              return
+            }
+            if (tx < WORLD_TILE_MIN || ty < WORLD_TILE_MIN || tx >= WORLD_TILE_MAX || ty >= WORLD_TILE_MAX) {
+              send(JSON.stringify({ t: 'system', text: 'That is outside the world.' } satisfies ServerMessage))
+              return
+            }
+            player.x = tx
+            player.y = ty
+            session.vz = 0
+            session.grounded = true
+            session.moved = true
+            // Pull the destination's chunks before reading the ground: without
+            // them the height is -Infinity and the body has nothing to stand on.
+            syncChunks(session, player.x, player.y, true)
+            const floor = bodySurfaceHeight(WORLD, tx, ty, TELEPORT_HOVER)
+            player.z = Number.isFinite(floor) ? floor : TELEPORT_HOVER
+            send(JSON.stringify({ t: 'system', text: `Moved to ${Math.round(tx)}, ${Math.round(ty)}.` } satisfies ServerMessage))
+            return
+          }
           if (DEV_COMMANDS && command === '/weather') {
             if (extra.length || (mode !== 'auto' && mode !== 'clear' && mode !== 'overcast' && mode !== 'rain')) {
               send(JSON.stringify({ t: 'system', text: 'Usage: /weather clear | overcast | rain | auto' } satisfies ServerMessage))
@@ -925,7 +956,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           const owned = pieceCount(player.id)
           const resolved = resolveBuild(
             WORLD,
-            { kind: msg.kind, x: msg.x, y: msg.y, rot: msg.rot },
+            { kind: msg.kind, x: msg.x, y: msg.y, rot: msg.rot, h: msg.h },
             player,
             { owner: player.id, id: makePlacementId(), pieces: owned, deeds: deedCount(player.id) },
           )

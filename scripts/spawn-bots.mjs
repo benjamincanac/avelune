@@ -37,7 +37,7 @@
 // Ctrl-C for a clean shutdown (closes every socket) and a final total.
 
 import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '../shared/utils/characters.ts'
-import { isWalkable } from '../shared/utils/maze.ts'
+import { isWalkable, terrainHeight } from '../shared/utils/maze.ts'
 import { MAX_PIECES_PER_PLAYER, checkTerraform, resolveBuild } from '../shared/utils/building.ts'
 import { applyPlace, applyRemove, chunkCoord, chunkKey, createWorld, decodeChunk, installChunk, isProtectedTile, removeChunk } from '../shared/utils/world.ts'
 import { deedOp, fencePlan, housePlan, levelPlan, paveOp, plotBounds, plotCentre, plotFor } from './bot-build.mjs'
@@ -224,7 +224,10 @@ class Bot {
         if (m.piece.owner === this.id) {
           this.placed++
           const op = this.sentBuilds.shift()
-          if (op) this.mine.set(m.piece.id, op)
+          // Remember the height the server actually gave it: a rebuild of this
+          // exact piece has to land back in this exact slot, and the server's
+          // `z` is the only number that says which one that was.
+          if (op) this.mine.set(m.piece.id, { ...op, h: m.piece.z ?? 0 })
         }
         if (m.pieces != null) this.pieces = m.pieces
         if (m.deeds != null) this.deeds = m.deeds
@@ -418,10 +421,14 @@ class Bot {
       this.planAt++
       return
     }
+    // The aim height a player's crosshair would have carried: the storey this
+    // op belongs to, measured off the ground under its own pose. A requeued
+    // rebuild already knows the exact `z` its piece had and carries it as `h`.
+    const request = { ...op, h: this.aimHeight(op) }
     // Run the same predicate the server will, against our streamed world — the
     // client ghost's job. A pose it already refuses is skipped rather than
     // retried, except when the answer is only about timing.
-    const preview = resolveBuild(this.world, op, this.actor(), { owner: this.id, id: 'preview', pieces: this.pieces, deeds: this.deeds })
+    const preview = resolveBuild(this.world, request, this.actor(), { owner: this.id, id: 'preview', pieces: this.pieces, deeds: this.deeds })
     if (!preview.ok) {
       if ((preview.reason === 'too far away' || preview.reason === 'that ground is not loaded') && this.hold()) return
       // The claim is the one op worth hearing about when it is skipped: a bot
@@ -436,7 +443,18 @@ class Bot {
     this.sentBuilds.push(op)
     this.lastEditKind = 'build'
     this.edits++
-    this.send({ t: 'build', kind: op.kind, x: op.x, y: op.y, rot: op.rot })
+    this.send({ t: 'build', kind: op.kind, x: op.x, y: op.y, rot: op.rot, h: request.h })
+  }
+
+  /** The `h` a build op should carry: an explicit one (a rebuild remembers the
+   *  height its piece stood at), otherwise the plan's storey `lift` over the
+   *  ground under the pose. Undefined where the ground is not loaded, which
+   *  leaves the server on its old highest-surface rule. */
+  aimHeight(op) {
+    if (op.h != null) return op.h
+    if (op.lift == null) return undefined
+    const ground = terrainHeight(this.world, op.x, op.y)
+    return Number.isFinite(ground) ? ground + op.lift : undefined
   }
 
   /** Us, as the shared edit rules see us: where we stand and who we are. The

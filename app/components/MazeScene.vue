@@ -20,7 +20,7 @@ import {
   WebGLRenderer,
 } from 'three'
 import type { AnimationAction, AnimationClip, BufferGeometry,
-  InstancedMesh } from 'three'
+  InstancedMesh, Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
@@ -61,6 +61,7 @@ import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import { createBuildTools } from '~/utils/buildTools'
+import { PITCH_MAX, PITCH_MAX_TOOL } from '~/composables/useBuild'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
 import { applyOutfitColor } from '~/utils/appearance'
 import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
@@ -96,6 +97,11 @@ interface ViewState {
   /** One-shot action queues written by the input layer. */
   jumpQueued: boolean
   dashQueued: boolean
+  /** Cursor-mode aim in NDC, while Alt frees the pointer. False the rest of the
+   *  time, which means "aim down the crosshair". */
+  cursorActive: boolean
+  cursorX: number
+  cursorY: number
 }
 
 const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState, editor?: boolean }>()
@@ -1027,6 +1033,37 @@ const CAM_RADIUS = 0.32
 let boomDist = MAX_BOOM
 
 /**
+ * The over-the-shoulder offset a tool is aimed from.
+ *
+ * Centred behind the player the crosshair passes straight through the
+ * character, so the tile it lands on is the one half hidden by their own back.
+ * Arming a tool eases the camera out to one side and in a little, which gives
+ * the ray a clear line to the ground ahead; disarming eases it back. `V` flips
+ * the side (`build.shoulder`), for the times the wall you are building is on
+ * the right.
+ */
+const SHOULDER_SIDE = 0.9
+const SHOULDER_LIFT = 0.25
+const SHOULDER_CLOSE = 0.9
+/** How fast the offset eases in and out, per second. */
+const SHOULDER_RATE = 6
+let shoulderMix = 0
+/** Eye height the boom orbits around. */
+const PIVOT_HEIGHT = 1.5
+/** Closer than this the local character is between the camera and the tile the
+ *  crosshair is on, so it is taken out of the shot. */
+const SELF_FADE_DISTANCE = 1.2
+/** How much of the boom the steepest look gives up. Enough that the camera ends
+ *  up inside `SELF_FADE_DISTANCE`, which is what takes the character out of an
+ *  overhead shot, and near enough straight above that the crosshair lands on the
+ *  tile the boots are on rather than the next one along. */
+const STEEP_CLOSE = 0.65
+/** Where the camera ended up this frame, for the self-rig fade. */
+let camX = 0
+let camY = 0
+let camZ = 0
+
+/**
  * How far the camera can sit behind the player before a wall blocks it. Marches
  * from the head toward the ideal camera spot, sampling the camera's *width*
  * (centre plus both flanks) at each step so it can't slip through a wall corner
@@ -1078,6 +1115,7 @@ const buildTools = props.editor
       world: hubWorld,
       templates: propTemplates,
       getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
+      getPointer: () => (props.view.cursorActive ? { x: props.view.cursorX, y: props.view.cursorY } : null),
       build,
       owner: id => props.game.players.get(id),
     })
@@ -1087,21 +1125,45 @@ const buildTools = props.editor
 const EDIT_INTERVAL = 1000 / EDITS_PER_SECOND
 let nextEditAt = 0
 
+/**
+ * The last target an edit was sent at.
+ *
+ * Holding the button repeats the armed tool, and for everything but the shovels
+ * a repeat on the same target is nothing but a wasted edit (and, for a build, a
+ * guaranteed refusal). A press clears it, so clicking the same tile twice is
+ * still two edits.
+ */
+let lastEditKey = ''
+let lastPressId = 0
+
+function targetKey(target: NonNullable<ReturnType<NonNullable<typeof buildTools>['update']>>): string {
+  return `${target.mode}:${target.x},${target.y},${target.rot ?? ''},${target.id ?? ''}`
+}
+
 /** Send the armed tool's verb at the current target. Terrain is applied locally
  *  first and reconciled by the server's own delta, whose heights are absolute
  *  and overwrite whatever we guessed. */
 function applyTool(target: ReturnType<NonNullable<typeof buildTools>['update']>) {
   const slot = build.active.value
   if (!target || !slot) return
+  // Raise, lower and flatten move the ground one step per call, so holding them
+  // on one spot is the point. Everything else needs a new target.
+  const repeatable = !slot.kind && slot.id !== 'demolish' && slot.id !== 'paint'
+  const key = targetKey(target)
+  if (!repeatable && key === lastEditKey) return
   const now = Date.now()
   if (now < nextEditAt) return
   nextEditAt = now + EDIT_INTERVAL
+  lastEditKey = key
   if (slot.id === 'demolish') {
     if (target.id) props.game.sendDemolish(target.id)
     return
   }
   if (slot.kind) {
-    props.game.sendBuild(slot.kind, target.x, target.y, build.rot.value)
+    // The RAW aim, not the pose: `snapPlacement`'s edge snap reads the flip out
+    // of the rotation, so a pose sent back through it would land elsewhere. The
+    // server snaps, exactly as the ghost did.
+    props.game.sendBuild(slot.kind, target.rawX, target.rawY, build.rot.value, target.h)
     return
   }
   const mode = slot.id as 'raise' | 'lower' | 'flatten' | 'paint'
@@ -1218,6 +1280,24 @@ function createOracleRig(): OracleRig | null {
   }
 }
 
+/**
+ * Take the local character out of the shot when the camera closes on it.
+ *
+ * Aiming at your own feet swings the boom in over your head, and your own back
+ * is then the only thing under the crosshair. Hidden outright rather than faded:
+ * `appearance.ts` clones only the *cloth* materials per rig, so the skin, hair
+ * and boots are still the cached template's — turning those transparent would
+ * fade every character wearing that model, the other players included.
+ *
+ * The ray never needed this. Players are not placements, so `propsNear` has
+ * never returned one and the pick has always looked straight through them; this
+ * is only so the tile is visible.
+ */
+function hideSelfWhenClose(group: Object3D, distance: number) {
+  const visible = distance > SELF_FADE_DISTANCE
+  if (group.visible !== visible) group.visible = visible
+}
+
 onBeforeRender(({ delta }) => {
   if (sceneDisposed) return
   configureCamera()
@@ -1328,26 +1408,68 @@ onBeforeRender(({ delta }) => {
   // Third-person camera: behind the shoulder, pulled in by walls.
   else if (camera.value) {
     const yaw = props.view.yaw
+    // The steep range belongs to the hotbar. Putting the tool away eases the
+    // view back into the walking band rather than snapping it.
+    const ceiling = build.active.value ? PITCH_MAX_TOOL : PITCH_MAX
+    if (props.view.pitch > ceiling) {
+      // eslint-disable-next-line vue/no-mutating-props
+      props.view.pitch += (ceiling - props.view.pitch) * (1 - Math.exp(-dt * 6))
+    }
     const pitch = props.view.pitch
     const headX = local.x
     const headZ = local.y
+    shoulderMix += ((build.active.value ? 1 : 0) - shoulderMix) * (1 - Math.exp(-dt * SHOULDER_RATE))
+    const lift = SHOULDER_LIFT * shoulderMix
+    // The boom is a true polar orbit around a pivot at eye height, so `pitch`
+    // is the angle the crosshair actually looks down at. The old ad-hoc
+    // camera-up / target-down pair only reached about 28° at full extension,
+    // which is why the tiles around your own feet were unaimable.
+    const pivotY = local.z + PIVOT_HEIGHT + lift
+    const cosP = Math.cos(pitch)
+    const sinP = Math.sin(pitch)
+    // The ideal seat: back along the view axis, out along the camera's own
+    // right (`cross(forward, up)` for a forward of `(cos yaw, 0, sin yaw)`),
+    // and up by however far the pitch has swung it over the player.
+    // Steep pitch pulls the boom in as well as up: left at full extension the
+    // camera would sit four tiles over your head, and the tile under the
+    // crosshair would be a postage stamp. In close it is a proper overhead
+    // view — and close enough for the fade below to take the character out of
+    // the shot.
+    const steep = Math.max(0, Math.min(1, (pitch - PITCH_MAX) / (PITCH_MAX_TOOL - PITCH_MAX)))
+    const back = (MAX_BOOM - SHOULDER_CLOSE * shoulderMix) * (1 - STEEP_CLOSE * steep)
+    // The shoulder fades out as the view tips down: looking at your own boots
+    // there is no character left to see past, and an off-centre overhead camera
+    // puts the crosshair a tile to the side of the one you are standing on.
+    const side = SHOULDER_SIDE * build.shoulder.value * shoulderMix * (1 - steep)
+    const offX = -Math.cos(yaw) * back * cosP - Math.sin(yaw) * side
+    const offZ = -Math.sin(yaw) * back * cosP + Math.cos(yaw) * side
+    const offY = back * sinP
+    const reach = Math.hypot(offX, offZ)
     // Boom collision: snap IN immediately when a wall intrudes (so the camera
     // never lags behind it and flashes the void), but ease back OUT smoothly so
-    // it zooms rather than popping once the wall is clear.
-    const camHeight = Math.max(local.z + 0.35, local.z + 1.5 + pitch * 1.8)
-    const targetBoom = clipBoom(headX, headZ, -Math.cos(yaw), -Math.sin(yaw), MAX_BOOM, Math.min(camHeight, local.z + 1))
+    // it zooms rather than popping once the wall is clear. The offset seat is
+    // what gets clipped, not the centred one, so a shoulder pressed to a wall
+    // still comes in. Looking near-straight down the horizontal run collapses
+    // to nothing and there is no wall to clip against, so the test is skipped.
+    const targetBoom = reach > 0.05
+      ? clipBoom(headX, headZ, offX / reach, offZ / reach, reach, Math.min(pivotY + offY, local.z + 1))
+      : reach
     boomDist = targetBoom < boomDist
       ? targetBoom
       : boomDist + (targetBoom - boomDist) * (1 - Math.exp(-dt * 9))
-    camera.value.position.set(
-      headX - Math.cos(yaw) * boomDist,
-      camHeight,
-      headZ - Math.sin(yaw) * boomDist,
-    )
+    const scale = reach > 0.05 ? Math.min(1, boomDist / reach) : 1
+    camX = headX + offX * scale
+    camY = pivotY + offY * scale
+    camZ = headZ + offZ * scale
+    camera.value.position.set(camX, camY, camZ)
+    // The look target carries the same lateral offset, so the view axis stays
+    // parallel to the heading: a shoulder camera that looked back at the head
+    // would point the crosshair at the player's own ear.
+    const lookSide = side * scale
     camera.value.lookAt(
-      headX + Math.cos(yaw) * 1.2,
-      local.z + 1 - pitch * 1.2,
-      headZ + Math.sin(yaw) * 1.2,
+      headX + Math.cos(yaw) * 1.2 * cosP - Math.sin(yaw) * lookSide,
+      pivotY - 1.2 * sinP,
+      headZ + Math.sin(yaw) * 1.2 * cosP + Math.cos(yaw) * lookSide,
     )
     torchLight.position.set(headX, local.z + 1.7, headZ)
   }
@@ -1357,10 +1479,15 @@ onBeforeRender(({ delta }) => {
   if (buildTools) {
     buildTools.setVisible(self != null)
     const target = self ? buildTools.update(local, selfId) : null
-    if (build.fireQueued.value) {
-      build.fireQueued.value = false
-      applyTool(target)
+    // A fresh press forgets the last target, so a second click on the same tile
+    // is a second edit while a held button across it stays one.
+    if (build.pressId.value !== lastPressId) {
+      lastPressId = build.pressId.value
+      lastEditKey = ''
     }
+    const clicked = build.fireQueued.value
+    build.fireQueued.value = false
+    if (clicked || build.holding.value) applyTool(target)
   }
 
   if (camera.value && renderer.instance instanceof WebGLRenderer) {
@@ -1409,6 +1536,7 @@ onBeforeRender(({ delta }) => {
       moving = props.held.forward || props.held.back || props.held.left || props.held.right
       airborne = !local.grounded
       dashing = selfDashing
+      hideSelfWhenClose(rig.group, Math.hypot(camX - local.x, camZ - local.y, camY - (local.z + PIVOT_HEIGHT)))
     }
     else {
       // The lag vector (authoritative minus rendered) points where they're

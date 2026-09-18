@@ -35,13 +35,51 @@ independently.
 - `shared/utils/building.ts` — the pure edit rules both sides run: `EDIT_REACH`,
   `EDITS_PER_SECOND`, `MAX_PIECES_PER_PLAYER`, `BUILD_GRID`, `snapPlacement`,
   `overlappingPiece` (AABB plus the vertical band `[z, z+top]`, which is what
-  lets pieces stack), `supportHeight` (a placed piece's `z`), `pieceOverBrush`,
+  lets pieces stack), `supportHeight` (a placed piece's `z`, bounded by the aim
+  height below), `pieceOverBrush`,
   `isPlaceableKind`, `canRemove`, and the deed-plot rules below. The server
   decides with them; the client only colours its ghost preview with them. `snapGridFor(kind)` is the grid a piece
   snaps to: `BUILD_GRID` (2) for everything except pieces whose footprint fits
   in a tile (`Kit_Crate`, `Kit_Torch`), which get `BUILD_GRID_SMALL` (1) so two
   of them can sit side by side, and 0 for the free-standing nature kit. The
   client ghost must call it too or it previews a pose the server won't store.
+
+  **Cells and edges.** A kit piece is either a cell piece or an edge piece, and
+  `isEdgeKind(kind)` says which. Cell pieces (`Kit_Floor`, `Kit_Roof`,
+  `Kit_RoofCorner`, `Kit_Stairs`, `Kit_Path`, `Kit_Crate`, `Kit_Torch`,
+  `Kit_Deed`) snap to the CENTRE of a grid cell, as everything used to. Edge
+  pieces — the panels: `Kit_Wall`, `Kit_WallWindow`, `Kit_WallDoor`,
+  `Kit_Fence`, `Kit_Gate` — snap to the nearest cell EDGE (a half-grid line, so
+  one coordinate is a multiple of the grid and the other is offset by half of
+  it) and take their heading from that edge. `R` therefore no longer turns a
+  panel: `snapPlacement` reads its `rot` only as a flip (every other quarter
+  turn adds π), so the caller must hand it the RAW aim, never an already-snapped
+  pose — re-snapping a pose reads its own heading back as a different flip.
+  Both `resolveBuild` and the client ghost snap from the raw request.
+
+  Panels meeting at a cell corner share exactly half a wall's depth there, which
+  the old overlap test read as two walls fused. `overlapBounds` insets an edge
+  piece's footprint by `EDGE_CORNER_INSET` (0.15, half of `Kit_Wall`'s depth) at
+  each end of its run, and `overlappingPiece` and `supportHeight` both reason
+  about that inset box: a corner is a join, so it neither refuses a build nor
+  holds the next panel up a storey. `propBounds` and the physical collision
+  boxes in `props.ts` stay exact, so four panels still seal a cell — the
+  perpendicular neighbour covers precisely the strip the inset gave up.
+
+  **Aim height.** A `build` request carries an optional `h`, the world height
+  the client's ray hit. `supportHeight(world, prop, aim)` then answers with the
+  highest surface under the footprint a body standing at `aim + AIM_SLACK`
+  (0.3) could step onto, sampling `surfaceHeight(world, x, y, feet)` at the
+  same centre-plus-inset-corners it always did. Without `h` it is the old rule,
+  the highest surface anywhere under the footprint — which is what put a
+  replaced ground-floor wall on the roof and a crate upstairs. `h` is a hint,
+  never a position: the server still derives `z` from real surfaces, and
+  `cleanAim` drops a non-finite one and clamps the rest, so the worst a client
+  can do with it is get the old behaviour back. Once the support is chosen the
+  band `[z, z + height]` has to be free (`overlappingPiece`) *and* fit under
+  whatever hangs over it: `ceilingOver` refuses with `no room there` when a
+  piece whose bottom is strictly above the candidate's cuts into the band.
+  Touching exactly is clearance, so a 2.5 wall stands under a floor laid at 2.5.
 
   **Deed plots.** A `Kit_Deed` post (`DEED_KIND`, in `kit.ts` so `world.ts` can
   index it without importing the rules) claims the `DEED_SIZE` (16) tile square
@@ -240,7 +278,7 @@ keep them out of ordinary footprint collision. Kit stairs carry no rails
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
 `action` (`jump`|`dash`), `chat`, `ping`, and the edit verbs `terraform`,
-`build`, `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
+`build` (with the optional aim height `h`), `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
 `kicked`, `pong`, plus the world stream `chunk` (encoded heights/surface as
 base64 and the chunk's placements), `unchunk`, `terrain` (`[cornerIndex,
 int16Height][]` deltas, quantised exactly as `Chunk.heights`), `place`,
@@ -272,8 +310,10 @@ agent are told what moved.
   `building-test.ts` (and every other `scripts/*-test.ts`) through vitest. `building-test.ts` covers the elevation
   bands: a wild tree on a hill, a kit wall on a slope, walking under and
   standing on a stacked floor, climbing kit stairs onto a landing, and the
-  stack-versus-overlap verdicts `resolveBuild` returns, plus the per-piece snap
-  grid and the footprint edge at the end of the gate road. `world-test.ts` checks spawn, the world edge, town obstacles,
+  stack-versus-overlap verdicts `resolveBuild` returns, the aim height (which
+  storey a crate lands on, a ground-floor wall put back in its slot, the
+  `no room there` refusal, and a bogus `h` being ignored or clamped), plus the
+  per-piece snap grid and the footprint edge at the end of the gate road. `world-test.ts` checks spawn, the world edge, town obstacles,
   diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
   covers bilinear heights, the slope rule, terraform-then-walk, chunk-border
   sync, generation determinism, the encode round trip, and the protected
