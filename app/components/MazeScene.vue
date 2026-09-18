@@ -1619,7 +1619,7 @@ if (import.meta.dev) {
     // controller re-clones its placements off its own deep watch.
     watch(() => ed!.structureVersion.value, buildFloor)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).__editor = ed
+    ;(window as any).__editor = { ...ed, seat: editorCtl.seat }
   })
 }
 

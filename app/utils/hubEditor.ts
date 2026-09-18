@@ -42,6 +42,9 @@ export interface HubEditor {
   update: (dt: number) => void
   /** Re-clone every placement (call once templates finish loading). */
   rebuild: () => void
+  /** Put the fly camera at an exact pose (tiles, radians). The run-mmo driver
+   *  frames the landing still with this rather than flying there by key. */
+  seat: (x: number, y: number, z: number, yaw: number, pitch: number) => void
   /** Tear down: detach listeners, drop scene objects, stop watchers. */
   dispose: () => void
 }
@@ -530,6 +533,12 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     pitch = CAM_PITCH
   }
 
+  function seat(x: number, y: number, z: number, toYaw: number, toPitch: number) {
+    camPos.set(x, y, z)
+    yaw = toYaw
+    pitch = clamp(toPitch, -PITCH_LIMIT, PITCH_LIMIT)
+  }
+
   function dispose() {
     canvas.removeEventListener('mousedown', onMouseDown)
     canvas.removeEventListener('wheel', onWheel)
@@ -545,5 +554,5 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     editorGroup.clear()
   }
 
-  return { update, rebuild, dispose }
+  return { update, rebuild, seat, dispose }
 }
