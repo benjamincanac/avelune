@@ -49,6 +49,13 @@ export const STEP_MAX = 0.5
 export const DASH_MULTIPLIER = 2.9
 export const DASH_DURATION = 0.22
 export const DASH_COOLDOWN = 1.1
+/** Held sprint: the way to cross open land. A dash in progress wins over it. */
+export const SPRINT_MULTIPLIER = 1.6
+
+/** Ground speed factor for this step, shared so prediction matches the tick. */
+export function speedMultiplier(dashing: boolean, sprinting: boolean): number {
+  return dashing ? DASH_MULTIPLIER : sprinting ? SPRINT_MULTIPLIER : 1
+}
 
 /** Steepest terrain a body can walk onto, in units of height per tile. Anything
  *  above this reads as a cliff face, which is how terraced terrain gets walls

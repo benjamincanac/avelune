@@ -12,6 +12,8 @@ export interface GamePlayer extends Player {
   ra: number
   /** Mid-dash (drives the roll animation). */
   dashing?: boolean
+  /** Sprinting (drives the sprint animation). */
+  sprinting?: boolean
   /** Active chat bubble, if any. */
   bubble?: { text: string, until: number }
 }
@@ -135,7 +137,7 @@ export function useGame(): UseGame {
   /** When the outstanding ping left, so its pong measures the round trip. */
   let pingAt = 0
 
-  let lastInput: MoveInput = { forward: false, back: false, left: false, right: false }
+  let lastInput: MoveInput = { forward: false, back: false, left: false, right: false, sprint: false }
   let lookAngle = 0
   let sentLook = 0
   let lookTimer: ReturnType<typeof setInterval> | undefined
@@ -266,6 +268,7 @@ export function useGame(): UseGame {
           player.z = state.z
           player.angle = state.a
           player.dashing = state.d === true
+          player.sprinting = state.s === true
           // A lag spike that lands far away is a teleport, not a walk.
           if (Math.hypot(player.x - player.rx, player.y - player.ry) > SNAP_DISTANCE) {
             player.rx = player.x
@@ -418,6 +421,7 @@ export function useGame(): UseGame {
     if (
       input.forward === lastInput.forward && input.back === lastInput.back
       && input.left === lastInput.left && input.right === lastInput.right
+      && input.sprint === lastInput.sprint
     ) return
     lastInput = { ...input }
     sendMove()

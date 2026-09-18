@@ -51,7 +51,7 @@ const features = [
 const controls = [
   { keys: ['W', 'A', 'S', 'D'], label: 'Move' },
   { keys: ['Space'], label: 'Jump' },
-  { keys: ['Shift'], label: 'Dash' },
+  { keys: ['Shift', 'E'], label: 'Sprint / dash' },
   { keys: ['Click'], label: 'Use tool' },
   { keys: ['1', '9', 'Tab'], label: 'Hotbar' },
   { keys: ['M'], label: 'World map' },

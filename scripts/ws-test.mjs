@@ -122,6 +122,8 @@ check('the authored town streams as placements', town > 100, `${town} pieces acr
 
 const statesOf = (client, id, since = 0) =>
   client.frames.slice(since).filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === id)
+// Long enough for a dash burst to end before the next measurement.
+const DASH_SETTLE = 300
 const lastState = () => statesOf(b, self.id).at(-1) ?? self
 
 // Jump: z rises past half a tile, then returns to the ground.
@@ -153,6 +155,19 @@ const dashed = Math.hypot(p2.x - p1.x, p2.y - p1.y)
 check('dash outruns walking', dashed > plain * 1.3, `plain=${plain.toFixed(2)} dashed=${dashed.toFixed(2)}`)
 const dashFlag = statesOf(b, self.id, mark).some(s => s.d === true)
 check('dash flagged in snapshots', dashFlag)
+
+// Sprint: the same held key with `sprint` covers more ground, and says so.
+await sleep(DASH_SETTLE)
+mark = b.frames.length
+const p3 = lastState()
+send(a, { t: 'move', ...noMove, forward: true, sprint: true, a: 0 })
+await sleep(350)
+send(a, { t: 'move', ...noMove, a: 0 })
+await sleep(250)
+const p4 = lastState()
+const sprinted = Math.hypot(p4.x - p3.x, p4.y - p3.y)
+check('sprint outruns walking', sprinted > plain * 1.3, `plain=${plain.toFixed(2)} sprinted=${sprinted.toFixed(2)}`)
+check('sprint flagged in snapshots', statesOf(b, self.id, mark).some(s => s.s === true))
 
 // Chat reaches the other client, with no floor scoping left on the frame.
 send(a, { t: 'chat', text: 'well met' })

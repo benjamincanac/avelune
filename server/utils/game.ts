@@ -3,10 +3,10 @@ import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import {
   DASH_COOLDOWN,
   DASH_DURATION,
-  DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
   bodySurfaceHeight,
+  speedMultiplier,
   stepBody,
 } from '#shared/utils/maze'
 import { CHUNK_SIZE, TERRAFORM_STEP, TERRAFORM_VERBS, WORLD_TILE_MAX, WORLD_TILE_MIN, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
@@ -201,10 +201,9 @@ function tick() {
     let dx = 0
     let dy = 0
     if (drive !== 0 || strafe !== 0) {
-      // Normalize so diagonals aren't faster; dashing modifies speed.
+      // Normalize so diagonals aren't faster; dashing and sprinting modify speed.
       const len = Math.hypot(drive, strafe)
-      const dash = dashing ? DASH_MULTIPLIER : 1
-      const speed = PLAYER_SPEED * dash * dt / len
+      const speed = PLAYER_SPEED * speedMultiplier(dashing, input.sprint) * dt / len
       const cos = Math.cos(player.angle)
       const sin = Math.sin(player.angle)
       dx = (cos * drive - sin * strafe) * speed
@@ -296,6 +295,7 @@ function broadcastState(now: number) {
       a: Math.round(angle * 1000) / 1000,
     }
     if (now < session.dashUntil) state.d = true
+    else if (session.input.sprint) state.s = true
     moved.push({ state, x, y })
   }
   if (!moved.length) return
@@ -806,7 +806,7 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
 
   const session: Session = {
     player,
-    input: { forward: false, back: false, left: false, right: false },
+    input: { forward: false, back: false, left: false, right: false, sprint: false },
     vz: 0,
     grounded: true,
     dashUntil: 0,
@@ -877,7 +877,7 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
       // The wire is untrusted: validate every field before acting on it.
       switch (msg.t) {
         case 'move': {
-          session.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right }
+          session.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, sprint: !!msg.sprint }
           const heading = toHeading(msg.a)
           if (heading !== null && heading !== player.angle) {
             player.angle = heading

@@ -276,7 +276,8 @@ keep them out of ordinary footprint collision. Kit stairs carry no rails
 (`railHeight` 0).
 
 ## Protocol shape (you define it; server-net + the client consume it)
-Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
+Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a` and the held `sprint` flag; the speed factor is
+shared `speedMultiplier`, never a constant inlined by a consumer),
 `action` (`jump`|`dash`), `chat`, `ping`, and the edit verbs `terraform`,
 `build` (with the optional aim height `h`), `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
 `kicked`, `pong`, plus the world stream `chunk` (encoded heights/surface as

@@ -27,7 +27,7 @@ const CONTROLS = [
   [
     { label: 'Move', keys: ['W', 'A', 'S', 'D'] },
     { label: 'Jump', keys: ['Space'] },
-    { label: 'Dash', keys: ['Shift'] },
+    { label: 'Sprint / dash', keys: ['Shift', 'E'] },
     { label: 'Cursor', keys: ['Alt'] },
   ],
   [

@@ -31,9 +31,9 @@ import type { HubPropPlacement } from '#shared/utils/props'
 import {
   DASH_COOLDOWN,
   DASH_DURATION,
-  DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
+  speedMultiplier,
   isWalkable,
   surfaceHeight,
   bodySurfaceHeight,
@@ -577,7 +577,7 @@ gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 const CHARACTER_SCALE = 0.72
 
 /** Movement states map to clips in the shared universal animation library. */
-const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
+const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', sprint: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
 
 const characterAssets = new Map<string, CharacterAsset>()
 const characterLoading = new Set<string>()
@@ -1353,8 +1353,7 @@ onBeforeRender(({ delta }) => {
     let dy = 0
     if (drive !== 0 || strafe !== 0) {
       const len = Math.hypot(drive, strafe)
-      const dash = selfDashing ? DASH_MULTIPLIER : 1
-      const speed = PLAYER_SPEED * dash * dt / len
+      const speed = PLAYER_SPEED * speedMultiplier(selfDashing, props.held.sprint) * dt / len
       const cos = Math.cos(props.view.yaw)
       const sin = Math.sin(props.view.yaw)
       dx = (cos * drive - sin * strafe) * speed
@@ -1529,6 +1528,7 @@ onBeforeRender(({ delta }) => {
     let moving = false
     let airborne = false
     let dashing = false
+    let sprinting = false
     if (isSelf) {
       // Your own rig follows the *predicted* body; it faces its travel
       // direction, not the free-orbit camera (which mouse-look drives).
@@ -1539,6 +1539,7 @@ onBeforeRender(({ delta }) => {
       moving = props.held.forward || props.held.back || props.held.left || props.held.right
       airborne = !local.grounded
       dashing = selfDashing
+      sprinting = props.held.sprint
       hideSelfWhenClose(rig.group, Math.hypot(camX - local.x, camZ - local.y, camY - (local.z + PIVOT_HEIGHT)))
     }
     else {
@@ -1569,6 +1570,7 @@ onBeforeRender(({ delta }) => {
       // The server can omit a stationary final snapshot. Once interpolation
       // settles, release its dash edge so the next burst can start normally.
       dashing = player.dashing === true && moving
+      sprinting = player.sprinting === true
     }
 
     rig.group.position.set(player.rx, player.rz, player.ry)
@@ -1594,6 +1596,7 @@ onBeforeRender(({ delta }) => {
     if (swimming) setAnimation(rig, moving ? CLIP.swim : CLIP.tread)
     else if (dashAnimating) setAnimation(rig, CLIP.dash)
     else if (airborne) setAnimation(rig, CLIP.jump, 1.1)
+    else if (moving && sprinting) setAnimation(rig, CLIP.sprint)
     else if (moving) setAnimation(rig, CLIP.run, 1.15)
     else setAnimation(rig, CLIP.idle)
     rig.mixer.update(dt)

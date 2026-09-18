@@ -31,7 +31,8 @@
 - [x] Third-person camera (wall-aware boom), raw-delta mouse-look, pointer lock + fullscreen (`F`)
 - [x] Jumpable rampart parapets: players can vault from the gallery into town or onto the outer berm, while walking still respects the rails.
 - [x] Dash animation blends promptly and follows the shared burst duration, without stale remote sprint replay. Remote run/idle uses support height on stairs and ramparts.
-- [x] Jump (`Space`) & dash (`Shift`) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward
+- [x] Sprint (hold `Shift`, 1.6x through shared `speedMultiplier`, rides the `move` frame, `state.s` drives the remote sprint clip). Dash moved to `E` and right click
+- [x] Jump (`Space`) & dash (`E`, right click) — server-validated, predicted, dash flag synced; dash-from-standstill launches forward
 - [x] Elevation: solid props are walkable ledges in the shared authoritative plan; `SOLID_PROPS` distinguishes low vaultable clutter from tall unjumpable blockers
 - [x] Day/night cycle (15 min) + weather (clear→overcast→rain), synced via the server clock (`welcome.now`)
 - [x] Square minimap (top-right), north-up, no fog, with the player's tile coordinates and the loaded chunk count beneath it

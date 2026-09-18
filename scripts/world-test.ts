@@ -5,6 +5,7 @@ import {
   DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
+  SPRINT_MULTIPLIER,
   PLAYER_RADIUS,
   isWalkable,
   getFountainWaterContact,
@@ -60,7 +61,7 @@ test('spawn has ground and clearance in all eight directions', () => {
 test('all four world edges contain walking and dashing players', () => {
   const near = 6
   const approaches = [[72, WORLD_TILE_MAX - near, 0, 1], [72, WORLD_TILE_MIN + near, 0, -1], [WORLD_TILE_MIN + near, 72, -1, 0], [WORLD_TILE_MAX - near, 72, 1, 0]] as const
-  for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
+  for (const speed of [PLAYER_SPEED, PLAYER_SPEED * SPRINT_MULTIPLIER, PLAYER_SPEED * DASH_MULTIPLIER]) {
     for (const [x, y, dx, dy] of approaches) {
       const body = walk(bodyAt(x, y), dx, dy, 100, speed)
       assert.ok(body.x >= WORLD_TILE_MIN + PLAYER_RADIUS && body.x <= WORLD_TILE_MAX - PLAYER_RADIUS && body.y >= WORLD_TILE_MIN + PLAYER_RADIUS && body.y <= WORLD_TILE_MAX - PLAYER_RADIUS)
@@ -102,7 +103,7 @@ test('diagonal building collision follows the visible Three.js Y rotation', () =
 
 test('tree trunks stop centered walking and dashing players', () => {
   for (const prop of townProps.filter(p => p.kind === 'Courtyard_Tree')) {
-    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
+    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * SPRINT_MULTIPLIER, PLAYER_SPEED * DASH_MULTIPLIER]) {
       const body = walk(bodyAt(prop.x - prop.r - 1, prop.y), 1, 0, 100, speed)
       assert.ok(body.x <= prop.x - prop.r)
       assert.equal(body.z, 0)
@@ -123,7 +124,7 @@ test('fountain has a large stepped basin and a solid central pedestal', () => {
     const a = Math.PI / 4 * i
     const dx = Math.cos(a)
     const dy = Math.sin(a)
-    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
+    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * SPRINT_MULTIPLIER, PLAYER_SPEED * DASH_MULTIPLIER]) {
       const body = bodyAt(prop.x + dx * (prop.r + 0.5), prop.y + dy * (prop.r + 0.5))
       walk(body, -dx, -dy, 100, speed, world)
       const radius = Math.hypot(body.x - prop.x, body.y - prop.y)
@@ -356,7 +357,7 @@ test('ground-level ramparts block shortcuts even while jumping and dashing', () 
 
 test('bridge parapets contain walking and dashing players', () => {
   for (const direction of [-1, 1]) {
-    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * DASH_MULTIPLIER]) {
+    for (const speed of [PLAYER_SPEED, PLAYER_SPEED * SPRINT_MULTIPLIER, PLAYER_SPEED * DASH_MULTIPLIER]) {
       const body = walk(bodyAt(FORTIFICATIONS.gateX, 114), direction, 0, 80, speed)
       assert.ok(body.x > 68.35 && body.x < 75.65)
       assert.equal(body.z, 0)

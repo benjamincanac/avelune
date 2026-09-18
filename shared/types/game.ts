@@ -40,6 +40,8 @@ export interface MoveInput {
   back: boolean
   left: boolean
   right: boolean
+  /** Sprint is held. Only changes speed while a direction is held too. */
+  sprint: boolean
 }
 
 /** Positional delta for one player inside a state snapshot. */
@@ -53,6 +55,8 @@ export interface PlayerState {
   a: number
   /** Mid-dash right now (drives the roll animation remotely). */
   d?: boolean
+  /** Sprinting right now (drives the sprint animation remotely). */
+  s?: boolean
 }
 
 /** Messages the client sends to the server. */

@@ -38,7 +38,7 @@ const emit = defineEmits<{ unlock: [] }>()
 // GPU targets must be released before Tres disposes its WebGLRenderer.
 let disposeScene: (() => void) | undefined
 
-const held: MoveInput = { forward: false, back: false, left: false, right: false }
+const held: MoveInput = { forward: false, back: false, left: false, right: false, sprint: false }
 
 /**
  * Camera state shared with the scene. Mouse deltas drive yaw/pitch directly —
@@ -105,7 +105,7 @@ function isTyping(): boolean {
 }
 
 function releaseAll() {
-  held.forward = held.back = held.left = held.right = false
+  held.forward = held.back = held.left = held.right = held.sprint = false
   view.turnLeft = view.turnRight = false
   props.game.setInput(held)
 }
@@ -177,6 +177,12 @@ function onKeyDown(event: KeyboardEvent) {
     return
   }
   if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+    held.sprint = true
+    props.game.setInput(held)
+    return
+  }
+  if (event.code === 'KeyE') {
+    event.preventDefault()
     if (!event.repeat) triggerDash()
     return
   }
@@ -251,6 +257,11 @@ function onKeyUp(event: KeyboardEvent) {
       if (relockOnAltUp) requestLock()
       relockOnAltUp = false
     }
+    return
+  }
+  if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+    held.sprint = false
+    props.game.setInput(held)
     return
   }
   if (event.code === 'ArrowUp') {
