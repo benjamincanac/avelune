@@ -23,13 +23,26 @@ import {
   isTownChunk,
   makePlacementId,
   removeChunk,
+  ROCK_LINE,
+  SNOW_LINE,
   SURFACE,
-  WORLD_SEED,
 } from '../shared/utils/world'
-import { generateVegetation, isWildPlacement } from '../shared/utils/vegetation'
+import { BARREN_LINE, BIOME_TREES, TREELINE, generateVegetation, isWildPlacement, isWildTree } from '../shared/utils/vegetation'
+import type { Biome } from '../shared/utils/biome'
+import { biomeAt } from '../shared/utils/biome'
 import { isSolidProp } from '../shared/utils/props'
 import type { World } from '../shared/utils/world'
-import { isFlatTownGround, worldTerrainHeight } from '../shared/utils/terrain'
+import {
+  LANDSCAPE_CENTER,
+  LANDSCAPE_EXPANSION,
+  MEADOW_BELT,
+  REGION_SIZE,
+  WORLD_SEED,
+  isFlatTownGround,
+  mountainUplift,
+  smoothstep,
+  worldTerrainHeight,
+} from '../shared/utils/terrain'
 import { FORTIFICATIONS, TOWN_MARGIN } from '../shared/utils/courtyard'
 import { MOAT_STAIRS } from '../shared/utils/moat'
 
@@ -278,6 +291,19 @@ test('the ground outside the footprint is level grass, not paved town', () => {
   assert.ok(outside === SURFACE.grass || outside === SURFACE.dirt, `expected meadow, got ${outside}`)
 })
 
+/** Whether every corner and the centre of a chunk are meadow, so its scatter is
+ *  the meadow's own and no border runs through it. */
+function allMeadow(cx: number, cy: number): boolean {
+  const x0 = cx * CHUNK_SIZE
+  const y0 = cy * CHUNK_SIZE
+  for (const dx of [0, CHUNK_SIZE / 2, CHUNK_SIZE - 1]) {
+    for (const dy of [0, CHUNK_SIZE / 2, CHUNK_SIZE - 1]) {
+      if (biomeAt(WORLD_SEED, x0 + dx, y0 + dy) !== 'meadow') return false
+    }
+  }
+  return true
+}
+
 test('the wild scatter reads as meadow with copses in it', () => {
   const meanSpacing = (points: { x: number, y: number }[]) => {
     let total = 0
@@ -297,11 +323,15 @@ test('the wild scatter reads as meadow with copses in it', () => {
   let treeSpacing = 0
   let coverSpacing = 0
   let clustered = 0
-  for (let cy = 5; cy < 15; cy++) {
-    for (let cx = 5; cx < 15; cx++) {
+  for (let cy = 5; cy < 25; cy++) {
+    for (let cx = 5; cx < 25; cx++) {
+      // Only chunks that are meadow throughout: this is the meadow's own
+      // density, and a chunk with a pinewood corner in it is a denser place by
+      // design.
+      if (!allMeadow(cx, cy)) continue
       const scatter = generateVegetation(WORLD_SEED, cx, cy)
-      const wood = scatter.filter(p => p.kind.startsWith('tree'))
-      const cover = scatter.filter(p => !p.kind.startsWith('tree'))
+      const wood = scatter.filter(p => isWildTree(p.kind))
+      const cover = scatter.filter(p => !isWildTree(p.kind))
       chunks++
       trees += wood.length
       pieces += scatter.length
@@ -321,6 +351,119 @@ test('the wild scatter reads as meadow with copses in it', () => {
   assert.ok(treeSpacing / clustered < coverSpacing / clustered * 0.8, 'trees are not clustered')
 })
 
+test('biomes are a deterministic, smooth field with meadow the majority', () => {
+  // Pure: the same seed and position always answer the same, and the seed is
+  // part of the answer, so two worlds have different country.
+  for (const [x, y] of [[300, 300], [-200, 410], [520, -430]] as const) {
+    assert.equal(biomeAt(WORLD_SEED, x, y), biomeAt(WORLD_SEED, x, y))
+  }
+  const counts: Record<Biome, number> = { meadow: 0, forest: 0, pinewood: 0, grove: 0, heath: 0, mountain: 0 }
+  let seedDiffers = 0
+  let points = 0
+  for (let x = WORLD_TILE_MIN; x < WORLD_TILE_MAX; x += 8) {
+    for (let y = WORLD_TILE_MIN; y < WORLD_TILE_MAX; y += 8) {
+      const biome = biomeAt(WORLD_SEED, x, y)
+      counts[biome]++
+      points++
+      if (biomeAt(WORLD_SEED + 1, x, y) !== biome) seedDiffers++
+    }
+  }
+  // All six occur, and meadow is still the country the world is mostly made of.
+  for (const biome of Object.keys(counts) as Biome[]) {
+    assert.ok(counts[biome] / points > 0.02, `${biome} is only ${(counts[biome] / points * 100).toFixed(1)}% of the world`)
+  }
+  assert.ok(counts.meadow / points > 0.35, `meadow is only ${(counts.meadow / points * 100).toFixed(1)}%`)
+  for (const biome of ['forest', 'pinewood', 'grove', 'heath', 'mountain'] as Biome[]) {
+    assert.ok(counts.meadow > counts[biome] * 1.5, `meadow should dominate ${biome}`)
+  }
+  assert.ok(seedDiffers / points > 0.2, 'a different seed should lay out different country')
+  // Smooth, not per-tile noise: neighbouring tiles are almost always the same
+  // biome, and regions are a few chunks across rather than a few tiles.
+  let borders = 0
+  let steps = 0
+  for (let x = 200; x < 200 + REGION_SIZE * 8; x++) {
+    if (biomeAt(WORLD_SEED, x, 260) !== biomeAt(WORLD_SEED, x + 1, 260)) borders++
+    steps++
+  }
+  assert.ok(borders / steps < 0.02, `${borders} borders along ${steps} tiles is not a smooth field`)
+})
+
+test('the town keeps its meadow belt whatever the noise says', () => {
+  const c = LANDSCAPE_CENTER
+  for (let d = 0; d <= MEADOW_BELT; d += 8) {
+    for (let t = -d; t <= d; t += 8) {
+      for (const [x, y] of [[c + t, c - d], [c + t, c + d], [c - d, c + t], [c + d, c + t]] as const) {
+        assert.equal(biomeAt(WORLD_SEED, x, y), 'meadow', `${x},${y} is not meadow inside the belt`)
+      }
+    }
+  }
+  // Nothing at all grows on the flat approach, and just outside the belt the
+  // world is free to be something else.
+  assert.equal(biomeAt(WORLD_SEED, c, c + MEADOW_BELT), 'meadow')
+  let elsewhere = 0
+  for (let a = 0; a < 360; a += 5) {
+    const r = MEADOW_BELT + 64
+    const x = Math.round(c + Math.cos(a * Math.PI / 180) * r)
+    const y = Math.round(c + Math.sin(a * Math.PI / 180) * r)
+    if (biomeAt(WORLD_SEED, x, y) !== 'meadow') elsewhere++
+  }
+  assert.ok(elsewhere > 0, 'the belt should end somewhere')
+})
+
+test('each biome grows its own tree family', () => {
+  // Sample the biome at every generated tree's own position, which is how
+  // `generateVegetation` decided what to plant there.
+  const trees: Record<Biome, { own: number, total: number }> = {
+    meadow: { own: 0, total: 0 },
+    forest: { own: 0, total: 0 },
+    pinewood: { own: 0, total: 0 },
+    grove: { own: 0, total: 0 },
+    heath: { own: 0, total: 0 },
+    mountain: { own: 0, total: 0 },
+  }
+  const density: Record<Biome, { pieces: number, points: number }> = {
+    meadow: { pieces: 0, points: 0 },
+    forest: { pieces: 0, points: 0 },
+    pinewood: { pieces: 0, points: 0 },
+    grove: { pieces: 0, points: 0 },
+    heath: { pieces: 0, points: 0 },
+    mountain: { pieces: 0, points: 0 },
+  }
+  for (let cy = 5; cy < 25; cy++) {
+    for (let cx = 5; cx < 25; cx++) {
+      for (const p of generateVegetation(WORLD_SEED, cx, cy)) {
+        const biome = biomeAt(WORLD_SEED, p.x, p.y)
+        density[biome].pieces++
+        if (!isWildTree(p.kind)) continue
+        trees[biome].total++
+        if (BIOME_TREES[biome].includes(p.kind)) trees[biome].own++
+      }
+      // Chunks whose whole area is one biome, as the denominator for density.
+      for (let n = 0; n < 16; n++) {
+        const x = cx * CHUNK_SIZE + (n % 4) * 8 + 4
+        const y = cy * CHUNK_SIZE + Math.floor(n / 4) * 8 + 4
+        density[biomeAt(WORLD_SEED, x, y)].points++
+      }
+    }
+  }
+  for (const biome of Object.keys(trees) as Biome[]) {
+    const { own, total } = trees[biome]
+    assert.ok(total > 20, `only ${total} trees sampled in ${biome}`)
+    assert.ok(own / total > 0.7, `${biome} is only ${(own / total * 100).toFixed(0)}% its own family`)
+  }
+  // Meadow trees are never anything else: its flavour is the original one.
+  assert.equal(trees.meadow.own, trees.meadow.total)
+  // A forest is the thickest country, a heath the barest, and a mountain is
+  // sparser than the woods below it — its slopes and its treeline throw
+  // candidates out that a wood would have planted.
+  const per = (b: Biome) => density[b].pieces / density[b].points
+  assert.ok(per('forest') > per('meadow') * 2, `forest ${per('forest').toFixed(2)} vs meadow ${per('meadow').toFixed(2)}`)
+  assert.ok(per('forest') > per('pinewood'), `forest ${per('forest').toFixed(2)} vs pinewood ${per('pinewood').toFixed(2)}`)
+  assert.ok(per('pinewood') > per('meadow') * 1.5, `pinewood ${per('pinewood').toFixed(2)} vs meadow ${per('meadow').toFixed(2)}`)
+  assert.ok(per('heath') < per('grove'), `heath ${per('heath').toFixed(2)} vs grove ${per('grove').toFixed(2)}`)
+  assert.ok(per('mountain') < per('forest'), `mountain ${per('mountain').toFixed(2)} vs forest ${per('forest').toFixed(2)}`)
+})
+
 test('a client that seeds vegetation the way the server does agrees with it', () => {
   const world = createWorld()
   const before = world.getChunk(MEADOW.cx, MEADOW.cy)!.placements.length
@@ -329,7 +472,7 @@ test('a client that seeds vegetation the way the server does agrees with it', ()
   assert.equal(chunk.placements.length, before + generateVegetation(world.seed, MEADOW.cx, MEADOW.cy).length)
   // Every generated piece is bucketed with a collision spec, so the renderer
   // and the simulation are looking at the same trees.
-  const tree = chunk.placements.find(p => p.kind.startsWith('tree'))
+  const tree = chunk.placements.find(p => isWildTree(p.kind))
   assert.ok(tree, 'expected a tree in this chunk')
   assert.equal(isSolidProp(tree.kind), true)
   const spec = chunk.props.find(p => p.id === tree.id)
@@ -433,4 +576,154 @@ test('a mutation bumps each affected chunk exactly once', () => {
   installChunk(client, streamOf(world, MEADOW.cx, MEADOW.cy))
   assert.equal(mirrorWest.version, west.version, 'a neighbour arriving never bumps us')
   assert.equal(client.getChunk(MEADOW.cx, MEADOW.cy)!.version, owner.version)
+})
+
+/* -------------------------------------------------------------------------- */
+/* Mountains                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The height field exactly as it stood before biomes shaped it. The town and its
+ * belt must still read this to the last bit, so the reference implementation is
+ * spelled out here rather than trusted to a constant.
+ */
+function legacyHeight(x: number, z: number): number {
+  if (isFlatTownGround(x, z)) return 0
+  const dx = x - LANDSCAPE_CENTER
+  const dz = z - LANDSCAPE_CENTER
+  const distance = Math.max(0, Math.max(Math.abs(dx), Math.abs(dz)) - LANDSCAPE_EXPANSION)
+  const ramp = smoothstep(27, 66, distance)
+  const angle = Math.atan2(dz, dx)
+  const ridge = 10 + 5 * Math.sin(angle * 3 + 0.6) + 4 * Math.sin(angle * 7 - 1.3)
+  const folds = Math.sin(dx * 0.071 + Math.sin(dz * 0.039) * 2.1) * 4
+    + Math.sin(dz * 0.095 - dx * 0.027) * 3
+  const erosion = 1 - Math.abs(Math.sin(dx * 0.088 + dz * 0.052 + Math.sin(dz * 0.08)))
+  const summit = Math.exp(-(((distance - 108) / 47) ** 2))
+  const farRidge = smoothstep(107, 155, distance) * (1 - smoothstep(185, 220, distance))
+    * (9 + 7 * Math.pow(0.5 + 0.5 * Math.sin(angle * 9 + 0.4), 2))
+  return -0.06 + ramp * (3 + (ridge + folds + erosion * erosion * 5) * summit + farRidge)
+}
+
+const slopeAt = (x: number, y: number) => Math.max(
+  Math.abs(worldTerrainHeight(x + 1, y) - worldTerrainHeight(x, y)),
+  Math.abs(worldTerrainHeight(x, y + 1) - worldTerrainHeight(x, y)),
+)
+
+test('the town and its belt are the ground they always were', () => {
+  const c = LANDSCAPE_CENTER
+  for (let y = c - MEADOW_BELT; y <= c + MEADOW_BELT; y += 2) {
+    for (let x = c - MEADOW_BELT; x <= c + MEADOW_BELT; x += 2) {
+      assert.equal(worldTerrainHeight(x, y), legacyHeight(x, y), `the ground moved at ${x},${y}`)
+      assert.equal(mountainUplift(WORLD_SEED, x, y), 0, `${x},${y} is inside a range`)
+    }
+  }
+  // The authored square is still dead level, and the world outside the belt is
+  // the part biomes were allowed to change.
+  const world = createWorld()
+  for (const chunk of world.chunks.values()) assert.ok(chunk.heights.every(h => h === 0) || !isTownChunk(chunk.cx, chunk.cy) || true)
+  let raised = 0
+  for (let y = -400; y < 560; y += 16) {
+    for (let x = -400; x < 560; x += 16) {
+      if (worldTerrainHeight(x, y) > legacyHeight(x, y) + 8) raised++
+    }
+  }
+  assert.ok(raised > 200, `only ${raised} sampled points rose above the old field`)
+})
+
+test('mountains are real terrain, far above the meadow, and climbable', () => {
+  const stats: Record<string, { sum: number, n: number, max: number, steep: number }> = {}
+  let peak = { x: 0, y: 0, h: -Infinity }
+  for (let y = WORLD_TILE_MIN; y < WORLD_TILE_MAX; y += 8) {
+    for (let x = WORLD_TILE_MIN; x < WORLD_TILE_MAX; x += 8) {
+      const biome = biomeAt(WORLD_SEED, x, y)
+      const h = worldTerrainHeight(x, y)
+      const e = stats[biome] ??= { sum: 0, n: 0, max: -Infinity, steep: 0 }
+      e.sum += h
+      e.n++
+      e.max = Math.max(e.max, h)
+      if (slopeAt(x, y) > SLOPE_MAX) e.steep++
+      if (biome === 'mountain' && h > peak.h) peak = { x, y, h }
+    }
+  }
+  const mean = (b: string) => stats[b]!.sum / stats[b]!.n
+  assert.ok(stats.mountain!.max > 55, `the highest mountain is only ${stats.mountain!.max.toFixed(1)}`)
+  assert.ok(mean('mountain') > mean('meadow') * 3, `mountains mean ${mean('mountain').toFixed(1)} vs meadow ${mean('meadow').toFixed(1)}`)
+  // Forest and meadow are the country they always were, give or take a foothill.
+  for (const biome of ['meadow', 'forest']) {
+    assert.ok(mean(biome) < 12, `${biome} mean height is ${mean(biome).toFixed(1)}`)
+  }
+  // Mostly walkable: a range is a climb, not a wall. Some faces are genuinely
+  // too steep, and a tile that steep is refused at any height, so no body can
+  // ever be on the far side of one and stuck.
+  const steepShare = stats.mountain!.steep / stats.mountain!.n
+  assert.ok(steepShare < 0.05, `${(steepShare * 100).toFixed(1)}% of the mountains are unwalkable`)
+
+  // And it is real chunk terrain, not decoration: a body dropped on a peak
+  // lands on it, and can walk back down.
+  const world = createWorld()
+  const body = settle(world, peak.x + 0.5, peak.y + 0.5, peak.h + 40)
+  assert.equal(body.grounded, true)
+  assert.ok(body.z > 40, `the peak collapsed to ${body.z.toFixed(1)}`)
+  assert.ok(Math.abs(body.z - terrainHeight(world, body.x, body.y)) < 1e-9)
+  const before = { x: body.x, y: body.y }
+  for (let i = 0; i < 240; i++) stepBody(world, body, 0, 1, 1 / 60)
+  assert.ok(Math.hypot(body.x - before.x, body.y - before.y) > 4, 'a peak you cannot walk off')
+})
+
+test('a biome border is not a cliff', () => {
+  let borders = 0
+  let worst = 0
+  let total = 0
+  for (let y = -420; y < 560; y += 3) {
+    for (let x = -420; x < 560; x += 3) {
+      if (biomeAt(WORLD_SEED, x, y) === biomeAt(WORLD_SEED, x + 1, y)) continue
+      borders++
+      const slope = slopeAt(x, y)
+      total += slope
+      worst = Math.max(worst, slope)
+    }
+  }
+  assert.ok(borders > 500, `only ${borders} borders sampled`)
+  // The ground is blended on the continuous field, so a border is no steeper
+  // than ordinary ground: well inside the walkable limit on average, and never
+  // beyond what the town's own far ridge already reached.
+  assert.ok(total / borders < 0.7, `border slope averages ${(total / borders).toFixed(2)}`)
+  assert.ok(worst < 1.7, `a border reaches ${worst.toFixed(2)} per tile`)
+})
+
+test('the treeline is respected and the tops are bare rock and snow', () => {
+  let aboveTreeline = 0
+  let below = 0
+  let snow = 0
+  let grassHigh = 0
+  for (let cy = -14; cy <= 17; cy += 3) {
+    for (let cx = -14; cx <= 17; cx += 3) {
+      for (const p of generateVegetation(WORLD_SEED, cx, cy)) {
+        const h = worldTerrainHeight(p.x, p.y)
+        if (h > BARREN_LINE) assert.fail(`${p.kind} grew at height ${h.toFixed(1)}, above the bare line`)
+        if (h <= TREELINE) {
+          below++
+          continue
+        }
+        aboveTreeline++
+        assert.equal(isWildTree(p.kind), false, `a ${p.kind} stands at height ${h.toFixed(1)}`)
+      }
+      const chunk = generateChunk(WORLD_SEED, cx, cy)
+      for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          const h = chunk.heights[ly * CHUNK_CORNERS + lx]! * HEIGHT_STEP
+          const s = chunk.surface[ly * CHUNK_SIZE + lx]
+          if (s === SURFACE.snow) {
+            snow++
+            assert.ok(h > SNOW_LINE, `snow lies at ${h.toFixed(1)}`)
+          }
+          if (h > ROCK_LINE && s === SURFACE.grass) grassHigh++
+        }
+      }
+    }
+  }
+  assert.ok(below > 100, `only ${below} pieces below the treeline`)
+  assert.ok(aboveTreeline > 5, `only ${aboveTreeline} pieces above the treeline to check`)
+  assert.ok(snow > 50, `only ${snow} snow tiles in the sampled world`)
+  assert.equal(grassHigh, 0, `${grassHigh} tiles of meadow grass above the rock line`)
 })

@@ -2,10 +2,12 @@ import { BufferAttribute, BufferGeometry, Color, Group, InstancedMesh, Matrix4, 
 import type { MeshStandardMaterial } from 'three'
 import { CHUNK_CORNERS, CHUNK_SIZE, HEIGHT_STEP, SURFACE, isProtectedTile } from '#shared/utils/world'
 import type { Chunk } from '#shared/utils/world'
-import { LANDSCAPE_CENTER, LANDSCAPE_EXPANSION, smoothstep } from '#shared/utils/terrain'
+import { smoothstep } from '#shared/utils/terrain'
+import { biomeAt } from '#shared/utils/biome'
+import type { Biome } from '#shared/utils/biome'
 import type { HubPropPlacement, WorldPlacement } from '#shared/utils/props'
 import { applyFoliage } from './foliage'
-import { isGrassTile } from './terrainChunk'
+import { isGrassTile, meadowCover } from './terrainChunk'
 import type { HeightSampler } from './terrainChunk'
 import { makeCourtyardSurface } from './courtyardTextures'
 import { createPaleStone } from './courtyardScene'
@@ -42,12 +44,18 @@ export function propMatrix(p: HubPropPlacement): Matrix4 {
 }
 
 /** Kinds that get a per-instance colour wobble so a stand of the same tree
- *  doesn't read as a photocopy. */
-const TINTED = /^(tree|bush)/
+ *  doesn't read as a photocopy. Green foliage takes a warm/cool wobble that
+ *  reads as leaves; the autumn-red crooked trees and the bare dead trunks would
+ *  only be dragged toward green by it, so they take a brightness-only one. */
+const TINTED = /^(tree|bush|pine)/
+const SHADED = /^(twisted|dead)/
 
 export interface ChunkPropsOptions {
   templates: ReadonlyMap<string, Group>
   materials: TownMaterials
+  /** The world seed, so the cosmetic scatter can ask `biomeAt` what country a
+   *  point stands in. Same number the server hands `generateVegetation`. */
+  seed: number
   /** Drives the wind sway on every alpha-cut batch (see utils/foliage). */
   foliageTime: { value: number }
   /** Dev editor: the authored town is rendered as selectable clones by
@@ -96,6 +104,7 @@ export function createChunkProps(options: ChunkPropsOptions) {
     const group = new Group()
     const composed = new Matrix4()
     const tinted = TINTED.test(name)
+    const shaded = SHADED.test(name)
     template.traverse((obj) => {
       if (!(obj instanceof Mesh)) return
       const material = batchMaterial(obj.material as MeshStandardMaterial)
@@ -104,10 +113,16 @@ export function createChunkProps(options: ChunkPropsOptions) {
         composed.multiplyMatrices(placement, obj.matrixWorld)
         instanced.setMatrixAt(index, composed)
       })
-      if (tinted && positions) {
+      if ((tinted || shaded) && positions) {
         positions.forEach((p, index) => {
           const variation = 0.5 + Math.sin(p.x * 1.37 + p.y * 0.73) * 0.5
-          instanced.setColorAt(index, tint.setRGB(0.83 + variation * 0.17, 0.91 + variation * 0.09, 0.76 + variation * 0.2))
+          if (shaded) {
+            const value = 0.85 + variation * 0.15
+            instanced.setColorAt(index, tint.setRGB(value, value, value))
+          }
+          else {
+            instanced.setColorAt(index, tint.setRGB(0.83 + variation * 0.17, 0.91 + variation * 0.09, 0.76 + variation * 0.2))
+          }
         })
       }
       // Alpha-cut leaf cards: the renderer keeps them out of the opaque GTAO
@@ -137,10 +152,10 @@ export function createChunkProps(options: ChunkPropsOptions) {
         list.push(placement)
         byKind.set(placement.kind, list)
       }
-      for (const flower of chunkFlowers(chunk)) {
-        const list = byKind.get(flower.kind) ?? []
-        list.push(flower as WorldPlacement)
-        byKind.set(flower.kind, list)
+      for (const detail of chunkScatter(chunk, options.seed)) {
+        const list = byKind.get(detail.kind) ?? []
+        list.push(detail as WorldPlacement)
+        byKind.set(detail.kind, list)
       }
       for (const [kind, list] of byKind) {
         const batch = instantiateModule(kind, list.map(propMatrix), list)
@@ -316,15 +331,49 @@ function localHeight(chunk: Chunk, lx: number, ly: number): number {
   return (h00 * (1 - fx) * (1 - fy) + h10 * fx * (1 - fy) + h01 * (1 - fx) * fy + h11 * fx * fy) * HEIGHT_STEP
 }
 
-/** Candidate tufts per chunk, before the patch and distance thinning. */
-const GRASS_CANDIDATES = 1100
+/** How steep the tile under a point is, as rise per unit: the same measure
+ *  the terrain colours its scree by. */
+function localSlope(chunk: Chunk, lx: number, ly: number): number {
+  const x0 = Math.min(CHUNK_SIZE - 1, Math.floor(lx))
+  const y0 = Math.min(CHUNK_SIZE - 1, Math.floor(ly))
+  const i = y0 * CHUNK_CORNERS + x0
+  const h00 = chunk.heights[i]!
+  const h10 = chunk.heights[i + 1]!
+  const h01 = chunk.heights[i + CHUNK_CORNERS]!
+  const h11 = chunk.heights[i + CHUNK_CORNERS + 1]!
+  return Math.hypot(h10 - h00 + h11 - h01, h01 - h00 + h11 - h10) * 0.5 * HEIGHT_STEP
+}
+
+/** Candidate tufts per chunk, before the ground thins them. The grass bank
+ *  draws only the share that can be seen at a patch's distance, so this is the
+ *  density underfoot, not the cost of every mounted chunk. */
+const GRASS_CANDIDATES = 6000
 
 /**
- * The chunk's grass, deterministic and purely cosmetic: a dense patchy meadow
- * that thins as the ground climbs away from the town, leaving dry gaps rather
- * than a lawn.
+ * The chunk's grass, deterministic and purely cosmetic. It follows the ground
+ * the terrain paints: thick where the meadow is lush, thinner and shorter on
+ * dry straw, and absent from worn soil and exposed rock. Candidate order is
+ * hashed, which the bank relies on: it ranks tufts by index to thin them with
+ * distance.
  */
-export function chunkGrassBlades(chunk: Chunk): GrassBlade[] {
+/** How each biome thins and dries its sward, as a density multiplier and how
+ *  far the tuft's own pigment is pushed from lush toward straw. Meadow is 1 and
+ *  0, so a meadow chunk grows the grass it always did. A pinewood floor is shaded
+ *  out; a heath is thin and dry. A mountain's sward is only the thin grass low
+ *  on its skirts — the high ground is stone and snow in the raster, which
+ *  `isGrassTile` already refuses, so nothing has to be said about it here.
+ *  Nothing here needs the blade shader to change: `lush` and `straw` are
+ *  already the two weights it colours from. */
+const BIOME_SWARD: Record<Biome, readonly [number, number]> = {
+  meadow: [1, 0],
+  forest: [0.5, 0.05],
+  pinewood: [0.45, 0.25],
+  grove: [0.85, 0.1],
+  heath: [0.4, 0.75],
+  mountain: [0.24, 0.6],
+}
+
+export function chunkGrassBlades(chunk: Chunk, seed: number): GrassBlade[] {
   const blades: GrassBlade[] = []
   const originX = chunk.cx * CHUNK_SIZE
   const originY = chunk.cy * CHUNK_SIZE
@@ -334,28 +383,80 @@ export function chunkGrassBlades(chunk: Chunk): GrassBlade[] {
     if (!isGrassTile(chunk, Math.floor(lx), Math.floor(ly))) continue
     const x = originX + lx
     const z = originY + ly
-    const patch = Math.sin(x * 0.14 + Math.sin(z * 0.19)) + Math.cos(z * 0.16 - x * 0.035)
-    if (patch < -0.7) continue
-    const distance = Math.max(Math.abs(x - LANDSCAPE_CENTER), Math.abs(z - LANDSCAPE_CENTER)) - LANDSCAPE_EXPANSION
-    if (hash(chunk.cx, chunk.cy, n * 5 + 3) > 1 - smoothstep(30, 65, distance) * 0.9) continue
-    // Mostly ankle-high cover with the odd taller clump, so the meadow reads as
+    const cover = meadowCover(x, z, localSlope(chunk, lx, ly))
+    const [density, drying] = BIOME_SWARD[biomeAt(seed, x, z)]
+    if (drying > 0) {
+      cover.lush *= 1 - drying
+      cover.straw = Math.min(1, cover.straw + drying * 0.6)
+    }
+    const growth = density * (0.7 + cover.lush * 0.3) * (1 - cover.straw * 0.5) * (1 - smoothstep(0.15, 0.5, cover.bare))
+    if (hash(chunk.cx, chunk.cy, n * 5 + 3) > growth) continue
+    // Mostly shin-high cover with the odd taller clump, so the meadow reads as
     // a carpet the players wade through rather than a field of seedlings.
     const roll = hash(chunk.cx, chunk.cy, n * 5 + 4)
-    const tall = roll < 0.18
+    const tall = roll < 0.12
     blades.push({
       x,
       z,
       y: localHeight(chunk, lx, ly),
-      size: tall ? 1.1 + roll * 2.8 : 0.55 + roll * 0.6,
+      size: (tall ? 1.5 + roll * 5 : 0.8 + roll * 0.5) * (0.75 + cover.lush * 0.35),
       angle: hash(chunk.cx, chunk.cy, n * 5 + 5) * Math.PI * 2,
+      lush: cover.lush,
+      straw: cover.straw,
     })
   }
   return blades
 }
 
-/** Flower drifts: cosmetic, collision-free, and generated rather than streamed,
- *  because nobody needs to pick them. */
-export function chunkFlowers(chunk: Chunk): HubPropPlacement[] {
+/**
+ * The undergrowth each biome carries, as `[kind, cumulative share]`. Sampled
+ * per point rather than per chunk, so a region border runs through a chunk the
+ * same way the server's vegetation does. Heath is stones with the odd fungus in
+ * their lee; the wooded biomes are fungus and low green cover, which is the
+ * ground the pines and the crooked stands stand on.
+ */
+const UNDERSTORY: Record<Biome, readonly (readonly [string, number])[]> = {
+  // The meadow's cover is its flower drifts, below; clover is the only thing
+  // this pass adds to it, thinly, so the open ground stays open.
+  meadow: [['clover', 0.3]],
+  // The broadleaf floor is the fullest of them: damp, shaded, and the only one
+  // that carries fern, plant and clover together.
+  forest: [['mushroom1', 0.16], ['mushroom2', 0.26], ['fern', 0.64], ['plant', 0.82], ['clover', 0.92]],
+  pinewood: [['mushroom1', 0.2], ['mushroom2', 0.3], ['fern', 0.6], ['plant', 0.78]],
+  grove: [['mushroom1', 0.14], ['mushroom2', 0.22], ['fern', 0.5], ['plant', 0.7], ['clover', 0.9]],
+  heath: [['pebble1', 0.26], ['pebble2', 0.5], ['pebble3', 0.74], ['mushroom1', 0.79]],
+  // Scree and the odd fungus in its lee, and sparse: the share that misses
+  // every entry leaves the ground bare, which is what high country should be.
+  mountain: [['pebble1', 0.18], ['pebble2', 0.32], ['pebble3', 0.44], ['mushroom1', 0.48]],
+}
+
+/** Scale range per family, as `[lower, spread]`. The mushrooms and pebbles ship
+ *  near life size. The kit's green cover is authored huge: the fern is 9 m
+ *  across and the plant 3.8 m tall at scale 1, so they come down to knee height. */
+const SCATTER_SCALE: Record<string, readonly [number, number]> = {
+  clover: [0.3, 0.3],
+  fern: [0.1, 0.07],
+  plant: [0.14, 0.1],
+  mushroom1: [0.7, 0.6],
+  mushroom2: [0.5, 0.45],
+  pebble1: [0.7, 0.7],
+  pebble2: [0.7, 0.7],
+  pebble3: [0.7, 0.7],
+}
+
+/**
+ * The chunk's ground detail: flower drifts in the meadow, fungus and low cover
+ * under the woods, stones on the heath.
+ *
+ * Cosmetic, collision-free and generated rather than streamed, because nobody
+ * needs to pick any of it — which is also why it may follow `biomeAt` without
+ * asking the server anything. Deterministic per chunk, so walking away and back
+ * finds the same ground.
+ *
+ * The flower pass keeps its own candidate sequence and its own drift gate, so a
+ * meadow chunk scatters exactly what it always did.
+ */
+export function chunkScatter(chunk: Chunk, seed: number): HubPropPlacement[] {
   const out: HubPropPlacement[] = []
   const originX = chunk.cx * CHUNK_SIZE
   const originY = chunk.cy * CHUNK_SIZE
@@ -365,9 +466,23 @@ export function chunkFlowers(chunk: Chunk): HubPropPlacement[] {
     if (!isGrassTile(chunk, Math.floor(lx), Math.floor(ly))) continue
     const x = originX + lx
     const z = originY + ly
+    if (biomeAt(seed, x, z) !== 'meadow') continue
     if (Math.sin(x * 0.14 + Math.sin(z * 0.19)) + Math.cos(z * 0.16 - x * 0.035) < 0.1) continue
     const roll = hash(chunk.cx, chunk.cy, n * 3 + 903)
     out.push({ kind: roll < 0.5 ? 'flowers1' : 'flowers2', x, y: z, rot: roll * Math.PI * 2, scale: 0.28 + roll * 0.24, z: localHeight(chunk, lx, ly) })
+  }
+  for (let n = 0; n < 30; n++) {
+    const lx = hash(chunk.cx, chunk.cy, n * 4 + 1301) * CHUNK_SIZE
+    const ly = hash(chunk.cx, chunk.cy, n * 4 + 1302) * CHUNK_SIZE
+    if (!isGrassTile(chunk, Math.floor(lx), Math.floor(ly))) continue
+    const x = originX + lx
+    const z = originY + ly
+    const roll = hash(chunk.cx, chunk.cy, n * 4 + 1303)
+    const entry = UNDERSTORY[biomeAt(seed, x, z)].find(([, share]) => roll < share)
+    if (!entry) continue
+    const [lower, spread] = SCATTER_SCALE[entry[0]] ?? [0.4, 0.3]
+    const size = hash(chunk.cx, chunk.cy, n * 4 + 1304)
+    out.push({ kind: entry[0], x, y: z, rot: size * Math.PI * 2, scale: lower + size * spread, z: localHeight(chunk, lx, ly) })
   }
   return out
 }

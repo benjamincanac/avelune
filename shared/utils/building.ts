@@ -74,6 +74,12 @@ export function isEdgeKind(kind: string): boolean {
  */
 export const NATURE_KINDS: ReadonlySet<string> = new Set([
   'tree1', 'tree2', 'tree3', 'tree4', 'tree5',
+  // The regional families: conifers, autumn-red crooked trees, bare trunks.
+  // `shared/utils/vegetation.ts` decides which biome grows which, but any of
+  // them can be felled and replanted anywhere `tree1` can.
+  'pine1', 'pine2', 'pine3',
+  'twisted1', 'twisted2', 'twisted3',
+  'dead1', 'dead2', 'dead3',
   'bush1', 'bush2',
   'rock1', 'rock2', 'rock3',
 ])

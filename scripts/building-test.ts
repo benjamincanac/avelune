@@ -10,7 +10,7 @@ import type { KinematicBody } from '../shared/utils/maze'
 import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, isEdgeKind, overlappingPiece, plotBounds, plotOwner, refusalText, resolveBuild, snapGridFor, snapPlacement, supportHeight } from '../shared/utils/building'
 import { propFromPlacement } from '../shared/utils/props'
 import { KIT_ASSETS } from '../shared/utils/kit'
-import { generateVegetation } from '../shared/utils/vegetation'
+import { generateVegetation, isWildTree } from '../shared/utils/vegetation'
 import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { worldTerrainHeight } from '../shared/utils/terrain'
@@ -55,7 +55,7 @@ test('a tree generated on a hill collides at the hill height', () => {
   let found: { cx: number, cy: number, tree: { x: number, y: number, z?: number } } | undefined
   for (let cy = 5; cy <= 9 && !found; cy++) {
     for (let cx = 5; cx <= 9 && !found; cx++) {
-      const tree = generateVegetation(bare.seed, cx, cy).find(p => p.kind.startsWith('tree') && (p.z ?? 0) > 3)
+      const tree = generateVegetation(bare.seed, cx, cy).find(p => isWildTree(p.kind) && (p.z ?? 0) > 3)
       if (tree) found = { cx, cy, tree }
     }
   }

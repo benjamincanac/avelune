@@ -79,8 +79,10 @@ export const BUILD_PAGES: BuildPage[] = [
 ]
 
 /** Label per `SURFACE` value. `path` is called paving in the bar because that
- *  is what it lays: real flagstones, not a worn track. */
-export const SURFACE_NAMES = ['grass', 'dirt', 'stone', 'sand', 'paving', 'water'] as const
+ *  is what it lays: real flagstones, not a worn track. `snow` is here to be
+ *  *named* — the HUD reports what is under the crosshair — and deliberately not
+ *  in `SURFACE_CYCLE`: it is generated above the snowline, never painted. */
+export const SURFACE_NAMES = ['grass', 'dirt', 'stone', 'sand', 'paving', 'water', 'snow'] as const
 const SURFACE_CYCLE: Surface[] = [SURFACE.dirt, SURFACE.stone, SURFACE.sand, SURFACE.path, SURFACE.grass, SURFACE.water]
 
 export interface UseBuild {

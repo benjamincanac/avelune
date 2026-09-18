@@ -514,7 +514,10 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       camPos.x += (fx * fwd + Math.cos(yaw) * strafe) * speed
       camPos.z += (fz * fwd - Math.sin(yaw) * strafe) * speed
     }
-    camPos.y = clamp(camPos.y + rise * speed, 1, 60)
+    // The ceiling has to clear the tallest ground there is, not the town's:
+    // ranges reach 74 units now, and a 60-unit cap left the fly camera stuck
+    // inside a mountain with no way to rise over it.
+    camPos.y = clamp(camPos.y + rise * speed, 1, 140)
 
     camera.position.copy(camPos)
     camera.rotation.order = 'YXZ'
