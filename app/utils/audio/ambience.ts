@@ -140,12 +140,15 @@ export function createAmbience(): Ambience {
     const height = Math.min(1, Math.max(0, state.altitude / WIND_ALTITUDE))
     const weather = state.overcast * 0.5 + state.rain * 0.5
     const strength = 0.25 + height * 0.55 + weather * 0.4
-    beds.wind.level(0.05 + strength * 0.1, 2)
-    beds.gust.level(0.012 + strength * height * 0.05 + weather * 0.02, 2)
-    beds.leaves.level(FOLIAGE[state.biome] * (0.012 + strength * 0.03) * (1 - state.rain * 0.4), 2)
+    // These sit low on purpose. A bed never stops, so a level that sounds right
+    // for a second reads as hiss after a minute: calm weather at ground level is
+    // barely there, and only height or a storm brings the wind forward.
+    beds.wind.level(0.012 + strength * 0.045, 2)
+    beds.gust.level(0.004 + strength * height * 0.03 + weather * 0.012, 2)
+    beds.leaves.level(FOLIAGE[state.biome] * (0.006 + strength * 0.014) * (1 - state.rain * 0.4), 2)
 
-    beds.rain.level(state.rain * 0.075, 1.5)
-    beds.patter.level(state.rain * 0.05, 1.5)
+    beds.rain.level(state.rain * 0.05, 1.5)
+    beds.patter.level(state.rain * 0.035, 1.5)
 
     // Night takes the crickets and day takes the birds, crossfaded on the same
     // dayness the sky lights the world with.
@@ -170,7 +173,7 @@ export function createAmbience(): Ambience {
       }
     }
 
-    beds.fountain.level(0.09, 1)
+    beds.fountain.level(0.06, 1)
     beds.moat.level(moatNearby(state.x, state.y) * 0.035, 1.5)
 
     // Thunder follows the flash, from the same hashed strike every client sees.
