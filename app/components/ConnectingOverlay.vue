@@ -140,7 +140,7 @@ const steps = computed(() => [
     value: assets.total.value ? `${modelsLoaded.value} / ${assets.total.value} models` : '—',
   },
   {
-    label: 'Placing you at the gate',
+    label: 'Placing you in the world',
     done: placed.value,
     active: terrain.value && models.value && !placed.value,
     value: placed.value ? 'Ready' : '—',
