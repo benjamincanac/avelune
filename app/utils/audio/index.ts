@@ -15,10 +15,14 @@ export {
   setAudioListener,
   setAudioMuted,
   setAudioVolume,
+  setVoiceVolume,
   setWorldDucked,
   suspendAudio,
   unlockAudio,
+  voiceBus,
 } from './engine'
+export type { LevelMeter, VoiceSink } from './voice'
+export { createLevelMeter, createVoiceSink } from './voice'
 export type { SoundName } from './sounds'
 export { play } from './sounds'
 export type { Ambience, AmbienceState } from './ambience'

@@ -19,6 +19,17 @@ defineProps<{
   dev: boolean
 }>()
 
+/**
+ * Two tabs, so the menu stays one screen tall now that sound and voice have
+ * joined the controls. Both stay mounted: the mixer keeps its state and the
+ * one-off voice notice is not re-created every time you look at the keys.
+ */
+const TABS = [
+  { label: 'Controls', value: 'controls', slot: 'controls' as const, icon: 'i-lucide-keyboard' },
+  { label: 'Sound', value: 'sound', slot: 'sound' as const, icon: 'i-lucide-volume-2' },
+]
+const tab = ref('controls')
+
 const emit = defineEmits<{
   resume: []
   fullscreen: []
@@ -40,17 +51,59 @@ const CONTROLS = [
     { label: 'Use tool', keys: ['Click'] },
     { label: 'Brush / rotate', keys: ['[ ]', 'R'] },
     { label: 'Map / fullscreen', keys: ['M', 'F'] },
-    { label: 'Mute', keys: ['N'] },
+    { label: 'Talk / mute', keys: ['T', 'N'] },
   ],
 ]
 
 const audio = useAudio()
+const voice = useVoice()
 
 /** The slider works in whole percent; the engine works in 0 to 1. */
 const level = computed({
   get: () => Math.round(audio.volume.value * 100),
   set: (value: number) => {
     audio.volume.value = value / 100
+  },
+})
+
+const voiceLevel = computed({
+  get: () => Math.round(voice.volume.value * 100),
+  set: (value: number) => {
+    voice.volume.value = value / 100
+  },
+})
+
+const VOICE_MODES = [
+  { label: 'Push to talk', value: 'ptt' as const },
+  { label: 'Open mic', value: 'open' as const },
+]
+
+/**
+ * One line for the whole feature, because there is nothing here worth two.
+ *
+ * The mic states come first: a player who has been refused the microphone needs
+ * to read that and nothing else. Once it is live the useful number is how many
+ * people are actually in range, since that is what tells them whether silence
+ * means a fault or an empty meadow.
+ */
+const voiceState = computed(() => {
+  if (voice.supported.value === false) return 'Not supported in this browser. Voice needs WebCodecs Opus'
+  if (voice.mic.value === 'asking') return 'Asking for the microphone'
+  if (voice.mic.value === 'blocked') return 'Microphone blocked. Allow it in the browser and try again'
+  if (!voice.enabled.value) return 'Off'
+  if (voice.say.value === 'sending') return 'On, sending what you said to chat'
+  if (voice.say.value === 'failed') return 'On, that line could not be posted to chat'
+  const nearby = voice.peers.value.length
+  if (!nearby) return 'On, nobody nearby'
+  return nearby === 1 ? 'On, 1 nearby' : `On, ${nearby} nearby`
+})
+
+/** The switch writes through a handler rather than a model: opening the mic is
+ *  async and can be refused, and `useVoice` is the thing that knows. */
+const voiceOn = computed({
+  get: () => voice.enabled.value,
+  set: (value: boolean) => {
+    void voice.setEnabled(value)
   },
 })
 
@@ -76,63 +129,147 @@ onBeforeUnmount(() => {
       <span class="telemetry tracking-[0.14em] text-label">Esc to close</span>
     </header>
 
-    <div class="px-7 pb-1.5 pt-[22px]">
-      <p class="label-section pb-3 text-label">
-        Controls
-      </p>
-      <div class="flex gap-9">
-        <template
-          v-for="(column, index) in CONTROLS"
-          :key="index"
-        >
-          <span
-            v-if="index"
-            class="w-px bg-white/10"
-          />
-          <dl class="flex flex-1 flex-col">
-            <div
-              v-for="row in column"
-              :key="row.label"
-              class="flex items-center justify-between gap-4 border-b border-white/7 py-2.25 last:border-0"
-            >
-              <dt class="text-[15px] leading-none text-toned">
-                {{ row.label }}
-              </dt>
-              <dd class="flex gap-1">
-                <UKbd
-                  v-for="key in row.keys"
-                  :key="key"
-                  :value="key"
-                />
-              </dd>
-            </div>
-          </dl>
-        </template>
-      </div>
-    </div>
+    <UTabs
+      v-model="tab"
+      :items="TABS"
+      variant="link"
+      size="sm"
+      :unmount-on-hide="false"
+      :ui="{
+        root: 'gap-0 px-7 pt-3',
+        list: 'border-white/12',
+        trigger: 'label-section px-0 pb-3 pt-2 me-7 text-label data-[state=active]:text-primary',
+        leadingIcon: 'size-3.5',
+        indicator: 'bg-primary',
+        // As tall as the controls, so switching tabs does not resize the menu.
+        content: 'min-h-57 pt-[18px]',
+      }"
+    >
+      <template #controls>
+        <div class="flex gap-9">
+          <template
+            v-for="(column, index) in CONTROLS"
+            :key="index"
+          >
+            <span
+              v-if="index"
+              class="w-px bg-white/10"
+            />
+            <dl class="flex flex-1 flex-col">
+              <div
+                v-for="row in column"
+                :key="row.label"
+                class="flex items-center justify-between gap-4 border-b border-white/7 py-2.25 last:border-0"
+              >
+                <dt class="text-[15px] leading-none text-toned">
+                  {{ row.label }}
+                </dt>
+                <dd class="flex gap-1">
+                  <UKbd
+                    v-for="key in row.keys"
+                    :key="key"
+                    :value="key"
+                  />
+                </dd>
+              </div>
+            </dl>
+          </template>
+        </div>
+      </template>
 
-    <div class="px-7 pt-[22px]">
-      <p class="label-section pb-3 text-label">
-        Sound
-      </p>
-      <div class="flex items-center gap-5">
-        <USlider
-          v-model="level"
-          :min="0"
-          :max="100"
-          :disabled="audio.muted.value"
-          size="sm"
-          class="flex-1"
-        />
-        <span class="telemetry w-8 text-right text-label">{{ level }}</span>
-        <USwitch
-          v-model="audio.muted.value"
-          label="Mute"
-          size="sm"
-          :ui="{ label: 'text-[15px] leading-none text-toned' }"
-        />
-      </div>
-    </div>
+      <template #sound>
+        <p class="label-section pb-3 text-label">
+          World
+        </p>
+        <div class="flex items-center gap-5">
+          <USlider
+            v-model="level"
+            :min="0"
+            :max="100"
+            :disabled="audio.muted.value"
+            size="sm"
+            class="flex-1"
+          />
+          <span class="telemetry w-8 text-right text-label">{{ level }}</span>
+          <USwitch
+            v-model="audio.muted.value"
+            label="Mute"
+            size="sm"
+            :ui="{ label: 'text-[15px] leading-none text-toned' }"
+          />
+        </div>
+
+        <p class="label-section pb-3 pt-[22px] text-label">
+          Voice
+        </p>
+        <div class="flex flex-col gap-3.5">
+          <div class="flex items-center gap-5">
+            <USwitch
+              v-model="voiceOn"
+              label="Proximity voice"
+              size="sm"
+              :disabled="voice.supported.value === false"
+              :ui="{ label: 'text-[15px] leading-none text-toned' }"
+            />
+            <URadioGroup
+              v-model="voice.mode.value"
+              :items="VOICE_MODES"
+              orientation="horizontal"
+              variant="card"
+              indicator="hidden"
+              size="xs"
+              class="ml-auto"
+              :ui="{ fieldset: 'gap-0', item: 'rounded-none first:rounded-l-[4px] last:rounded-r-[4px] -ml-px first:ml-0', label: 'telemetry text-toned' }"
+            />
+          </div>
+          <div class="flex items-center gap-5">
+            <USlider
+              v-model="voiceLevel"
+              :min="0"
+              :max="100"
+              :disabled="!voice.enabled.value"
+              size="sm"
+              class="flex-1"
+            />
+            <span class="telemetry w-8 text-right text-label">{{ voiceLevel }}</span>
+            <UKbd value="T" />
+          </div>
+          <div class="flex items-center justify-between gap-5">
+            <p class="telemetry text-label">
+              {{ voiceState }}
+            </p>
+            <!-- Only push to talk is ever transcribed, so the toggle goes away in
+               open mic rather than sitting there doing nothing. -->
+            <USwitch
+              v-if="voice.mode.value === 'ptt'"
+              v-model="voice.speechToChat.value"
+              label="Post what I say to chat"
+              size="sm"
+              :ui="{ label: 'text-[13px] leading-none text-muted' }"
+            />
+          </div>
+          <!-- Shown once, the first time anyone turns voice on. Not a warning,
+             just the two facts a player deserves before they speak. -->
+          <div
+            v-if="voice.enabled.value && !voice.noticeSeen.value"
+            class="flex flex-col items-start gap-3 border-t border-white/10 pt-3.5"
+          >
+            <p class="text-[13px]/[1.55] text-muted text-pretty">
+              Voice only reaches players standing near you in the world, and it stops when they walk away.
+              Audio goes to the server and straight back out to them, and nothing is stored.
+              While Post what I say to chat is on, each thing you say while holding T is also written into the chat.
+            </p>
+            <UButton
+              color="neutral"
+              variant="outline"
+              size="xs"
+              label="Got it"
+              @click="voice.noticeSeen.value = true"
+            />
+          </div>
+        </div>
+      </template>
+    </UTabs>
 
     <div class="flex flex-col gap-0.5 px-7 pb-6.5 pt-[22px]">
       <UButton

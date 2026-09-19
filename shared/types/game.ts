@@ -9,6 +9,7 @@
  */
 
 import type { WorldPlacement } from '../utils/props'
+import type { VoicePeerInfo } from '../utils/voice'
 
 /**
  * A surface raster value — the numeric codes in `SURFACE` (shared/utils/world.ts):
@@ -80,6 +81,10 @@ export type ClientMessage
     | { t: 'build', kind: string, x: number, y: number, rot: number, h?: number }
     /** Remove a piece by id — the owner's own, or an unowned generated one. */
     | { t: 'demolish', id: string }
+    /** Opt in or out of proximity voice. Voice is off until a player asks for
+     *  it, and turning it off is what takes them out of the pairing. The audio
+     *  itself is not JSON: see the binary frames in `shared/utils/voice.ts`. */
+    | { t: 'voice', on: boolean }
     | { t: 'ping' }
 
 /** What a brush did to the ground. Echoed back on `terrain` so the feed can
@@ -132,8 +137,10 @@ export type ServerMessage
     /** Snapshot of every player that moved since the last one. */
     | { t: 'state', players: PlayerState[] }
     /** `to` rides only on the Oracle's lines: the player it is answering or
-     *  greeting, so the scene can turn the NPC to face them. */
-    | { t: 'chat', id: string, text: string, to?: string }
+     *  greeting, so the scene can turn the NPC to face them. `voice` marks a
+     *  line that was spoken rather than typed — a push-to-talk clip the server
+     *  transcribed — so the chat can put a small mic beside it. */
+    | { t: 'chat', id: string, text: string, to?: string, voice?: true }
     | { t: 'weather', mode: WeatherMode }
     | { t: 'time', mode: TimeOfDayMode }
     | { t: 'system', text: string }
@@ -158,6 +165,13 @@ export type ServerMessage
     | { t: 'remove', cx: number, cy: number, v: number, id: string, pieces?: number, deeds?: number }
     /** An edit request the server refused, sent only to the requester. */
     | { t: 'reject', reason: string }
+    /** Who this player can hear right now, and under which numeric talker id
+     *  their audio frames arrive. The whole set, not a delta, so a client that
+     *  missed one frame still converges. Sent only to players with voice on,
+     *  recomputed on a slow cadence rather than every tick, and empty when voice
+     *  goes off. The pairing is the server's: `shared/utils/voice.ts` holds the
+     *  range, the hysteresis and the cap. */
+    | { t: 'voice-peers', peers: VoicePeerInfo[] }
     /** This identity connected from another tab/window and that newer socket
      *  took over — only one live session per player is allowed. The client
      *  shows the reason and stops reconnecting (a reconnect would kick the new

@@ -26,12 +26,20 @@ async function auth(label) {
 function connect(label, cookie) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL, { headers: { cookie } })
+    ws.binaryType = 'arraybuffer'
     // `times` runs alongside `frames`: the streaming budget spreads a
     // neighbourhood over several ticks, so when a frame arrived is as much a
     // part of the contract as whether it did.
-    const client = { ws, label, cookie, welcome: null, frames: [], times: [], t0: 0 }
+    // `audio` collects the binary voice frames, which are a separate channel from
+    // the JSON ones and must never be parsed as JSON.
+    const client = { ws, label, cookie, welcome: null, frames: [], times: [], audio: [], t0: 0 }
     const timeout = setTimeout(() => reject(new Error(`${label}: no welcome`)), 5000)
     ws.addEventListener('message', (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        const bytes = new Uint8Array(event.data)
+        client.audio.push({ talker: (bytes[1] << 8) | bytes[2], seq: (bytes[3] << 8) | bytes[4], bytes })
+        return
+      }
       const msg = JSON.parse(event.data)
       client.frames.push(msg)
       client.times.push(performance.now())
@@ -458,6 +466,108 @@ if (deed) {
   const leftover = a.frames.findLast(f => f.t === 'remove' && f.pieces !== undefined)
   check('the meadow is left as it was found', leftover?.pieces === 0, `A owns ${leftover?.pieces} pieces`)
 }
+
+/* -------------------------------------------------------------------------- */
+/* Proximity voice                                                            */
+/* -------------------------------------------------------------------------- */
+
+// Voice rides this same socket as binary frames beside the JSON ones. The server
+// owns who hears whom: a client cannot name its own listeners, and the only thing
+// it can do is opt in and talk. A and B are both standing in the meadow here,
+// close enough to be paired.
+const VOICE_KIND = 1
+/** `[u8 kind][u16 seq]` then the payload, exactly as `encodeVoiceUp` writes it. */
+function voiceFrame(seq, size = 40, fill = 0xab) {
+  const frame = new Uint8Array(3 + size)
+  frame[0] = VOICE_KIND
+  frame[1] = (seq >> 8) & 0xff
+  frame[2] = seq & 0xff
+  frame.fill(fill, 3)
+  return frame
+}
+const peersOf = client => client.frames.filter(f => f.t === 'voice-peers').at(-1)
+
+check('nobody is paired before anyone opts in', !peersOf(a) && !peersOf(b))
+
+// Opting in alone pairs you with nobody, and that is not worth a frame.
+send(a, { t: 'voice', on: true })
+await sleep(700)
+check('one talker alone is paired with nobody', (peersOf(a)?.peers.length ?? 0) === 0)
+
+// A frame from a talker with no listeners goes nowhere, and one from a player who
+// never opted in goes nowhere either.
+let audioMark = b.audio.length
+a.ws.send(voiceFrame(1))
+b.ws.send(voiceFrame(1))
+await sleep(250)
+check('audio from a talker with no listeners reaches nobody', b.audio.length === audioMark && a.audio.length === 0)
+
+send(b, { t: 'voice', on: true })
+await sleep(800)
+const aPeers = peersOf(a)
+const bPeers = peersOf(b)
+const bId = b.welcome.self.id
+check(
+  'two talkers standing together are paired, each way',
+  aPeers?.peers.length === 1 && aPeers.peers[0].id === bId
+  && bPeers?.peers.length === 1 && bPeers.peers[0].id === self.id,
+  `A hears ${JSON.stringify(aPeers?.peers)} / B hears ${JSON.stringify(bPeers?.peers)}`,
+)
+const aTalker = bPeers?.peers[0]?.talker
+check('the pairing names the numeric talker id the audio arrives under', Number.isInteger(aTalker) && aTalker > 0, `talker=${aTalker}`)
+
+// One frame, one listener, byte for byte.
+audioMark = b.audio.length
+const sentAt = a.audio.length
+a.ws.send(voiceFrame(4242, 40, 0x5a))
+await sleep(250)
+const heard = b.audio.slice(audioMark)
+check('a voice frame reaches the listener the server paired', heard.length === 1, `${heard.length} frames`)
+check('the frame carries the talker id and the sequence number untouched', heard[0]?.talker === aTalker && heard[0]?.seq === 4242, JSON.stringify({ talker: heard[0]?.talker, seq: heard[0]?.seq }))
+check('the payload survives the relay', heard[0]?.bytes.length === 45 && heard[0]?.bytes[5] === 0x5a, `${heard[0]?.bytes.length} bytes`)
+check('a talker never hears themselves', a.audio.length === sentAt)
+
+// An oversized payload is dropped rather than multiplied by the listener count.
+audioMark = b.audio.length
+a.ws.send(voiceFrame(4243, 401))
+a.ws.send(new Uint8Array([VOICE_KIND, 0, 0]))
+await sleep(250)
+check('an oversized frame and a headerless one are both dropped', b.audio.length === audioMark)
+check('and the socket survives them', a.ws.readyState === WebSocket.OPEN)
+
+// The rate limit is what bounds the relay's outbound cost, so a flood has to be
+// cut off well short of what was sent.
+audioMark = b.audio.length
+for (let i = 0; i < 400; i++) a.ws.send(voiceFrame(5000 + i))
+await sleep(600)
+const relayed = b.audio.length - audioMark
+check('a flood is cut down to the allowance', relayed > 0 && relayed < 200, `${relayed} of 400 frames relayed`)
+
+// Walking out of range takes the pair down, on both sides, and the audio with it.
+send(b, { t: 'chat', text: '/tp 320 320' })
+await sleep(900)
+check('a talker who walks out of range is dropped by both sides', (peersOf(a)?.peers.length ?? 1) === 0 && (peersOf(b)?.peers.length ?? 1) === 0)
+audioMark = b.audio.length
+a.ws.send(voiceFrame(9000))
+await sleep(250)
+check('and hears nothing more', b.audio.length === audioMark)
+
+// Turning voice off clears the state, and the transcription route refuses anyone
+// who is not in the world with voice on.
+send(a, { t: 'voice', on: false })
+await sleep(250)
+const sayOff = await fetch(`${BASE}/api/voice/say`, {
+  method: 'POST',
+  headers: { 'content-type': 'audio/webm', 'cookie': a.cookie },
+  body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+})
+check('a spoken line is refused while voice is off', sayOff.status === 409 || sayOff.status === 503, `status ${sayOff.status}`)
+const sayAnon = await fetch(`${BASE}/api/voice/say`, {
+  method: 'POST',
+  headers: { 'content-type': 'audio/webm' },
+  body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+})
+check('and refused outright without a character', sayAnon.status === 401)
 
 // Anything but a tool the server knows is refused outright.
 const badMark = a.frames.length

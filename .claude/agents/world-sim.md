@@ -20,6 +20,16 @@ independently.
   `generateChunk`, `seedTown`, `applyTerrain` / `applyPlace` / `applyRemove`,
   `installChunk` / `removeChunk`, chunk key helpers, `encodeChunk` /
   `decodeChunk`, `WORLD_BOUNDS`.
+- `shared/utils/voice.ts` — proximity voice's shared half: `selectVoicePairs` (who
+  may hear whom, 24 tiles to connect and 30 to drop so a pair on the boundary is
+  not rebuilt every pass, at most 6 listeners, applied nearest-first and
+  **symmetrically**, because the server forwards both directions off one pair set
+  and an asymmetric list would leave somebody talking into nothing), the binary audio
+  layout both sides encode and decode (`encodeVoiceUp`/`decodeVoiceUp`,
+  `encodeVoiceDown`/`decodeVoiceDown`, `voiceSeqDelta` for the 16-bit wrap), the
+  token bucket, and the transcript filter the chat path uses. Nothing in here is
+  client-only or server-only: the pairing rules and the frame layout are exactly
+  the kind of thing the two sides must not each have their own copy of.
 - `shared/utils/maze.ts` — physics over a `World`: `terrainHeight`, `propsNear`,
   `isWalkable`, `surfaceHeight`, collision, elevation (walkable props),
   `stepBody` kinematics, the movement constants both sides read, and

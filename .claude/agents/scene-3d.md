@@ -156,6 +156,13 @@ world from the seed and the committed layout JSON, because it authors them.
   (engine, named one-shots, ambient beds, footstep cadence) and the player's
   volume and mute, persisted in `localStorage`. The mixer controls in
   `GameMenu.vue` are the one piece of 2D interface this slice owns.
+  The engine carries a third bus beside `world` and `ui`: `voice`, for other
+  players' speech, with its own level so a person can be heard over the wind. The
+  voice graph itself (`app/utils/audio/voice.ts`) and the rest of proximity voice
+  belong to `game-ui`; what this slice owns is the one line in `MazeScene`'s render
+  loop that puts each talker's panner at their rendered rig, at mouth height. It
+  follows the *rendered* body, not the authoritative one, for the same reason the
+  footsteps do: the body you can see has to be the body you hear.
 
 ## Invariants & context
 1. **Client prediction uses the SHARED kinematics** (`shared/utils/maze.ts` →

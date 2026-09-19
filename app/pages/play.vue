@@ -240,6 +240,22 @@ onBeforeUnmount(() => {
 })
 
 const live = computed(() => game.status.value === 'connected')
+
+/**
+ * The voice roster, named.
+ *
+ * `voice-peers` carries ids, and a row needs a name — the same reason the world
+ * feed is worded here rather than in `useWorld`. A peer who has just been paired
+ * is always in the roster, since the server only pairs players it has already
+ * announced, so a missing name means the roster is mid-reset and the row waits.
+ */
+const voice = useVoice()
+const voiceRows = computed(() =>
+  voice.peers.value.flatMap((peer) => {
+    const name = game.players.get(peer.id)?.name
+    return name ? [{ id: peer.id, name, speaking: peer.speaking }] : []
+  }),
+)
 const realm = computed(() => world.realm.value ? realmName(world.realm.value) : null)
 </script>
 
@@ -311,6 +327,20 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
       <div class="pointer-events-none absolute inset-x-0 bottom-6.5 z-10 flex justify-center">
         <Hotbar :dimmed="typing" />
       </div>
+
+      <!-- Bottom right, above the typing caption: who is speaking nearby, and
+           whether you are. Read-only, so no panel. -->
+      <VoiceHud
+        :enabled="voice.enabled.value"
+        :open="voice.micOpen.value"
+        :talking="voice.talking.value"
+        :silent="voice.micSilent.value"
+        :say="voice.say.value"
+        :level="voice.level.value"
+        :hint="voice.hint.value"
+        :rows="voiceRows"
+        class="pointer-events-none absolute bottom-42 right-0 z-10"
+      />
 
       <!-- Bottom right: why the world stopped answering the movement keys. -->
       <Transition

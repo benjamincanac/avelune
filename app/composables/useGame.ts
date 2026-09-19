@@ -1,6 +1,7 @@
 import type { Ref } from 'vue'
 import type { ClientMessage, MoveInput, Player, ServerMessage, Surface, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
+import { decodeVoiceDown } from '#shared/utils/voice'
 import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { TERRAFORM_VERBS } from '#shared/utils/world'
 
@@ -28,6 +29,9 @@ export interface ChatMessage {
   system?: boolean
   /** The Oracle NPC, not a player — the chat panel styles it apart. */
   npc?: boolean
+  /** Spoken rather than typed: a push-to-talk clip the server transcribed. The
+   *  panel puts a small mic beside it. */
+  voice?: boolean
 }
 
 export type GameStatus = 'connecting' | 'connected' | 'disconnected'
@@ -67,6 +71,11 @@ export interface UseGame {
   sendBuild: (kind: string, x: number, y: number, rot: number, h?: number) => void
   /** Take a piece away, if it is yours or unowned. */
   sendDemolish: (id: string) => void
+  /** Opt in or out of proximity voice. The server owns the pairing that follows;
+   *  `useVoice` holds the mic and the peers. */
+  sendVoice: (on: boolean) => void
+  /** One encoded audio frame, as a binary socket frame beside the JSON ones. */
+  sendVoiceFrame: (frame: Uint8Array<ArrayBuffer>) => void
 }
 
 /**
@@ -111,6 +120,9 @@ export function useGame(): UseGame {
   // The world feed. It lives here rather than in `useWorld` because wording a
   // row needs the roster: the frames carry player ids, not names.
   const feed = useFeed()
+  // Proximity voice. It reads the voice frames and owns the mic; this composable
+  // is only its way onto the wire.
+  const voice = useVoice()
   const status = ref<GameStatus>('connecting')
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
@@ -221,6 +233,9 @@ export function useGame(): UseGame {
     // is read by both (it carries the world info as well as the roster), so
     // this runs before the switch rather than instead of it.
     stream.handle(msg)
+    // Voice reads `voice-peers`, `leave` and `welcome`; it holds the mic
+    // and the peer connections, nothing here does.
+    voice.handle(msg)
     switch (msg.t) {
       case 'welcome':
         players.clear()
@@ -289,7 +304,7 @@ export function useGame(): UseGame {
         const player = players.get(msg.id)
         if (player) {
           player.bubble = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
-          pushChat({ id: msg.id, name: player.name, color: player.color, text: msg.text, at: Date.now() })
+          pushChat({ id: msg.id, name: player.name, color: player.color, text: msg.text, at: Date.now(), voice: msg.voice })
         }
         break
       }
@@ -355,6 +370,9 @@ export function useGame(): UseGame {
 
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
     const connection = new WebSocket(`${protocol}://${location.host}/api/ws`)
+    // Audio arrives as binary. Asking for `arraybuffer` rather than the default
+    // `blob` keeps the read synchronous, which a 20 ms frame needs.
+    connection.binaryType = 'arraybuffer'
     socket = connection
 
     connection.addEventListener('open', () => {
@@ -362,10 +380,17 @@ export function useGame(): UseGame {
       reconnectDelay = 1000
       status.value = 'connected'
       startHeartbeat()
+      voice.attach({ sendVoice, sendVoiceFrame })
     })
 
     connection.addEventListener('message', (event) => {
       if (socket !== connection) return
+      // Voice audio is the only binary frame, and it must not go near JSON.
+      if (event.data instanceof ArrayBuffer) {
+        const frame = decodeVoiceDown(new Uint8Array(event.data))
+        if (frame) voice.handleFrame(frame)
+        return
+      }
       try {
         handle(JSON.parse(event.data) as ServerMessage)
       }
@@ -384,6 +409,9 @@ export function useGame(): UseGame {
       rtt.value = null
       // The loaded set belonged to that session; a reconnect re-sends it all.
       stream.reset()
+      // So did the voice pairing: a reconnect is a new session, and the server
+      // will hand down a fresh `voice-peers` once we opt in again.
+      voice.detach()
       stopHeartbeat()
       if (closed) return
       reconnectTimer = setTimeout(open, reconnectDelay)
@@ -406,6 +434,7 @@ export function useGame(): UseGame {
       reconnectTimer = undefined
     }
     stopHeartbeat()
+    voice.detach()
     socket?.close()
     socket = undefined
     selfId.value = null
@@ -462,6 +491,21 @@ export function useGame(): UseGame {
     send({ t: 'demolish', id })
   }
 
+  function sendVoice(on: boolean) {
+    send({ t: 'voice', on })
+  }
+
+  /**
+   * Audio goes out as a binary frame, not as JSON.
+   *
+   * Base64 inside a JSON frame would cost a third more bytes and a parse on both
+   * sides, fifty times a second. The layout is in `shared/utils/voice.ts` and the
+   * first byte is what tells the server which kind of frame it received.
+   */
+  function sendVoiceFrame(frame: Uint8Array<ArrayBuffer>) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(frame)
+  }
+
   // The socket is opened by the page once the identity cookie exists (see
   // index.vue) — not automatically on mount.
   onBeforeUnmount(() => {
@@ -492,5 +536,7 @@ export function useGame(): UseGame {
     sendTerraform,
     sendBuild,
     sendDemolish,
+    sendVoice,
+    sendVoiceFrame,
   }
 }

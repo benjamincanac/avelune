@@ -1263,6 +1263,13 @@ interface BodySound {
 }
 const bodySounds = new Map<string, BodySound>()
 
+/** Proximity voice. The scene's only part in it is putting each peer's panner
+ *  where that peer is drawn, once a frame. */
+const voice = useVoice()
+/** Roughly where a mouth is above the feet, so a voice does not come out of the
+ *  ground. */
+const VOICE_MOUTH_HEIGHT = 1.6
+
 /** A fall this fast lands at full weight. Terminal velocity off a rampart. */
 const LAND_FORCE_SPEED = 9
 /** How far a swimmer travels between strokes, in tiles. */
@@ -1799,6 +1806,12 @@ onBeforeRender(({ delta }) => {
       })
     }
 
+    // A voice comes out of a mouth, so the panner follows the *rendered* rig at
+    // head height rather than the authoritative position — the same body you can
+    // see is the one you hear. A player nobody is paired with has no sink and
+    // this is a map miss.
+    if (!isSelf) voice.positionPeer(id, { x: player.rx, y: player.rz + VOICE_MOUTH_HEIGHT, z: player.ry })
+
     updateBubble(rig, player.bubble, now)
   }
 
@@ -1935,8 +1948,12 @@ onBeforeUnmount(disposeScene)
 if (import.meta.dev) {
   // `audio.debug()` is how a headed run checks the mix without listening: the
   // context state, the voice count, a per-sound tally and the master RMS.
+  // `voice.debug()` is the same for proximity voice: the mic state, whether we
+  // are transmitting, and each peer's frame counts, buffer and inbound level.
+  // `voice.setTalking(true)` stands in for holding the key, which is unreliable
+  // to synthesise.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters, audio: { ...useAudio(), play } }
+  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters, audio: { ...useAudio(), play }, voice }
 }
 </script>
 

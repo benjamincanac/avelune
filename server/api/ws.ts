@@ -1,4 +1,5 @@
 import { defineWebSocketHandler } from 'nitro'
+import { VOICE_FRAME_KIND } from '#shared/utils/voice'
 import type { Connection } from '../utils/game'
 import { registerConnection } from '../utils/game'
 import { loadPosition } from '../utils/positions'
@@ -34,10 +35,33 @@ export default defineWebSocketHandler({
     opening.add(peer.id)
     const saved = await loadPosition(identity.id)
     if (!opening.delete(peer.id)) return
-    conns.set(peer.id, registerConnection(identity, saved, data => peer.send(data), () => peer.close()))
+    conns.set(peer.id, registerConnection(
+      identity,
+      saved,
+      data => peer.send(data),
+      () => peer.close(),
+      // A `Uint8Array` goes out as a binary frame, which is what keeps voice
+      // audio off the JSON path entirely.
+      bytes => peer.send(bytes),
+    ))
   },
   message(peer, message) {
-    conns.get(peer.id)?.handleMessage(message.text())
+    const conn = conns.get(peer.id)
+    if (!conn) return
+    // crossws does not say whether a frame was text or binary, and the Node
+    // adapter hands text over as bytes too. One byte decides: every JSON frame
+    // starts with `{`, and a voice frame starts with `VOICE_FRAME_KIND`. Reading
+    // `rawData` first keeps the common path from paying for a conversion.
+    if (typeof message.rawData === 'string') {
+      conn.handleMessage(message.rawData)
+      return
+    }
+    const bytes = message.uint8Array()
+    if (bytes[0] === VOICE_FRAME_KIND) {
+      conn.handleBytes(bytes)
+      return
+    }
+    conn.handleMessage(message.text())
   },
   close(peer) {
     opening.delete(peer.id)

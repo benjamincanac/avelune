@@ -82,6 +82,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           class="font-semibold"
           :style="{ color: message.system ? 'var(--ui-primary)' : message.color }"
         >{{ message.system ? 'System' : message.name }}</b>
+        <!-- Spoken lines carry a mic, so a transcript that came out slightly
+             wrong reads as speech rather than as a typo. -->
+        <UIcon
+          v-if="message.voice"
+          name="i-lucide-mic"
+          class="mb-0.5 inline size-3 align-middle text-dimmed"
+        />
         {{ message.text }}
       </p>
     </div>

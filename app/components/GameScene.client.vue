@@ -30,6 +30,10 @@ const map = useWorldMap()
  *  key or click in here is what starts it. */
 const audio = useAudio()
 
+/** Proximity voice. This component owns only the push-to-talk key; the mic, the
+ *  peers and the mixing are `useVoice`'s. */
+const voice = useVoice()
+
 /**
  * Fired when pointer lock is lost without us initiating it (Alt-cursor mode).
  * While locked the browser swallows the Escape keydown entirely, so this
@@ -103,6 +107,15 @@ const TURN_KEYS: Record<string, 'turnLeft' | 'turnRight'> = {
 
 const MOUSE_SENSITIVITY = 0.0031
 
+/**
+ * Push to talk.
+ *
+ * `T` for talk, and one of the few letters this game had left: W A S D, Space,
+ * Shift, E, Alt, 1-9, Tab, Q, R, V, the brackets, the arrows, M, N, F, Enter and
+ * Escape were all taken. The Escape menu's controls list has to name it too.
+ */
+const PUSH_TO_TALK = 'KeyT'
+
 function isTyping(): boolean {
   const tag = document.activeElement?.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA'
@@ -163,6 +176,13 @@ function onKeyDown(event: KeyboardEvent) {
   if (event.code === 'KeyM') {
     event.preventDefault()
     toggleMap()
+    return
+  }
+  // Push to talk. Held, so `repeat` is not a second press, and a no-op unless
+  // the player turned voice on — the mic is never opened from a keystroke.
+  if (event.code === PUSH_TO_TALK) {
+    event.preventDefault()
+    if (!event.repeat) voice.setTalking(true)
     return
   }
   // The map is modal over the game: only `M` (above) and Escape (the page's
@@ -259,6 +279,14 @@ function onKeyDown(event: KeyboardEvent) {
 }
 
 function onKeyUp(event: KeyboardEvent) {
+  // Before every guard below: whatever else has happened since the press — the
+  // map opening, the chat taking focus — letting go of the key must shut the mic.
+  if (event.code === PUSH_TO_TALK) {
+    voice.setTalking(false)
+    if (props.editor || map.open.value) return
+    event.preventDefault()
+    return
+  }
   if (props.editor || map.open.value) return
   if (event.code === 'AltLeft' || event.code === 'AltRight') {
     if (altHeld.value) {
@@ -466,13 +494,21 @@ function onMouseMove(event: MouseEvent) {
 
 /** Stop moving when the chat input steals focus or the tab is hidden. */
 function onFocusIn() {
-  if (isTyping()) releaseAll()
+  // Typing swallows the keyup that would have released push to talk, so the mic
+  // shuts here rather than staying open into whatever gets typed.
+  if (isTyping()) {
+    releaseAll()
+    voice.setTalking(false)
+  }
 }
 
 function onVisibilityChange() {
   if (document.hidden) {
     build.release()
     releaseAll()
+    // A hidden tab must not keep transmitting: the keyup for a held key never
+    // arrives once focus is gone.
+    voice.setTalking(false)
     // A world nobody is looking at does not need to be heard either.
     audio.suspend()
   }
@@ -491,6 +527,8 @@ function onWindowBlur() {
   view.cursorActive = false
   build.release()
   releaseAll()
+  // Same reason as a hidden tab: Alt-Tab swallows the keyup.
+  voice.setTalking(false)
 }
 
 onMounted(() => {
@@ -509,6 +547,7 @@ onBeforeUnmount(() => {
   // The map is shared state; leaving the arena must not leave it up.
   map.open.value = false
   build.release()
+  voice.setTalking(false)
   disposeScene?.()
   disposeScene = undefined
   window.removeEventListener('keydown', onKeyDown)

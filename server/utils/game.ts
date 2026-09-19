@@ -14,6 +14,17 @@ import type { Chunk, SurfaceType } from '#shared/utils/world'
 import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { EDITS_PER_SECOND, checkDemolish, checkTerraform, isKitKind, refusalText, resolveBuild } from '#shared/utils/building'
 import {
+  VOICE_FRAMES_PER_SECOND,
+  VOICE_FRAME_BURST,
+  VOICE_PAIR_EVERY,
+  createBucket,
+  decodeVoiceUp,
+  encodeVoiceDown,
+  selectVoicePairs,
+  spendToken,
+} from '#shared/utils/voice'
+import type { TokenBucket, VoiceBody, VoicePeerInfo } from '#shared/utils/voice'
+import {
   WORLD,
   broadcastToChunk,
   drainChunkQueue,
@@ -99,7 +110,22 @@ interface Session {
   /** Edit budget: a token bucket refilled at `EDITS_PER_SECOND`. */
   editTokens: number
   editAt: number
+  /** Whether this player opted into proximity voice. False until they ask. */
+  voice: boolean
+  /** The small numeric id this session's audio frames travel under, handed to
+   *  its listeners on `voice-peers`. Per process, not per identity. */
+  talker: number
+  /** The listeners the last `voice-peers` frame named, in order, so an unchanged
+   *  set is not re-sent twice a second. */
+  voicePeers: string[]
+  /** Audio budget: its own bucket, because 50 frames a second must not eat the
+   *  edit allowance and an edit must not cost anyone their voice. */
+  voiceBucket: TokenBucket
+  /** Chat budget, shared by typed lines and transcribed ones. */
+  chatBucket: TokenBucket
   send: (data: string) => void
+  /** Send a binary frame. Voice audio is the only thing that uses it. */
+  sendBytes: (data: Uint8Array) => void
   close: () => void
 }
 
@@ -246,6 +272,10 @@ function tick() {
   }
 
   if (tickCount % BROADCAST_EVERY === 0) broadcastState(now)
+
+  // Voice pairing is deliberately not per tick: a connection takes a moment to
+  // build and nobody walks 24 tiles in half a second.
+  if (tickCount % VOICE_PAIR_EVERY === 0) updateVoicePairs()
 
   if (tickCount % SWEEP_EVERY === 0) {
     const min = Date.now() - STALE_TIMEOUT
@@ -411,9 +441,131 @@ function announceEdit(session: Session, chunk: Chunk, frame: Extract<ServerMessa
   session.send(JSON.stringify({ ...frame, pieces: pieceCount(id), deeds: deedCount(id) } satisfies ServerMessage))
 }
 
+/* -------------------------------------------------------------------------- */
+/* Proximity voice                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The server decides who may talk to whom.
+ *
+ * It already knows every position, so pairing belongs here rather than in a
+ * client that could claim to be standing anywhere. The rules — range, the
+ * hysteresis band and the cap of six — are in `shared/utils/voice.ts`, and the
+ * only state kept here is the live pair set, which the hysteresis reads.
+ *
+ * Media never passes through this process. All the server carries is the
+ * handful of signalling frames a pair needs to find each other, and only for a
+ * pair it already holds.
+ */
+const livePairs = new Set<string>()
+
+/** Talker ids are handed out in order and never reused inside a process. Small,
+ *  because they ride every audio frame, and 16 bits is 65k arrivals. */
+let nextTalker = 1
+
+/**
+ * Recompute the mesh and tell whoever's set changed.
+ *
+ * Runs every `VOICE_PAIR_EVERY` ticks (2 Hz), over the players with voice on and
+ * nobody else, so a town of silent players and every `spawn-bots.mjs` bot pay
+ * nothing at all for this. The cost is O(n²) in the *voice-on* count, which the
+ * cap of six peers keeps small in practice: 20 people all talking is 190
+ * distance tests twice a second.
+ */
+function updateVoicePairs() {
+  const talkers: VoiceBody[] = []
+  for (const session of sessions.values()) {
+    if (session.voice) talkers.push({ id: session.player.id, x: session.player.x, y: session.player.y })
+  }
+  // Nobody is listening and nothing was up: there is nothing to recompute.
+  if (talkers.length < 2 && !livePairs.size) return
+
+  const { pairs, peers } = selectVoicePairs(talkers, livePairs)
+  livePairs.clear()
+  for (const key of pairs) livePairs.add(key)
+
+  for (const body of talkers) {
+    const session = sessions.get(body.id)
+    if (!session) continue
+    sendVoicePeers(session, peers.get(body.id) ?? [])
+  }
+}
+
+/** Hand a session its peer set, unless it already has exactly that one. */
+function sendVoicePeers(session: Session, peers: string[]) {
+  if (peers.length === session.voicePeers.length && peers.every((id, i) => session.voicePeers[i] === id)) return
+  session.voicePeers = peers
+  const info: VoicePeerInfo[] = []
+  for (const id of peers) {
+    const peer = sessions.get(id)
+    // A peer that has just gone is simply left out; the next pass agrees.
+    if (peer) info.push({ id, talker: peer.talker })
+  }
+  session.send(JSON.stringify({ t: 'voice-peers', peers: info } satisfies ServerMessage))
+}
+
+/**
+ * Relay one audio frame, the moment it arrives.
+ *
+ * Deliberately not on the tick: 20 Hz would quantise every frame's latency by up
+ * to 50 ms and a 20 ms frame does not survive that. Forwarding here instead costs
+ * the tick nothing, because this runs on the socket's own message event and does
+ * no work the tick could be waiting on: no JSON, no chunk access, no store, and
+ * one allocation per listener. Ordering is safe for the same reason — the tick
+ * never reads or writes anything this touches except `voicePeers`, which it only
+ * replaces wholesale.
+ *
+ * The validation is the point. This is the only path where one player's bytes
+ * reach another's socket, so: the sender must have voice on, the payload must be
+ * short, the rate must be inside the bucket, and the listeners are the ones the
+ * server's own pairing named and nobody else. The sender is never in that list,
+ * so there is no echo. Everything refused is dropped in silence, because
+ * answering a flood is how a flood becomes amplification.
+ */
+function relayVoiceFrame(session: Session, bytes: Uint8Array) {
+  if (!session.voice) return
+  const frame = decodeVoiceUp(bytes)
+  if (!frame) return
+  if (!spendToken(session.voiceBucket, VOICE_FRAMES_PER_SECOND, VOICE_FRAME_BURST)) return
+  if (!session.voicePeers.length) return
+  // One outgoing buffer for every listener: the header is the same for all of
+  // them, so it is built once rather than per socket.
+  const out = encodeVoiceDown(session.talker, frame.seq, frame.payload)
+  for (const id of session.voicePeers) {
+    const peer = sessions.get(id)
+    if (peer?.voice) peer.sendBytes(out)
+  }
+}
+
+/**
+ * Take a player out of the mesh: their own set goes empty, and every peer that
+ * held a pair with them is told immediately rather than at the next pass.
+ *
+ * Called when they turn voice off, when they disconnect, and when a second tab
+ * takes the identity over — a socket that is gone must not leave the other end
+ * holding a connection to it.
+ */
+function clearVoice(session: Session) {
+  const id = session.player.id
+  session.voice = false
+  if (session.voicePeers.length) sendVoicePeers(session, [])
+  for (const peer of sessions.values()) {
+    if (peer === session || !peer.voice) continue
+    if (!peer.voicePeers.includes(id)) continue
+    sendVoicePeers(peer, peer.voicePeers.filter(other => other !== id))
+  }
+  for (const key of [...livePairs]) {
+    const [one, two] = key.split('|')
+    if (one === id || two === id) livePairs.delete(key)
+  }
+}
+
 export interface Connection {
   player: Player
   handleMessage: (raw: string) => void
+  /** One binary frame. Voice audio is the only thing that arrives this way, and
+   *  it is forwarded on receipt rather than on the tick. */
+  handleBytes: (bytes: Uint8Array) => void
   disconnect: () => void
 }
 
@@ -716,6 +868,62 @@ function speak(reply: string, to: string) {
   broadcast({ t: 'chat', id: ORACLE_ID, text: reply, to })
 }
 
+/**
+ * How fast anyone may put a line in the chat, typed or spoken.
+ *
+ * Generous for a person and pointless for a script. A spoken line goes through
+ * the same bucket because it is the same channel: the Oracle, the other players
+ * and the log cannot tell the two apart, so neither should the limit.
+ */
+const CHAT_PER_SECOND = 1.5
+const CHAT_BURST = 4
+
+/**
+ * Put one line in the arena chat.
+ *
+ * The single path in, for a typed line and for a transcribed one alike. That is
+ * what lets speech reach the Oracle with no change to its classifier: by the time
+ * anything here runs, a spoken sentence and a typed one are the same line from
+ * the same player. `spoken` only marks the frame so the chat panel can draw a
+ * mic beside it.
+ */
+function sayChat(session: Session, text: string, spoken = false): boolean {
+  const trimmed = text.trim().slice(0, MAX_CHAT_LENGTH)
+  if (!trimmed) return false
+  if (!spendToken(session.chatBucket, CHAT_PER_SECOND, CHAT_BURST)) {
+    session.send(JSON.stringify({ t: 'system', text: 'Slow down.' } satisfies ServerMessage))
+    return false
+  }
+  const { player } = session
+  // A typed line is not echoed to its author, who drew it the moment they hit
+  // Enter. A spoken line is: the speaker has nothing on screen until the
+  // transcript exists, and the server's wording is the only one there is.
+  broadcast({ t: 'chat', id: player.id, text: trimmed, ...(spoken ? { voice: true as const } : {}) }, spoken ? undefined : player.id)
+  // The Oracle overhears the arena and answers only when addressed.
+  considerOracle(player.id, player.name, trimmed)
+  return true
+}
+
+/**
+ * Say something as a player who is in the world right now, from outside the
+ * socket — the transcription route's way in.
+ *
+ * Gated on a live session with voice on, because a clip can only have come from
+ * someone holding the push-to-talk key in the arena. An identity with no session
+ * gets nothing, rather than a line appearing from a player who left.
+ */
+export function speakForIdentity(id: string, text: string): boolean {
+  const session = sessions.get(id)
+  if (!session || !session.voice) return false
+  return sayChat(session, text, true)
+}
+
+/** Whether this identity is in the world with voice on. The transcription route
+ *  checks it before spending money on a clip. */
+export function hasLiveVoice(id: string): boolean {
+  return sessions.get(id)?.voice === true
+}
+
 function considerOracle(id: string, name: string, text: string) {
   hubChat.push({ name, text })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
@@ -796,7 +1004,13 @@ function deliverGreeting(session: Session) {
  * Identity (id/name/color/character) comes from the signed cookie the WS
  * handler verified — see server/utils/session.ts.
  */
-export function registerConnection(identity: Identity, saved: SavedPosition | null, send: (data: string) => void, close: () => void): Connection {
+export function registerConnection(
+  identity: Identity,
+  saved: SavedPosition | null,
+  send: (data: string) => void,
+  close: () => void,
+  sendBytes: (data: Uint8Array) => void = () => {},
+): Connection {
   // A take-over resumes from the live body, which is newer than anything saved.
   const resume = sessions.get(identity.id)?.player ?? saved
   const player: Player = {
@@ -820,7 +1034,13 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
     chunkCy: Number.NaN,
     editTokens: EDITS_PER_SECOND,
     editAt: Date.now(),
+    voice: false,
+    talker: nextTalker++ & 0xffff,
+    voicePeers: [],
+    voiceBucket: createBucket(VOICE_FRAME_BURST),
+    chatBucket: createBucket(CHAT_BURST),
     send,
+    sendBytes,
     close,
   }
 
@@ -835,6 +1055,10 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
   sessions.set(player.id, session)
   startLoop()
   if (existing) {
+    // The old socket is about to go. Take it out of the mesh first, so its peers
+    // are told to drop it now rather than keep a dead connection open — the new
+    // session starts with voice off and has to opt in for itself.
+    clearVoice(existing)
     existing.send(JSON.stringify({ t: 'kicked', reason: 'You opened the arena in another tab. This window has been disconnected.' } satisfies ServerMessage))
     existing.close()
   }
@@ -863,6 +1087,10 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
 
   return {
     player,
+    handleBytes(bytes) {
+      session.lastSeen = Date.now()
+      relayVoiceFrame(session, bytes)
+    },
     handleMessage(raw) {
       let msg: ClientMessage
       try {
@@ -954,9 +1182,7 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
             broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic day/night cycle restored.' : `Time of day changed to ${mode}.` })
             return
           }
-          broadcast({ t: 'chat', id: player.id, text }, player.id)
-          // The Oracle overhears the arena and answers only when addressed.
-          considerOracle(player.id, player.name, text)
+          sayChat(session, text)
           break
         }
         case 'terraform': {
@@ -1022,6 +1248,16 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
           )
           break
         }
+        case 'voice': {
+          const on = msg.on === true
+          if (on === session.voice) return
+          if (!on) return clearVoice(session)
+          session.voice = true
+          // Pair on the next pass rather than here: one player turning voice on
+          // has to be matched against everyone else's set, which is exactly what
+          // the pass does.
+          break
+        }
         case 'ping':
           send(JSON.stringify({ t: 'pong' } satisfies ServerMessage))
           break
@@ -1032,6 +1268,11 @@ export function registerConnection(identity: Identity, saved: SavedPosition | nu
       // A newer tab may have taken over (see the take-over above), in which case
       // the booted socket's close lands here too — but the delete + leave belong
       // to the session that replaced it, not this one.
+      // `clearVoice` works by player id, so only the session that still owns the
+      // id may run it. A socket that was replaced and closes late would otherwise
+      // tear down its replacement's pairs. The takeover already cleared this one.
+      if (sessions.get(player.id) === session) clearVoice(session)
+      else session.voice = false
       if (sessions.get(player.id) === session) {
         notePosition(player.id, player)
         void flushPositions()

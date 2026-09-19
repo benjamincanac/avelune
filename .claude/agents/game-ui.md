@@ -101,6 +101,28 @@ isn't the 3D world.
   `scene-3d`'s `app/utils/hubEditor.ts`; the save route is `server-net`'s
   `server/api/editor/save.post.ts`.
 
+- `app/composables/useVoice.ts` + `app/utils/voice/` + `app/components/VoiceHud.vue`
+  hold proximity voice's client half. Module state, like `useAudio`: the Escape menu,
+  the key handler, the scene and the socket all have to agree about one microphone.
+  Four rules hold it together. Voice is **opt in** and `getUserMedia` is never
+  called until the switch is thrown, so a remembered preference still waits for the
+  arena rather than grabbing the mic on load. The **server** decides who hears you;
+  nothing here computes a range. **Nothing is encoded or sent unless you are
+  talking** (`T`, push to talk by default, or open mic), so an idle player runs no
+  codec. And **only push to talk becomes chat**: the same utterance is recorded a
+  second time with `MediaRecorder` and uploaded on release, never in open mic,
+  because a model call per utterance on an always-on microphone is a bill and a way
+  to fill the chat with room noise. `app/utils/voice/codec.ts` is WebCodecs Opus,
+  Chromium only today, so the menu says "not supported in this browser" rather than
+  failing quietly; `jitter.ts` is shaped around TCP stalls rather than packet loss,
+  because the socket never reorders and instead holds and then dumps, so the buffer
+  skips ahead rather than playing a growing backlog. Remote voices are spatialised
+  through `app/utils/audio/voice.ts` onto the engine's own voice bus, with a linear
+  rolloff that reaches zero exactly at the drop radius so a peer leaving range is
+  never cut off audibly, positioned from the rendered rig by `MazeScene`. The
+  talking indicator is derived from arriving audio, not from a bit on the wire.
+  Dev hook: `__maze.voice.debug()` and `__maze.voice.setTalking(true)`.
+
 The Oracle (`useOracle.ts` and the chat wiring) is owned by the `oracle-ai`
 agent — hand oracle work there.
 
@@ -133,8 +155,10 @@ agent — hand oracle work there.
    models decode, and a `setTimeout` and the `message` event answering it both
    come due after the stall and can run in either order, so a timeout hangs up
    on a socket that was never dead.
-4. **Chat is one arena-wide channel.** Frames carry only `{id, text}` — no
-   scoping to filter on. The Oracle arrives under the reserved `ORACLE_ID` and is
+4. **Chat is one arena-wide channel.** Frames carry only `{id, text}` plus an
+   optional `voice: true` on a line that was spoken rather than typed (a
+   transcribed push-to-talk clip, which the panel marks with a small mic). There is
+   no scoping to filter on. The Oracle arrives under the reserved `ORACLE_ID` and is
    styled apart (`npc`), and `announce()` pushes local system lines (`system`)
    that never touch the wire.
 5. `.client.vue` / `<ClientOnly>` for anything browser-only.

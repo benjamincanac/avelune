@@ -60,6 +60,9 @@ interface Engine {
   master: GainNode
   world: GainNode
   ui: GainNode
+  /** Other players' voices. Its own bus so speech can sit above or below the
+   *  world without touching either of the other two. */
+  voice: GainNode
   analyser: AnalyserNode
   noise: AudioBuffer
   samples: Float32Array<ArrayBuffer>
@@ -69,6 +72,7 @@ let engine: Engine | null = null
 let failed = false
 let volume = 0.7
 let muted = false
+let voiceVolume = 1
 let voices = 0
 const played: Record<string, number> = {}
 
@@ -132,6 +136,12 @@ function build(): Engine | null {
   ui.gain.value = 0.5
   ui.connect(master)
 
+  // Speech carries further than the world does and a person deserves to be
+  // heard over the wind, so it gets its own level rather than riding `world`.
+  const voice = ctx.createGain()
+  voice.gain.value = voiceVolume
+  voice.connect(master)
+
   // Two seconds of white noise, shared by every voice that needs a hiss. One
   // buffer, read at different rates and through different filters, is most of
   // the sound design here.
@@ -150,7 +160,7 @@ function build(): Engine | null {
     listener.upZ.value = 0
   }
 
-  return { ctx, master, world, ui, analyser, noise, samples: new Float32Array(analyser.fftSize) }
+  return { ctx, master, world, ui, voice, analyser, noise, samples: new Float32Array(analyser.fftSize) }
 }
 
 /** The live engine, or null before the first gesture. */
@@ -166,6 +176,22 @@ export function setAudioVolume(value: number): void {
 export function setAudioMuted(value: boolean): void {
   muted = value
   applyLevel()
+}
+
+/**
+ * The voice bus level, 0 to 2. Above 1 on purpose: a quiet talker on a windy
+ * hill needs to be able to come up over the world, and the master limiter is
+ * already there to catch the sum.
+ */
+export function setVoiceVolume(value: number): void {
+  voiceVolume = Math.max(0, Math.min(2, value))
+  if (!engine) return
+  engine.voice.gain.setTargetAtTime(voiceVolume, engine.ctx.currentTime, 0.04)
+}
+
+/** The bus remote voices hang off, or null before the first gesture. */
+export function voiceBus(): { ctx: AudioContext, bus: GainNode } | null {
+  return engine ? { ctx: engine.ctx, bus: engine.voice } : null
 }
 
 function applyLevel(): void {
@@ -207,6 +233,7 @@ export function closeAudio(): void {
     live.master.disconnect()
     live.world.disconnect()
     live.ui.disconnect()
+    live.voice.disconnect()
   }
   catch {
     // Already gone. Closing is the only thing that matters.

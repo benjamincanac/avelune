@@ -67,6 +67,29 @@ bytes between it and clients.
   identity so a reconnect does not reset it.
 - `server/utils/session.ts` — signed-cookie identity, `verifyCookieHeader`,
   `newUserId`.
+- **Proximity voice lives in `server/utils/game.ts` too, and the server owns it.**
+  The rules are `shared/utils/voice.ts` (`selectVoicePairs`: 24 tiles to connect,
+  30 to drop, at most 6 listeners, symmetric by construction so the two halves can
+  never disagree); the tick runs the pass every `VOICE_PAIR_EVERY` ticks (2 Hz)
+  over the voice-on players and nobody else, so a silent town and every
+  `spawn-bots.mjs` bot pay nothing. Audio is a **binary** frame relayed the moment
+  it arrives, deliberately not on the tick: 20 Hz would quantise a 20 ms frame's
+  latency by up to 50 ms. `relayVoiceFrame` is the only path where one player's
+  bytes reach another's socket, so the gates are hard and every refusal is silent:
+  voice on, a payload inside `MAX_VOICE_PAYLOAD`, its own token bucket, and the
+  listeners the pairing already named. Never echo to the sender. `clearVoice` runs
+  on a take-over *and* on disconnect, so no listener is left holding a dead
+  talker id. Media never leaves this process for anywhere but a listener's socket.
+- `server/utils/transcribe.ts` + `server/api/voice/say.post.ts` — a push-to-talk
+  clip becomes one chat line. The clip is a second recording in a container (the
+  live frames are bare Opus, and muxing them here would be real code for nothing),
+  transcribed through the Gateway on the boot-captured `nativeFetch` for the same
+  reason the Oracle is. The route is gated on the signed cookie *and* on a live
+  session with voice on, capped by bytes and rate limited per identity, because
+  every call costs money on a public demo. The transcript goes in through
+  `sayChat`, the same function a typed line uses, which is why the Oracle's
+  classifier reads speech with no change at all. Nothing is stored and the
+  transcript is never logged.
 - `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete`, `status.get`. The
   Oracle has no HTTP route: it runs in-process from the game loop
   (`server/utils/oracle.ts`, owned by the `oracle-ai` agent).
@@ -224,8 +247,11 @@ it, `h`/`s` base64), `terrain` (`[cornerIndex, quantised height]` pairs into the
 optional `pieces`/`deeds` — the actor's new totals, on their copy of the frame
 only; `announceEdit` broadcasts the plain frame with the author `except`ed and
 sends them the annotated one directly), `reject`, `kicked` (booted for a duplicate tab; carries a `reason`), `pong`.
-Clients send `terraform`/`build`/`demolish` alongside `move`/`action`/`chat`/
-`ping`. The `welcome.now` server clock drives client day/night + weather — keep
+Clients send `terraform`/`build`/`demolish`/`voice` alongside `move`/`action`/`chat`/
+`ping`. `voice-peers` names the listeners a talker currently has, each with the
+numeric `talker` id their audio frames carry; audio itself is a binary frame
+(`shared/utils/voice.ts`), told apart from JSON by its first byte in
+`server/api/ws.ts` since every JSON frame starts with `{`. The `welcome.now` server clock drives client day/night + weather — keep
 it monotonic and honest.
 
 Chunks go out before the first `state` can name anyone standing on them, and a
