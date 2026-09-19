@@ -19,9 +19,31 @@ import { nativeFetch } from './nativeFetch'
 
 // The gate runs on Jev, an evaluation model: one boolean question over the
 // transcript, a probability back, priced per input token only. The reply runs
-// on DeepSeek V4.1 Flash with thinking off (`reasoning: 'none'`): thinking tokens
-// bill as output and a one-line reply with one tool call does not need them.
-// Its implicit caching also covers the persona prefix resent on every step.
+// on DeepSeek V4.1 Flash with thinking off (`reasoning: 'none'`): thinking
+// tokens bill as output and a one-line reply with one tool call does not need
+// them. Its implicit caching also covers the persona prefix resent on every step.
+//
+// It is the dearest of the cheap tier and it stays anyway. Four cheaper models
+// were tried against these logs and the cost spread across the whole tier is
+// under a dollar per thousand replies, which buys nothing worth a wrong or late
+// answer:
+//   - `google/gemini-2.5-flash-lite` called `arena_state` on about half the
+//     questions that needed it, and once invented a `get_state` tool outright.
+//   - `openai/gpt-5-nano` never called the tool at all and made the roster up,
+//     answering "who's here?" with "you stand alone". Its only reasoning option
+//     is effort, so `'none'` has nothing to map to.
+//   - `deepseek/deepseek-v4-flash` was too slow for a live chat line (effort
+//     values `high`/`xhigh` only, so a toggle that fails to land leaves it
+//     thinking hard every time).
+//   - `zai/glm-5.3-flash` was the only real contender: it called the tool on
+//     every live-state question and answered from the roster, at half the cost.
+//     It lost on latency, 2-4s on the tool path against about 1s here, because
+//     its effort floor is `low` with no toggle.
+// **A cheap model does not decline to answer when it lacks the data, it
+// invents**, and it reads perfectly well while doing so. Judge a swap on the
+// `[oracle] respond` logs and never on how the replies sound: the tool must
+// fire on *every* live-state question, and the reply must land while the asker
+// is still looking.
 /** Cheap + fast — this runs on every chat message, so keep it small. */
 const CLASSIFIER_MODEL = 'typesafe-ai/jev'
 /**
@@ -261,7 +283,11 @@ async function respond(prompt: string, getState: ArenaStateReader): Promise<stri
     // Every outcome is logged, the silent ones most of all: an empty reply
     // resolves to null and the Oracle just says nothing.
     const calls = steps.flatMap(step => step.toolCalls.map(call => `${call.toolName}(${JSON.stringify(call.input)})`))
-    console.log('[oracle] respond', `steps ${steps.length}`, calls.join(' ') || 'no tools', '→', JSON.stringify(text))
+    // A model that invents a tool name fails silently otherwise: the bogus call
+    // is logged like any other, nothing comes back, and the Oracle deflects in
+    // character rather than erroring. Surface the failed calls next to them.
+    const failed = steps.flatMap(step => step.content.filter(part => part.type === 'tool-error').map(part => `${part.toolName} FAILED: ${String(part.error)}`))
+    console.log('[oracle] respond', `steps ${steps.length}`, calls.join(' ') || 'no tools', ...failed, '→', JSON.stringify(text))
     return clampReply(text) || null
   }
   catch (error) {

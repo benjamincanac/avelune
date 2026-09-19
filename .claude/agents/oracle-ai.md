@@ -54,9 +54,33 @@ in-character, and reactive to live multiplayer state.
   boolean question, answered when `probability >= ADDRESSED_THRESHOLD`. The
   probabilities are not calibrated across providers, so retune the threshold
   from the `[oracle] classify` logs on any swap. The responder is
-  `deepseek/deepseek-v4.1-flash` (chosen for cost and latency — it's a live chat
-  NPC) with `reasoning: 'none'`: thinking tokens bill as output and one
-  `arena_state` call does not need them. Mind the mapping on Anthropic models:
+  `deepseek/deepseek-v4.1-flash` with `reasoning: 'none'`: thinking tokens bill
+  as output and one `arena_state` call does not need them. **It is picked on
+  tool-call reliability and latency, and price is the last tiebreak** since the
+  whole cheap tier lands under a dollar per thousand replies. It is the dearest
+  of that tier and it stays anyway: four cheaper models were measured against
+  the `[oracle] respond` logs and none beat it.
+  `google/gemini-2.5-flash-lite` called the tool on about half the questions
+  that needed it and once invented a `get_state` tool that does not exist.
+  `openai/gpt-5-nano` never called it at all and fabricated the roster,
+  answering "who's here?" with "you stand alone". `deepseek/deepseek-v4-flash`
+  was too slow for a live chat line. `zai/glm-5.3-flash` was the only real
+  contender, calling the tool on every live-state question and answering from
+  the roster at half the cost, but it ran 2-4s on the tool path against about 1s
+  here. **A cheap model does not decline to answer when it lacks the data, it
+  invents** — and it reads beautifully while doing so, which is why a swap is
+  judged on the tool firing every time and never on how the replies sound.
+  Check `reasoning_options` before trusting a portable `reasoning` value: only
+  a model with a `toggle` can honour `'none'`, an effort-only model
+  (gpt-5-nano's `minimal`, glm-5.3's `low`, v4-flash's `high`) silently keeps
+  thinking, and v4.1-flash itself exposes no options at all. Price and
+  capabilities come from the gateway's own
+  `https://ai-gateway.vercel.sh/v1/models`, never from memory; `temperature` is
+  moot because this file sets no `temperature`, `topP` or `seed`. If the cheap
+  tier is worth revisiting, the lever is the prompt, not the model: Jev already
+  classifies every line, so it could decide that live state is needed and the
+  snapshot could be prefetched into the prompt, dropping the tool round trip and
+  the judgement call along with it. Mind the mapping on Anthropic models:
   the portable `reasoning: 'minimal'` has no budget to map to on Haiku 4.5 and
   the gateway warns on every call, so pass an explicit
   `providerOptions.anthropic.thinking` budget there. If you swap

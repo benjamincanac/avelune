@@ -855,6 +855,15 @@ const HUB_CHAT_CONTEXT = 12
 let oracleBusy = false
 let oracleQuietUntil = 0
 const ORACLE_COOLDOWN = 4000
+/**
+ * A line that misses the cooldown by less than this waits for it instead of
+ * being dropped. Losing a question by 60ms reads as the Oracle ignoring you,
+ * and the asker gets no sign it was even heard. Much longer than this and the
+ * answer lands after they have moved on, which is worse than silence.
+ */
+const ORACLE_DEFER_GRACE = 1000
+/** At most one line waits at a time; anything else during the wait is dropped. */
+let oracleDeferred: ReturnType<typeof setTimeout> | undefined
 
 /**
  * Say an Oracle line: remember it as context for later replies, start the
@@ -929,6 +938,32 @@ function considerOracle(id: string, name: string, text: string) {
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
   // Don't even classify while replying or cooling down: the classifier gates
   // *what* it answers, these gate *how often* — together they prevent floods.
+  const cooling = oracleQuietUntil - Date.now()
+  if (oracleBusy || cooling > 0) {
+    if (!oracleBusy && !oracleDeferred && cooling <= ORACLE_DEFER_GRACE) {
+      console.log('[oracle] defer', `${cooling}ms`, JSON.stringify(text))
+      // +20ms so the re-check inside askOracle is past the boundary, not on it.
+      oracleDeferred = setTimeout(() => {
+        oracleDeferred = undefined
+        askOracle(id)
+      }, cooling + 20)
+      return
+    }
+    // Logged, because silence here is indistinguishable from the classifier
+    // deciding the line wasn't for the Oracle — and that one logs a score.
+    console.log('[oracle] skip', oracleBusy ? 'busy' : `cooling ${cooling}ms`, JSON.stringify(text))
+    return
+  }
+  askOracle(id)
+}
+
+/**
+ * Run the Oracle over the transcript as it stands, answering `id`.
+ *
+ * Re-checks the gates itself because the deferred path calls it a beat later,
+ * by which time someone else's line may have taken the turn.
+ */
+function askOracle(id: string) {
   if (oracleBusy || Date.now() < oracleQuietUntil) return
   oracleBusy = true
   oracleReply([...hubChat], snapshot, { now: () => skyNow(Date.now()), setWeather, setTime: setTimeOfDay })
