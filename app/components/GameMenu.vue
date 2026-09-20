@@ -184,8 +184,9 @@ onBeforeUnmount(() => {
         trigger: 'label-section px-0 pb-3 pt-2 me-7 text-label data-[state=active]:text-primary',
         leadingIcon: 'size-3.5',
         indicator: 'bg-primary',
-        // As tall as the controls, so switching tabs does not resize the menu.
-        content: 'min-h-57 pt-[18px]',
+        // As tall as the tallest tab (audio), so switching does not resize the
+        // menu. Measured, so it moves when a control is added to one of them.
+        content: 'min-h-59 pt-[18px]',
       }"
     >
       <template #controls>
@@ -374,12 +375,14 @@ onBeforeUnmount(() => {
               {{ voiceState }}
             </p>
             <!-- Only push to talk is ever transcribed, so the toggle goes away in
-               open mic rather than sitting there doing nothing. -->
+               open mic rather than sitting there doing nothing. Hidden rather
+               than removed: it is the tallest thing in this row, and taking it
+               out of the flow resized the menu under the mode switch. -->
             <USwitch
-              v-if="voice.mode.value === 'ptt'"
               v-model="voice.speechToChat.value"
               label="Post what I say to chat"
               size="sm"
+              :class="{ invisible: voice.mode.value !== 'ptt' }"
               :ui="{ label: 'text-[13px] leading-none text-muted' }"
             />
           </div>

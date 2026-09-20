@@ -261,6 +261,16 @@ const voiceRows = computed(() =>
     return name ? [{ id: peer.id, name, speaking: peer.speaking }] : []
   }),
 )
+
+/**
+ * Say that voice chat exists.
+ *
+ * It is opt in and the HUD draws nothing while it is off, so the feature is
+ * invisible to anyone who never opens the menu. The line sits with the rest of
+ * the voice HUD until they turn it on, which is the only thing that clears it.
+ */
+const voiceNudge = computed(() => live.value && !voice.enabled.value && voice.supported.value !== false)
+
 const realm = computed(() => world.realm.value ? realmName(world.realm.value) : null)
 </script>
 
@@ -344,12 +354,14 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
            whether you are. Read-only, so no panel. -->
       <VoiceHud
         :enabled="voice.enabled.value"
+        :muted="voice.micMuted.value"
         :open="voice.micOpen.value"
         :talking="voice.talking.value"
         :silent="voice.micSilent.value"
         :say="voice.say.value"
         :level="voice.level.value"
         :hint="voice.hint.value"
+        :nudge="voiceNudge"
         :rows="voiceRows"
         class="pointer-events-none absolute bottom-42 right-0 z-10"
       />
