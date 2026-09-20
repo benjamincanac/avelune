@@ -187,21 +187,28 @@ function triggerDash() {
 
 /**
  * When the lock last moved for a reason that isn't the player reaching for the
- * menu: we asked for it back (the map or the menu closing), or fullscreen ended
- * and took it with it.
+ * menu: we asked for it back (the map or the menu closing, a fullscreen toggle
+ * we ran ourselves), and the drop that followed rode the same keypress.
  *
- * Both bounce. When the key behind them was Escape the browser is still
- * processing that same Escape, so the lock is granted and then dropped again a
- * moment later; leaving fullscreen drops it outright. Either drop is the tail
- * of an interaction the player already made, so the emit below ignores one
- * inside this window.
+ * When the key behind the request was Escape the browser is still processing
+ * that same Escape, so the lock is granted and then dropped again a moment
+ * later. That tail is what the emit below ignores — and only that: the window
+ * shrinks to `BOUNCE_GRACE` once the grant lands, because the bounce arrives
+ * within a frame of it. Anything later is a real Escape and opens the menu.
+ *
+ * Nothing here is armed by a fullscreen exit we did not run: on a browser
+ * without Keyboard Lock that exit IS the player's Escape, and it has to reach
+ * the menu.
  */
 let unlockGraceAt = 0
-const UNLOCK_GRACE = 600
+let unlockGrace = 0
+const REQUEST_GRACE = 600
+const BOUNCE_GRACE = 150
 
-/** Mirror of `document.fullscreenElement`, so a lock drop can be attributed to
- *  a fullscreen exit even when `pointerlockchange` lands first. */
-let wasFullscreen = false
+function holdUnlock(ms = REQUEST_GRACE) {
+  unlockGraceAt = Date.now()
+  unlockGrace = ms
+}
 
 /**
  * Open or close the world map. Opening drops the pointer lock (the map is a
@@ -531,33 +538,27 @@ function onPointerLockChange() {
   }
   // Losing the mouse loses the drag with it.
   if (wasLocked && !locked) build.release()
-  // Leaving fullscreen drops the lock with it, and the order of the two events
-  // isn't guaranteed — a lock lost while we still believe we're fullscreen, with
-  // no fullscreen left, is that exit.
-  if (wasFullscreen && !document.fullscreenElement) {
-    wasFullscreen = false
-    unlockGraceAt = Date.now()
-  }
-  // Opening the map releases the lock on purpose, and a close or a fullscreen
-  // exit can bounce one — none of those is the player reaching for the menu.
-  if (map.open.value || Date.now() - unlockGraceAt < UNLOCK_GRACE) return
+  // The grant landed, so the only drop still owed to that request is the bounce
+  // riding its keypress. Re-stamp short rather than leaving the full window up,
+  // or an Escape pressed right after resuming would be swallowed.
+  if (locked && unlockGrace) holdUnlock(BOUNCE_GRACE)
+  // Opening the map releases the lock on purpose, and a lock we asked for can
+  // bounce — neither is the player reaching for the menu.
+  if (map.open.value || Date.now() - unlockGraceAt < unlockGrace) return
   if (wasLocked && !locked && !altHeld.value && document.hasFocus()) emit('unlock')
 }
 
 /** Exposed so the page can chain a lock attempt onto fullscreen toggles. This
  *  is a lock request, not a click — it must not fire the armed tool. */
 function requestLock() {
-  if (props.editor || map.open.value || altHeld.value || pointerLocked.value) return
+  // `document` rather than the mirror: this is chained onto a fullscreen exit,
+  // and `pointerlockchange` is not guaranteed to have landed yet. Reading the
+  // stale `true` would skip the relock and leave a free cursor.
+  if (props.editor || map.open.value || altHeld.value || document.pointerLockElement) return
   // A lock we asked for ourselves can be undone by the same keypress that asked
   // for it; don't read that drop as a menu request.
-  unlockGraceAt = Date.now()
+  holdUnlock()
   attemptLock()
-}
-
-function onFullscreenChange() {
-  const full = document.fullscreenElement != null
-  if (!full && wasFullscreen) unlockGraceAt = Date.now()
-  wasFullscreen = full
 }
 
 function onMouseMove(event: MouseEvent) {
@@ -661,7 +662,6 @@ function onWindowBlur() {
 }
 
 onMounted(() => {
-  wasFullscreen = document.fullscreenElement != null
   window.addEventListener('keydown', onKeyDown)
   document.addEventListener('pointerlockerror', onPointerLockError)
   window.addEventListener('keyup', onKeyUp)
@@ -671,7 +671,6 @@ onMounted(() => {
   window.addEventListener('focusin', onFocusIn)
   window.addEventListener('blur', onWindowBlur)
   document.addEventListener('pointerlockchange', onPointerLockChange)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('visibilitychange', onVisibilityChange)
   edgePanRaf = requestAnimationFrame(onEdgePanFrame)
 })
@@ -692,12 +691,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('focusin', onFocusIn)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   cancelAnimationFrame(edgePanRaf)
 })
 
-defineExpose({ pointerLocked, requestLock, toggleMap })
+defineExpose({ pointerLocked, requestLock, holdUnlock, toggleMap })
 </script>
 
 <template>

@@ -185,10 +185,15 @@ const keyboard = computed(() =>
 async function toggleFullscreen() {
   try {
     if (document.fullscreenElement) {
+      // Leaving fullscreen drops the pointer lock with it, and that drop must
+      // not read as a menu request. Held before the exit, because
+      // `pointerlockchange` can land while we are still awaiting it. An exit we
+      // did not run stays a menu request: without Keyboard Lock it is the
+      // player's Escape, and nothing else would carry it.
+      gameScene.value?.holdUnlock()
       await document.exitFullscreen()
-      // Leaving fullscreen drops the pointer lock with it. The player is still
-      // in the world, so take it back on this same gesture rather than leaving
-      // them with a free cursor.
+      // The player is still in the world, so take the lock back on this same
+      // gesture rather than leaving them with a free cursor.
       if (!showMenu.value && !map.open.value) gameScene.value?.requestLock()
     }
     else {
