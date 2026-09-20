@@ -11,7 +11,7 @@ import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, isEdgeKind, overlappi
 import { propFromPlacement } from '../shared/utils/props'
 import { KIT_ASSETS } from '../shared/utils/kit'
 import { generateVegetation, isWildTree } from '../shared/utils/vegetation'
-import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
+import { CHUNK_SIZE, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { worldTerrainHeight } from '../shared/utils/terrain'
 import { FORTIFICATIONS } from '../shared/utils/courtyard'
@@ -503,6 +503,20 @@ test('building stops at the end of the gate bridge, not a chunk later', () => {
   const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.bridgeEnd - 1 }
   assert.equal(checkTerraform(world, { x: edge.x, y: edge.y, mode: 'raise', size: 1 }, edge).ok, true)
   assert.equal(checkTerraform(world, { x: edge.x - 1, y: edge.y, mode: 'raise', size: 3 }, edge).ok, false)
+})
+
+test('a flatten needs a brush wider than the corner it levels to', () => {
+  const world = createWorld()
+  const at = { x: 30, y: 150 }
+  // Size 1 is the crosshair corner alone, levelled to itself: `applyTerrain`
+  // would move nothing and the click would vanish without a word.
+  const refused = checkTerraform(world, { ...at, mode: 'flatten', size: 1 }, at)
+  assert.equal(refused.ok, false)
+  assert.equal(refused.ok === false && refused.reason, 'widen the brush to level ground')
+  assert.deepEqual(applyTerrain(world, { ...at, mode: 'flatten', size: 1, maxStep: TERRAFORM_STEP }), [])
+  assert.equal(checkTerraform(world, { ...at, mode: 'flatten', size: 2 }, at).ok, true)
+  // The narrowest allowed brush does move ground, which is what makes it the floor.
+  assert.ok(applyTerrain(world, { ...at, mode: 'flatten', size: 2, maxStep: TERRAFORM_STEP }).length > 0)
 })
 
 /* -------------------------------------------------------------------------- */

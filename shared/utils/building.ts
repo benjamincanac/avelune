@@ -514,6 +514,11 @@ export function checkTerraform(world: World, request: TerraformRequest, actor: E
   if (!Number.isFinite(x) || !Number.isFinite(y)) return REFUSE('bad coordinates')
   if (mode !== 'raise' && mode !== 'lower' && mode !== 'flatten' && mode !== 'paint') return REFUSE('unknown tool')
   if (size !== 1 && size !== 2 && size !== 3) return REFUSE('brush must be 1 to 3')
+  // Flatten levels every corner in the brush to the one under the crosshair, so
+  // a brush of one corner is that corner alone and nothing can ever move. The
+  // hotbar keeps the tool at two; this refuses out loud rather than letting the
+  // click reach `applyTerrain`, change nothing and read as a dead tool.
+  if (mode === 'flatten' && size === 1) return REFUSE('widen the brush to level ground')
   if (mode === 'paint' && (request.surface == null || !Number.isInteger(request.surface) || request.surface < 0 || request.surface > 5)) {
     return REFUSE('unknown surface')
   }

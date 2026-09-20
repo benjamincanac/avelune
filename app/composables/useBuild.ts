@@ -101,7 +101,8 @@ export interface UseBuild {
   slot: Ref<number>
   /** The armed slot, or undefined when nothing is armed. */
   active: ComputedRef<Slot | undefined>
-  /** Terraform brush, 1 to 3 tiles across. */
+  /** Terraform brush, 1 to 3 tiles across. Never 1 while `flatten` is armed:
+   *  that brush is the crosshair corner alone and there is nothing to level. */
   size: Ref<1 | 2 | 3>
   /** Ghost rotation, in quarter turns of radians. */
   rot: Ref<number>
@@ -153,7 +154,7 @@ export function useBuild(): UseBuild {
 
   const page = ref(0)
   const slot = ref(-1)
-  const size = ref<1 | 2 | 3>(1)
+  const rawSize = ref<1 | 2 | 3>(1)
   const rot = ref(0)
   // Paving is what players reach for the tool to do, so a fresh Paint click
   // lays flagstones rather than a patch of dirt nobody asked for.
@@ -177,6 +178,19 @@ export function useBuild(): UseBuild {
   let swapBack = -1
 
   const active = computed(() => BUILD_PAGES[page.value]?.slots[slot.value])
+
+  /** The narrowest brush the armed tool can do anything with. `flatten` levels
+   *  the brush to the corner at its centre, so at 1 that corner is levelled to
+   *  itself and the click moves nothing: the tool would read as broken. */
+  const minSize = computed(() => active.value?.id === 'flatten' ? 2 : 1)
+
+  /** Reported rather than stored, so arming `flatten` widens the brush in the
+   *  crosshair, the hotbar and the request together, and putting it away hands
+   *  back the size that was in play. */
+  const size = computed<1 | 2 | 3>({
+    get: () => Math.max(minSize.value, rawSize.value) as 1 | 2 | 3,
+    set: value => void (rawSize.value = value),
+  })
 
   /** Arm a slot; the same slot again disarms, so nothing stays armed by accident. */
   function select(index: number) {
@@ -244,8 +258,10 @@ export function useBuild(): UseBuild {
     rot.value = (rot.value + BUILD_ROT_STEP) % (Math.PI * 2)
   }
 
+  /** Walks the stored size, not the reported one, so a `[` under `flatten`'s
+   *  floor is remembered and the brush narrows again once it is put away. */
   function nudgeSize(delta: number) {
-    size.value = Math.min(3, Math.max(1, size.value + delta)) as 1 | 2 | 3
+    rawSize.value = Math.min(3, Math.max(1, size.value + delta)) as 1 | 2 | 3
   }
 
   function fire() {
