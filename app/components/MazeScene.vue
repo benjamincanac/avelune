@@ -54,7 +54,7 @@ import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
 import { courtyardWeather, createCourtyardSky } from '~/utils/courtyardSky'
-import { NATURE_NAMES, createGrassBank, setGrassPushers, updateGrassLod } from '~/utils/courtyardLandscape'
+import { NATURE_NAMES, createGrassBank, setGrassDetail, setGrassPushers, updateGrassLod } from '~/utils/courtyardLandscape'
 import { createTerrainMaterial, createTerrainMesh, updateTerrainMesh } from '~/utils/terrainChunk'
 import type { HeightSampler } from '~/utils/terrainChunk'
 import { chunkGrassBlades, createChunkProps, createPavingBank } from '~/utils/chunkProps'
@@ -127,16 +127,48 @@ const oracle = useOracle()
 const { scene, camera: cameraManager, renderer } = useTresContext()
 const camera = cameraManager.activeCamera
 const { onBeforeRender, render } = useLoop()
+
+/**
+ * What the player let the renderer spend. Applied from the render loop rather
+ * than from the watcher: half of it needs the WebGL renderer, which Tres has
+ * not necessarily built yet when the settings load.
+ */
+const graphics = useGraphics()
+let graphicsDirty = true
+watch(graphics.profile, () => {
+  graphicsDirty = true
+})
+
 let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
 render((notify) => {
   if (sceneDisposed) return
   const active = camera.value
   const gl = renderer.instance
   if (!active || !(gl instanceof WebGLRenderer)) return
-  pipeline ??= createCourtyardRenderer(gl, scene.value, active)
+  if (graphicsDirty) applyGraphics()
+  pipeline ??= createCourtyardRenderer(gl, scene.value, active, graphics.profile.value)
   pipeline.render(active)
+  tickFps()
   notify()
 })
+
+/** A quality change lands everywhere at once. The post pipeline is rebuilt
+ *  rather than mutated — a composer's passes are fixed once it is built — and
+ *  the chunk ring is resynced so the new detail radius takes on the next frame
+ *  instead of at the next border crossing. `shadows` itself is the canvas's,
+ *  because Tres recompiles the town's materials when it flips. */
+function applyGraphics() {
+  graphicsDirty = false
+  const quality = graphics.profile.value
+  atmosphere.setQuality(quality)
+  setGrassDetail(quality.grassDensity, quality.grassRange)
+  detailRadius = quality.detailRadius
+  detailDrop = quality.detailDrop
+  lastChunkCx = Number.NaN
+  lastChunkCy = Number.NaN
+  pipeline?.dispose()
+  pipeline = null
+}
 
 // Dev-only world editor: created in onMounted when `editor` is set (see the
 // bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
@@ -241,8 +273,11 @@ function bumpSceneVersion() {
  */
 const TERRAIN_RADIUS = 7
 const TERRAIN_DROP = 8
-const DETAIL_RADIUS = 2
-const DETAIL_DROP = 3
+/** The detail ring, tightened by the graphics settings (`useGraphics`). Terrain
+ *  is not: the hills have to keep closing the horizon whatever the machine, and
+ *  the fog is nowhere near thick enough to hide a nearer edge of the world. */
+let detailRadius = 2
+let detailDrop = 3
 
 /** The authored town is a fixed 25 chunks and reads as one place: half of it
  *  fading out as you cross the square would be worse than the draw calls. It
@@ -254,7 +289,7 @@ const alwaysDetailed = (cx: number, cy: number) => isTownChunk(cx, cy)
 function detailFor(cx: number, cy: number): boolean {
   if (alwaysDetailed(cx, cy)) return true
   if (Number.isNaN(lastChunkCx)) return true
-  return Math.max(Math.abs(cx - lastChunkCx), Math.abs(cy - lastChunkCy)) <= DETAIL_RADIUS
+  return Math.max(Math.abs(cx - lastChunkCx), Math.abs(cy - lastChunkCy)) <= detailRadius
 }
 /** Milliseconds of a frame a border crossing may spend building chunks. The
  *  first sync ignores it: the whole view is filled at once, while the models are
@@ -417,7 +452,7 @@ function syncChunks(x: number, y: number) {
       const { cx, cy } = parseChunkKey(key)
       const distance = Math.max(Math.abs(cx - cx0), Math.abs(cy - cy0))
       if (distance > TERRAIN_DROP) unmountChunk(cx, cy)
-      else if (distance > DETAIL_DROP && entry.detail && !alwaysDetailed(cx, cy)) {
+      else if (distance > detailDrop && entry.detail && !alwaysDetailed(cx, cy)) {
         entry.detail = false
         refreshChunkProps(cx, cy)
       }
@@ -1921,6 +1956,7 @@ if (import.meta.dev) {
 function disposeScene() {
   if (sceneDisposed) return
   sceneDisposed = true
+  resetFps()
   pipeline?.dispose()
   for (const rig of rigs.values()) rig.dispose()
   rigs.clear()

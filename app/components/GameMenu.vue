@@ -10,8 +10,13 @@
  *
  * It is also where the mixer lives. The world ducks under the menu rather than
  * stopping, so dragging the slider is audible while you drag it.
+ *
+ * The graphics tab is the same shape: every control writes straight through to
+ * the renderer, and the frozen render behind the menu redraws as you change it,
+ * so the cost of a setting is visible before you resume.
  */
 import { play, setWorldDucked } from '~/utils/audio'
+import type { GraphicsPreset } from '~/utils/graphics'
 
 defineProps<{
   fullscreen: boolean
@@ -20,13 +25,15 @@ defineProps<{
 }>()
 
 /**
- * Two tabs, so the menu stays one screen tall now that sound and voice have
- * joined the controls. Both stay mounted: the mixer keeps its state and the
- * one-off voice notice is not re-created every time you look at the keys.
+ * Tabs, so the menu stays one screen tall now that sound, voice and the quality
+ * settings have joined the controls. All stay mounted: the mixer keeps its
+ * state and the one-off voice notice is not re-created every time you look at
+ * the keys.
  */
 const TABS = [
   { label: 'Controls', value: 'controls', slot: 'controls' as const, icon: 'i-lucide-keyboard' },
-  { label: 'Sound', value: 'sound', slot: 'sound' as const, icon: 'i-lucide-volume-2' },
+  { label: 'Graphics', value: 'graphics', slot: 'graphics' as const, icon: 'i-lucide-monitor-cog' },
+  { label: 'Audio', value: 'audio', slot: 'audio' as const, icon: 'i-lucide-volume-2' },
 ]
 const tab = ref('controls')
 
@@ -51,12 +58,38 @@ const CONTROLS = [
     { label: 'Use tool', keys: ['Click'] },
     { label: 'Brush / rotate', keys: ['[ ]', 'R'] },
     { label: 'Map / fullscreen', keys: ['M', 'F'] },
-    { label: 'Talk / mute', keys: ['T', 'N'] },
+    { label: 'Talk / mute mic', keys: ['T', 'N'] },
   ],
 ]
 
 const audio = useAudio()
 const voice = useVoice()
+const graphics = useGraphics()
+
+const PRESETS = [
+  { label: 'Low', value: 'low' as const },
+  { label: 'Medium', value: 'medium' as const },
+  { label: 'High', value: 'high' as const },
+]
+
+/** A preset is a button that writes every control below it, so there is nothing
+ *  to select once one of those has been touched: the group simply clears and
+ *  the heading says Custom. */
+const preset = computed({
+  get: () => graphics.preset.value ?? undefined,
+  set: (value: GraphicsPreset | undefined) => {
+    if (value) graphics.apply(value)
+  },
+})
+
+/** The slider works in whole percent, like the mixer's; the renderer works in a
+ *  fraction of the display's own pixel ratio. */
+const resolution = computed({
+  get: () => Math.round(graphics.scale.value * 100),
+  set: (value: number) => {
+    graphics.scale.value = value / 100
+  },
+})
 
 /** The slider works in whole percent; the engine works in 0 to 1. */
 const level = computed({
@@ -91,11 +124,21 @@ const voiceState = computed(() => {
   if (voice.mic.value === 'asking') return 'Asking for the microphone'
   if (voice.mic.value === 'blocked') return 'Microphone blocked. Allow it in the browser and try again'
   if (!voice.enabled.value) return 'Off'
+  if (voice.micMuted.value) return 'On, microphone muted'
   if (voice.say.value === 'sending') return 'On, sending what you said to chat'
   if (voice.say.value === 'failed') return 'On, that line could not be posted to chat'
   const nearby = voice.peers.value.length
   if (!nearby) return 'On, nobody nearby'
   return nearby === 1 ? 'On, 1 nearby' : `On, ${nearby} nearby`
+})
+
+/** Muting has to reach the encoder in the same breath as the ref, so it is
+ *  written through `useVoice` rather than modelled straight onto it. */
+const micMuted = computed({
+  get: () => voice.micMuted.value,
+  set: (value: boolean) => {
+    voice.setMicMuted(value)
+  },
 })
 
 /** The switch writes through a handler rather than a model: opening the mic is
@@ -177,7 +220,84 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <template #sound>
+      <template #graphics>
+        <div class="flex items-center gap-5">
+          <p class="label-section text-label">
+            Quality
+          </p>
+          <span
+            v-if="!graphics.preset.value"
+            class="telemetry text-dimmed"
+          >Custom</span>
+          <URadioGroup
+            v-model="preset"
+            :items="PRESETS"
+            orientation="horizontal"
+            variant="card"
+            indicator="hidden"
+            size="xs"
+            class="ml-auto"
+            :ui="{ fieldset: 'gap-0', item: 'rounded-none first:rounded-l-[4px] last:rounded-r-[4px] -ml-px first:ml-0', label: 'telemetry text-toned' }"
+          />
+        </div>
+
+        <p class="label-section pb-3 pt-[22px] text-label">
+          Resolution
+        </p>
+        <div class="flex items-center gap-5">
+          <USlider
+            v-model="resolution"
+            :min="50"
+            :max="100"
+            :step="5"
+            size="sm"
+            class="flex-1"
+          />
+          <span class="telemetry w-8 text-right text-label">{{ resolution }}</span>
+        </div>
+
+        <div class="flex items-center gap-5 pt-[22px]">
+          <p class="label-section text-label">
+            World detail
+          </p>
+          <URadioGroup
+            v-model="graphics.detail.value"
+            :items="PRESETS"
+            orientation="horizontal"
+            variant="card"
+            indicator="hidden"
+            size="xs"
+            class="ml-auto"
+            :ui="{ fieldset: 'gap-0', item: 'rounded-none first:rounded-l-[4px] last:rounded-r-[4px] -ml-px first:ml-0', label: 'telemetry text-toned' }"
+          />
+        </div>
+
+        <div class="flex items-center justify-between gap-5 pt-[18px]">
+          <USwitch
+            v-model="graphics.shadows.value"
+            label="Shadows"
+            size="sm"
+            :ui="{ label: 'text-[15px] leading-none text-toned' }"
+          />
+          <USwitch
+            v-model="graphics.occlusion.value"
+            label="Ambient occlusion"
+            size="sm"
+            :ui="{ label: 'text-[15px] leading-none text-toned' }"
+          />
+          <USwitch
+            v-model="graphics.bloom.value"
+            label="Bloom"
+            size="sm"
+            :ui="{ label: 'text-[15px] leading-none text-toned' }"
+          />
+        </div>
+        <p class="telemetry pt-3.5 text-label">
+          Resolution first, then ambient occlusion
+        </p>
+      </template>
+
+      <template #audio>
         <p class="label-section pb-3 text-label">
           World
         </p>
@@ -233,6 +353,21 @@ onBeforeUnmount(() => {
             />
             <span class="telemetry w-8 text-right text-label">{{ voiceLevel }}</span>
             <UKbd value="T" />
+          </div>
+          <!-- The mute is about the microphone and not the mixer above it, so it
+             lives here rather than under World. It survives a reload, which is
+             why it is shown even with voice off. -->
+          <div class="flex items-center gap-5">
+            <USwitch
+              v-model="micMuted"
+              label="Mute microphone"
+              size="sm"
+              :ui="{ label: 'text-[15px] leading-none text-toned' }"
+            />
+            <UKbd
+              value="N"
+              class="ml-auto"
+            />
           </div>
           <div class="flex items-center justify-between gap-5">
             <p class="telemetry text-label">

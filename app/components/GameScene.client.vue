@@ -34,6 +34,11 @@ const audio = useAudio()
  *  peers and the mixing are `useVoice`'s. */
 const voice = useVoice()
 
+/** The quality settings. The canvas owns the two the renderer itself is built
+ *  from — the pixel ratio and whether it draws shadow maps at all — and
+ *  `MazeScene` owns everything inside the scene. */
+const graphics = useGraphics()
+
 /**
  * Fired when pointer lock is lost without us initiating it (Alt-cursor mode).
  * While locked the browser swallows the Escape keydown entirely, so this
@@ -220,9 +225,11 @@ function onKeyDown(event: KeyboardEvent) {
   if (isTyping()) return
   // Any key in the world counts as the gesture the audio context waits for.
   audio.unlock()
+  // Mute the microphone, not the game: `N` is the one that has to work while
+  // the map is up and while the talk key is held, so it sits above both.
   if (event.code === 'KeyN') {
     event.preventDefault()
-    audio.toggleMute()
+    voice.toggleMicMute()
     return
   }
   if (event.code === 'KeyM') {
@@ -708,11 +715,16 @@ defineExpose({ pointerLocked, requestLock, toggleMap })
       type stays PCF: PCFSoft is downgraded to PCF by three anyway, and CSM
       blends its own cascade edges. Tone mapping happens once, in the pipeline's
       OutputPass, which reads these renderer settings.
+
+      `shadows` is the graphics setting and not a constant: turning it off
+      leaves the cascades' `castShadow` alone, so CSM's patched light loop still
+      lights the town from a sun it can no longer sample. Tres recompiles the
+      materials when it flips, which is what that switch costs.
     -->
     <TresCanvas
       clear-color="#05070d"
-      :dpr="[1, 2]"
-      shadows
+      :dpr="graphics.profile.value.pixelRatio"
+      :shadows="graphics.profile.value.shadows"
       :shadow-map-type="PCFShadowMap"
       :tone-mapping="AgXToneMapping"
       :tone-mapping-exposure="1.25"

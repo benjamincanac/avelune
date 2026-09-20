@@ -424,6 +424,16 @@ export function createCourtyardSky(scene: Scene) {
     setupShadows() {
       shadows.setupScene(scene)
     },
+    /**
+     * Apply the graphics settings this module owns: the sun's cascades, and how
+     * much of the storm is drawn. The streaks' seeds are hashed in index order,
+     * so the first share of the buffer is already a fair scatter over the whole
+     * box and a draw range is enough to thin the rain without a rebuild.
+     */
+    setQuality(quality: { shadowMapSize: number, shadowDistance: number, rain: number }) {
+      shadows.setQuality(quality.shadowMapSize, quality.shadowDistance)
+      rainGeometry.setDrawRange(0, Math.max(1, Math.round(rainCount * quality.rain)) * 2)
+    },
     update(now: number, delta: number, camera: Camera, renderer: WebGLRenderer, x: number, z: number, mode: WeatherMode = 'auto', timeOfDay: TimeOfDayMode = 'auto') {
       const state = courtyardWeather(now, mode, timeOfDay)
       if (mode !== previousWeather || timeOfDay !== previousTimeOfDay) capturedAngle = Infinity

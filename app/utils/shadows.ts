@@ -93,6 +93,28 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
     lights: csm.lights,
     setupScene,
     /**
+     * How sharp the cascades are and how far they reach, from the graphics
+     * settings. Dropping a light's map releases it so three allocates the new
+     * size on the next shadow pass, and a new `maxFar` has to re-split the
+     * cascades or they keep covering the old distance.
+     *
+     * Turning shadows *off* is not here: that is `renderer.shadowMap.enabled`,
+     * which leaves `castShadow` alone so CSM's patched light loop still lights
+     * the town from the cascade it can no longer sample.
+     */
+    setQuality(mapSize: number, maxFar: number) {
+      if (csm.maxFar !== maxFar) {
+        csm.maxFar = maxFar
+        csm.updateFrustums()
+      }
+      for (const light of csm.lights) {
+        if (light.shadow.mapSize.x === mapSize) continue
+        light.shadow.mapSize.setScalar(mapSize)
+        light.shadow.map?.dispose()
+        light.shadow.map = null
+      }
+    },
+    /**
      * `sunDirection` points from the town toward the sun (the sky module's
      * convention); CSM wants the direction light travels.
      */

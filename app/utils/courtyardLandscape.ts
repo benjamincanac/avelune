@@ -106,9 +106,11 @@ export function setGrassPushers(actors: readonly GrassPusher[], nearX: number, n
 
 /**
  * Where blades start dissolving and where they are gone, in world units from
- * the camera. `MazeScene`'s `DETAIL_RADIUS` mounts grass two chunks out (64
- * units at the nearest edge), so the fade has to finish inside that or the
- * meadow pops in at the ring instead of arriving already faded.
+ * the camera, at full quality. `MazeScene`'s detail ring mounts grass two
+ * chunks out (64 units at the nearest edge), so the fade has to finish inside
+ * that or the meadow pops in at the ring instead of arriving already faded.
+ * The low graphics settings tighten the ring to one chunk and scale these down
+ * with `grassRange` in step, which is the only reason that stays true.
  */
 export const GRASS_FADE_START = 50
 export const GRASS_FADE_END = 62
@@ -129,7 +131,31 @@ const KEEP_START = 10
 const KEEP_END = 42
 const KEEP_FAR = 0.08
 const KEEP_MARGIN = 1.06
-const grassKeep = (distance: number) => 1 - (1 - KEEP_FAR) * smoothstep(KEEP_START, KEEP_END, distance)
+
+/**
+ * What the graphics settings leave of the meadow: the share of a patch kept
+ * everywhere, and a multiplier on every distance the thinning and the fade are
+ * measured over. Both are 1 for the full meadow.
+ *
+ * They are uniforms, shared by every bank's material, because the shader and
+ * `updateGrassLod` have to agree to the blade: the count is trimmed in rank
+ * order and the shader shrinks by the same rank, so a CPU-side cut the shader
+ * did not make would snap tufts away at full size. Shrinking the range also
+ * moves the fade, which has to keep finishing inside the detail ring — the low
+ * settings tighten that ring, and this is what keeps the meadow inside it.
+ */
+const grassDensity = { value: 1 }
+const grassRange = { value: 1 }
+
+/** Written by the Escape menu's graphics tab, read on the next frame. Nothing
+ *  is rebuilt: a patch's instances are already ranked, so this is only a
+ *  different count and a different uniform. */
+export function setGrassDetail(density: number, range: number) {
+  grassDensity.value = density
+  grassRange.value = range
+}
+
+const grassKeep = (distance: number) => grassDensity.value * (1 - (1 - KEEP_FAR) * smoothstep(KEEP_START * grassRange.value, KEEP_END * grassRange.value, distance))
 
 /** Trim a patch's instance count to what can still be standing, given the
  *  camera. Call once a frame per mounted patch; it is a few multiplications. */
@@ -212,6 +238,8 @@ export function createGrassBank(time: { value: number }) {
     shader.uniforms.grassLush = { value: MEADOW_PALETTE.lush }
     shader.uniforms.grassStraw = { value: MEADOW_PALETTE.straw }
     shader.uniforms.grassHighland = { value: MEADOW_PALETTE.highland }
+    shader.uniforms.grassDensity = grassDensity
+    shader.uniforms.grassRange = grassRange
     shader.vertexShader = `${/* glsl */ `
       uniform float landscapeTime;
       uniform vec3 grassPushers[${PUSHER_SLOTS}];
@@ -219,6 +247,8 @@ export function createGrassBank(time: { value: number }) {
       uniform vec3 grassLush;
       uniform vec3 grassStraw;
       uniform vec3 grassHighland;
+      uniform float grassDensity;
+      uniform float grassRange;
       varying float vGrassFade;
 
       float grassHash(vec2 p) {
@@ -299,7 +329,7 @@ export function createGrassBank(time: { value: number }) {
 
         // Fade out before the detail ring ends, and shrink on the way so the
         // dither reads as the meadow thinning rather than blinking off.
-        vGrassFade = 1.0 - smoothstep(${GRASS_FADE_START.toFixed(1)}, ${GRASS_FADE_END.toFixed(1)}, distance(cameraPosition, grassWorld));
+        vGrassFade = 1.0 - smoothstep(${GRASS_FADE_START.toFixed(1)} * grassRange, ${GRASS_FADE_END.toFixed(1)} * grassRange, distance(cameraPosition, grassWorld));
         transformed *= mix(0.45, 1.0, vGrassFade);
 
         // instanceColor is data here, not a tint: rank, lushness, straw.
@@ -309,7 +339,7 @@ export function createGrassBank(time: { value: number }) {
           vec3 grassData = vec3(0.0, 1.0, 0.0);
         #endif
         // Thin with distance, measured at the root so a tuft shrinks whole.
-        float grassKeep = 1.0 - ${(1 - KEEP_FAR).toFixed(3)} * smoothstep(${KEEP_START.toFixed(1)}, ${KEEP_END.toFixed(1)}, distance(cameraPosition.xz, grassRoot.xz));
+        float grassKeep = grassDensity * (1.0 - ${(1 - KEEP_FAR).toFixed(3)} * smoothstep(${KEEP_START.toFixed(1)} * grassRange, ${KEEP_END.toFixed(1)} * grassRange, distance(cameraPosition.xz, grassRoot.xz)));
         transformed *= smoothstep(0.0, 0.06, grassKeep * ${KEEP_MARGIN.toFixed(2)} - grassData.x);
         transformed.xz *= 1.0 + (1.0 - grassKeep) * 0.8;
 

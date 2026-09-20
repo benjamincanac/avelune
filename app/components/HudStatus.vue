@@ -17,9 +17,13 @@ const props = defineProps<{
   live: boolean
 }>()
 
+const { fps } = useFps()
+
 const telemetry = computed(() => {
-  const realm = props.realm?.toUpperCase() ?? '—'
-  return props.rtt == null ? realm : `${realm} · ${props.rtt}MS`
+  const parts = [props.realm?.toUpperCase() ?? '—']
+  if (props.rtt != null) parts.push(`${props.rtt}MS`)
+  if (fps.value) parts.push(`${fps.value}FPS`)
+  return parts.join(' · ')
 })
 </script>
 

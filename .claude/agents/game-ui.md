@@ -7,7 +7,7 @@ description: >
   SandboxNotice.vue, GameMenu.vue, ConnectingOverlay.vue, Hotbar.vue,
   WorldMap.vue, VoiceHud.vue, EditorPanel.vue, useGame.ts / useFeed.ts /
   useWorld.ts / useAssets.ts / useBuild.ts / useWorldMap.ts / useVoice.ts /
-  useEditor.ts composables, and the two pages — app/pages/index.vue (the title
+  useGraphics.ts / useFps.ts / useEditor.ts composables, and the two pages — app/pages/index.vue (the title
   screen) and app/pages/play.vue (the game shell). Reach for this for layout,
   HUD, chat UX, the character onboarding flow, the Escape menu, or the design
   system and its tokens.
@@ -72,12 +72,27 @@ isn't the 3D world.
   the last chunk lands (`SETTLE`) and the models step is capped once terrain is
   in (`ASSET_CAP`), with `ASSET_QUIET` covering the lull between two load waves,
   when the count sits at "all done" without being done.
-  `GameMenu` is one `UTabs` of two items (Controls, Sound) over a six-row stack:
-  Resume, Fullscreen, World map, World editor (dev only), Return to town, Log
-  out. Those six are everything it emits (`resume`, `fullscreen`, `map`, `edit`,
-  `respawn`, `logout`). You own the file and its markup; the audio engine behind
-  the Sound tab and the mixer's behaviour are `scene-3d`'s, so coordinate there
-  before changing what a control does.
+  `GameMenu` is one `UTabs` of three items (Controls, Graphics, Audio) over a
+  six-row stack: Resume, Fullscreen, World map, World editor (dev only), Return
+  to town, Log out. Those six are everything it emits (`resume`, `fullscreen`,
+  `map`, `edit`, `respawn`, `logout`). Tabs keep `:unmount-on-hide="false"`, so
+  the mixer holds its state and the one-off voice notice survives a look at the
+  keys. You own the file and its markup; what the Graphics and Audio controls
+  actually drive (the render pipeline, the audio engine) is `scene-3d`'s, so
+  coordinate there before changing what a control does.
+- `app/composables/useGraphics.ts` — what the renderer is allowed to spend.
+  Module state like `useAudio`: the Graphics tab writes it, `GameScene` binds the
+  canvas's `dpr` and `shadows` to it, and `MazeScene` applies the rest. What is
+  stored is the flat set of controls, never the preset that wrote them, so a
+  preset is only a button and a saved setting cannot change meaning when a preset
+  is retuned. The tables behind it are `app/utils/graphics.ts` (`scene-3d`'s):
+  what a preset writes, and what a detail level costs. Adding a control means a
+  row there and a row in the tab, not a special case in the scene.
+- `app/composables/useFps.ts` — the frame rate `HudStatus` shows, counted in
+  `MazeScene`'s render loop rather than off `requestAnimationFrame`: a frame the
+  renderer is still working through is one rAF never fires, so a rAF counter
+  would report a steady 60 while the pipeline crawled. 0 means "not measured
+  yet" and the HUD hides it; anything drawing at all reports at least 1.
 - `app/composables/useFeed.ts` — the world feed. There is no feed frame on the
   wire: `useGame` words rows from `join`, `terrain` (via its `by`/`mode`/`at`),
   `place` and `remove`, which is why it lives next to the roster rather than in

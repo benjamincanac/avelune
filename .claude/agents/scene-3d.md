@@ -11,9 +11,10 @@ description: >
   CharacterPreview* model components. app/utils: courtyardSky, courtyardScene,
   courtyardAssets, courtyardTextures, courtyardLandscape, courtyardRenderer,
   terrainChunk, chunkProps, surfaceColors, materialTextures, townMaterials,
-  foliage, shadows, cityMoat, fortifications, critters, the four fountain
-  modules, buildTools, mapDraw, hubEditor, characterModels, characterAnimation,
-  characterRim, appearance, palette, and audio/.
+  foliage, shadows, graphics, cityMoat, fortifications, critters, the four
+  fountain modules, buildTools, mapDraw, hubEditor, characterModels,
+  characterAnimation, characterRim, appearance, palette, and audio/. Also what
+  the Escape menu's Graphics tab drives, though game-ui owns that tab's markup.
 model: inherit
 ---
 
@@ -94,16 +95,22 @@ world from the seed and the committed layout JSON, because it authors them.
   the share kept at its distance drops under its rank, and `updateGrassLod` (called
   per mounted patch each frame) trims `mesh.count` to the share kept at the patch's
   nearest point, which is safe only because `chunkGrassBlades` emits tufts in hashed
-  order. `DoubleSide` flips the upward normal on back faces, so the fragment hook
+  order. The share is scaled by the `grassDensity` and `grassRange` uniforms the
+  graphics settings write (`setGrassDetail`), and `updateGrassLod` reads those same
+  two objects: the count is trimmed in rank order and the shader shrinks by the same
+  rank, so a CPU-side cut the shader did not make snaps tufts away at full size.
+  `DoubleSide` flips the upward normal on back faces, so the fragment hook
   flips it back. Bodies bend blades away through `setGrassPushers(actors, x, z)`:
   the uniform is module-level, not per bank, because the chunk meadows and the
   garden beds each build their own bank and both must react to the same bodies.
   `MazeScene` feeds it the rendered player positions it already assembles for the
   fountain wakes, nearest four; the push only fires when the feet are within
   `PUSH_CONTACT` of the blade's root, so a jump releases the grass. Blades dissolve
-  between `GRASS_FADE_START` and `GRASS_FADE_END` (50→62 units from the camera)
-  with a screen-door dither discard and a shrinking height, which must stay inside
-  `MazeScene`'s `DETAIL_RADIUS` ring or grass pops in instead of fading. The patch
+  between `GRASS_FADE_START` and `GRASS_FADE_END` (50→62 units from the camera,
+  both scaled by `grassRange`) with a screen-door dither discard and a shrinking
+  height, which must stay inside `MazeScene`'s detail ring or grass pops in instead
+  of fading. That ring is a graphics setting now (`detailRadius`, one chunk on the
+  low level), so the two move together and `scripts/graphics-test.ts` holds them. The patch
   bounding sphere is padded for that displacement, or edge patches cull while their
   blades are still on screen. Botanicals are the
   Quaternius Stylized Nature MegaKit under `public/models/nature/` (`NATURE_NAMES`,
@@ -192,7 +199,18 @@ world from the seed and the committed layout JSON, because it authors them.
   `userData.foliageShader`.
 - `app/utils/shadows.ts` — `createCascadedShadows`, the CSM the sky drives. Every
   "CSM registration" and "cascade update" warning in this file is about this
-  module's `csm.shaders` map.
+  module's `csm.shaders` map. `setQuality(mapSize, maxFar)` is the graphics
+  settings' way in: dropping a light's `shadow.map` makes three reallocate it at
+  the new size, and a new `maxFar` has to `updateFrustums`. Turning shadows *off*
+  is not here and must not touch `castShadow`: it is `renderer.shadowMap.enabled`
+  (the canvas's `shadows` prop), which leaves `NUM_DIR_LIGHT_SHADOWS` positive so
+  CSM's patched light loop falls into its no-shadowmap branch and still lights the
+  town. Clearing `castShadow` instead would drop that branch and leave the world
+  lit by ambient alone.
+- `app/utils/graphics.ts` — the quality tables: what each preset writes and what
+  each detail level costs. Plain data, no Vue, so the test suite can import it.
+  `useGraphics` (game-ui's) owns what the player picked; this owns what a pick
+  means.
 - `app/utils/surfaceColors.ts` — `SURFACE_COLORS`, indexed by `SURFACE` for the
   map, and `TERRAIN_TINTS`, the blend targets `terrainChunk`'s `surfaceTint`
   lerps toward. The tints are keyed by pigment name, not by surface, so one
@@ -257,7 +275,10 @@ world from the seed and the committed layout JSON, because it authors them.
    courtyard kinds; legacy environment kits and thumbnails are not shipped. Register completed custom
    templates before `buildFloor()` so editor selection and instancing agree.
 7. `courtyardRenderer.ts` owns the render loop's EffectComposer with contact
-   occlusion, restrained bloom and one OutputPass. Call Tres's render notification
+   occlusion, restrained bloom and one OutputPass. It takes a `RenderQuality` at
+   build time and is **rebuilt, never mutated**, when that changes: a composer's
+   passes are fixed once it is built, so `MazeScene` disposes the pipeline and
+   drops it for the next frame to recreate. Call Tres's render notification
    after rendering. Tres tears down its separate Vue tree after disposing the
    renderer, so `MazeScene` emits its idempotent cleanup callback to `GameScene`.
    The host calls it in `onBeforeUnmount`, while GPU resource tables still exist.
