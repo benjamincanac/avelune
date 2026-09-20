@@ -1377,14 +1377,27 @@ const RECONCILE_IDLE_FREEZE = 0.4
 let oracleTemplate: Group | null = null
 let oracleClips: AnimationClip[] = []
 let oracleLoading = false
+let oracleRetryAt = 0
 
 function ensureOracle() {
-  if (oracleTemplate || oracleLoading) return
+  if (oracleTemplate || oracleLoading || Date.now() < oracleRetryAt) return
   oracleLoading = true
   assets.track(gltfLoader.loadAsync('/models/monsters/MushroomKing.glb')).then((gltf) => {
+    // A load that lands after disposal has missed its scene, and `disposeScene`
+    // has already released what it knew about, so this one is ours to free.
+    if (sceneDisposed) {
+      releaseTemplates([gltf.scene])
+      return
+    }
     oracleTemplate = gltf.scene
     oracleClips = gltf.animations
-  })
+  }).catch((error) => {
+    // The render loop asks every frame until the template lands, so a failure
+    // has to back off rather than latch: without this the flag stayed raised
+    // and the Oracle was gone for the session, silently.
+    oracleRetryAt = Date.now() + 10000
+    console.error('Oracle model could not load', error)
+  }).finally(() => { oracleLoading = false })
 }
 
 /** Scaled height — taller than the ~1.3-unit players, so the Oracle looms. */
