@@ -13,6 +13,7 @@ useSeoMeta({
 
 const game = useGame()
 const world = useWorld()
+const build = useBuild()
 const oracle = useOracle()
 const feed = useFeed()
 
@@ -312,8 +313,13 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
         class="pointer-events-none absolute right-0 top-71.5 z-10 w-97"
       />
 
-      <!-- Centre: the crosshair the build ray is cast through. -->
-      <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      <!-- Centre: the crosshair the build ray is cast through. Only while a
+           tool is armed, because with bare hands it sits on top of your own
+           nameplate and points at nothing. -->
+      <div
+        v-if="build.active.value"
+        class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+      >
         <span class="size-1.5 rounded-full bg-white/80 ring-1 ring-black/50" />
       </div>
 
