@@ -49,10 +49,13 @@ let disposeScene: (() => void) | undefined
 const held: MoveInput = { forward: false, back: false, left: false, right: false, sprint: false }
 
 /**
- * Camera state shared with the scene. Mouse deltas drive yaw/pitch directly —
- * with pointer lock when available (real tabs), and from raw `movementX` on
- * plain mousemove otherwise (embeds that forbid pointer lock). Arrow keys
- * still turn as a keyboard fallback.
+ * Camera state shared with the scene. Mouse deltas drive yaw/pitch directly.
+ *
+ * Under pointer lock that is the whole story: the cursor is gone and the
+ * deltas never run out. Without it — an embed or a browser that refuses the
+ * lock — the same deltas steer, but the OS cursor is still a real point that
+ * stops at the window edge and takes the deltas with it, so `edgePan` below
+ * keeps turning while it sits there. Arrow keys turn as a keyboard fallback.
  */
 const view = {
   yaw: -Math.PI / 2,
@@ -78,8 +81,19 @@ const view = {
 
 const root = ref<HTMLDivElement | null>(null)
 const pointerLocked = ref(false)
+/** Whether this browser has pointer lock at all. */
+const LOCKABLE = typeof HTMLElement !== 'undefined' && 'requestPointerLock' in HTMLElement.prototype
 /** Set once a lock request fails, so clicks act instead of retrying forever. */
-let lockDenied = false
+const lockDenied = ref(false)
+/**
+ * Whether the mouse steers right now.
+ *
+ * Locked, it always does. Unlocked it only does where the lock is not coming —
+ * before the first click in a normal tab the cursor is still the player's, and
+ * steering with it would both hide the fact that a click is what starts mouse
+ * look and strand them the moment the hidden cursor reached the window edge.
+ */
+const steering = computed(() => pointerLocked.value || !LOCKABLE || lockDenied.value)
 /** Lock requests made since the last one that was actually granted. */
 let lockAttempts = 0
 /** How long a request has to be granted before we count it unanswered. */
@@ -106,6 +120,39 @@ const TURN_KEYS: Record<string, 'turnLeft' | 'turnRight'> = {
 }
 
 const MOUSE_SENSITIVITY = 0.0031
+
+/**
+ * Edge pan, for the no-pointer-lock fallback.
+ *
+ * With the cursor pressed against the window edge every further `movementX` is
+ * zero, so the camera simply stops — you have turned as far as the window is
+ * wide. Inside this margin of the canvas edge we keep turning on our own, at a
+ * rate that ramps from nothing at the inner edge of the band to `EDGE_PAN_RATE`
+ * radians a second in the corner, which is what carries the turn past the wall.
+ * Under pointer lock the band is never entered: there is no cursor to put in it.
+ */
+const EDGE_PAN_MARGIN = 96
+const EDGE_PAN_RATE = 2.4
+let edgePanX = 0
+let edgePanY = 0
+let edgePanRaf = 0
+let edgePanAt = 0
+
+/** Radians below the horizon, clamped. An armed tool unlocks the steep range so
+ *  the crosshair can reach your own feet; the scene eases it back on disarm. */
+function clampPitch(next: number): number {
+  const floor = build.active.value ? PITCH_MAX_TOOL : PITCH_MAX
+  return Math.min(floor, Math.max(PITCH_MIN, next))
+}
+
+/** How far into the edge band `value` sits, as 0 at the band's inner edge and
+ *  ±1 hard against the side. */
+function edgeRamp(value: number, size: number): number {
+  if (size <= EDGE_PAN_MARGIN * 2) return 0
+  if (value < EDGE_PAN_MARGIN) return -(1 - Math.max(0, value) / EDGE_PAN_MARGIN)
+  if (value > size - EDGE_PAN_MARGIN) return 1 - Math.max(0, size - value) / EDGE_PAN_MARGIN
+  return 0
+}
 
 /**
  * Push to talk.
@@ -382,18 +429,33 @@ function onClick(event: MouseEvent) {
  */
 function attemptLock() {
   lockAttempts++
+  const canvas = root.value?.querySelector('canvas')
   try {
-    const request = root.value?.querySelector('canvas')?.requestPointerLock() as Promise<void> | undefined
+    // `unadjustedMovement` asks for raw device deltas, skipping the OS pointer
+    // acceleration curve that makes a slow drag and a fast flick turn by
+    // different amounts per inch. Browsers that don't know the option ignore
+    // it; Chrome rejects the promise when it can't honour it, and that is a
+    // plain lock request's job to retry, not a refusal.
+    const request = canvas?.requestPointerLock({ unadjustedMovement: true }) as Promise<void> | undefined
     request?.catch?.(() => {
-      lockDenied = true
+      if (pointerLocked.value) return
+      try {
+        const plain = canvas?.requestPointerLock() as Promise<void> | undefined
+        plain?.catch?.(() => {
+          lockDenied.value = true
+        })
+      }
+      catch {
+        lockDenied.value = true
+      }
     })
   }
   catch {
     // Pointer lock not available here; cursor steering still works.
-    lockDenied = true
+    lockDenied.value = true
   }
   window.setTimeout(() => {
-    if (!pointerLocked.value && lockAttempts >= 2) lockDenied = true
+    if (!pointerLocked.value && lockAttempts >= 2) lockDenied.value = true
   }, LOCK_GRACE)
 }
 
@@ -406,8 +468,7 @@ function onWorldCanvas(event: MouseEvent): boolean {
 /** Whether a left button press is an edit rather than the click that captures
  *  the mouse. */
 function canEdit(): boolean {
-  const lockable = typeof HTMLElement !== 'undefined' && 'requestPointerLock' in HTMLElement.prototype
-  return pointerLocked.value || !lockable || lockDenied
+  return steering.value
 }
 
 /** The wheel walks the hotbar, as it does in every game that has one. */
@@ -449,7 +510,7 @@ function onContextMenu(event: MouseEvent) {
 }
 
 function onPointerLockError() {
-  lockDenied = true
+  lockDenied.value = true
 }
 
 function onPointerLockChange() {
@@ -457,8 +518,9 @@ function onPointerLockChange() {
   const wasLocked = pointerLocked.value
   pointerLocked.value = locked
   if (locked) {
-    lockDenied = false
+    lockDenied.value = false
     lockAttempts = 0
+    edgePanX = edgePanY = 0
   }
   // Losing the mouse loses the drag with it.
   if (wasLocked && !locked) build.release()
@@ -505,18 +567,50 @@ function onMouseMove(event: MouseEvent) {
     view.cursorActive = Math.abs(view.cursorX) <= 1 && Math.abs(view.cursorY) <= 1
     return
   }
+  // A cursor the player can still see and click with is theirs, not the
+  // camera's: in a normal tab nothing steers until the click that locks it.
+  if (!steering.value) return
   // Same raw-delta look in both modes; without pointer lock, only while the
-  // pointer is over the world so the HUD stays usable.
+  // pointer is over the world so the HUD stays usable, and the edge band keeps
+  // the turn alive once the cursor runs out of window.
   if (!pointerLocked.value) {
+    const canvas = root.value?.querySelector('canvas')
     const overWorld = event.target instanceof Node && root.value?.contains(event.target)
-    if (!overWorld) return
+    if (!overWorld || !canvas) {
+      edgePanX = edgePanY = 0
+      return
+    }
+    const rect = canvas.getBoundingClientRect()
+    edgePanX = edgeRamp(event.clientX - rect.left, rect.width)
+    edgePanY = edgeRamp(event.clientY - rect.top, rect.height)
   }
   view.yaw += event.movementX * MOUSE_SENSITIVITY
-  // Radians below the horizon. An armed tool unlocks the steep range so the
-  // crosshair can reach your own feet; the scene eases it back on disarm.
-  const floor = build.active.value ? PITCH_MAX_TOOL : PITCH_MAX
-  view.pitch = Math.min(floor, Math.max(PITCH_MIN, view.pitch + event.movementY * 0.0022))
+  view.pitch = clampPitch(view.pitch + event.movementY * 0.0022)
   props.game.setLook(view.yaw)
+}
+
+/**
+ * Turn on while the cursor rests in the edge band (fallback steering only).
+ *
+ * Driven off its own frame clock rather than the mouse, because the whole point
+ * is the frames where the mouse reports nothing at all.
+ */
+function onEdgePanFrame(now: number) {
+  edgePanRaf = requestAnimationFrame(onEdgePanFrame)
+  const dt = edgePanAt ? Math.min(0.05, (now - edgePanAt) / 1000) : 0
+  edgePanAt = now
+  if (!dt || pointerLocked.value || !steering.value) return
+  if (props.editor || map.open.value || altHeld.value) return
+  if (!edgePanX && !edgePanY) return
+  view.yaw += edgePanX * EDGE_PAN_RATE * dt
+  view.pitch = clampPitch(view.pitch + edgePanY * EDGE_PAN_RATE * 0.45 * dt)
+  props.game.setLook(view.yaw)
+}
+
+/** The cursor left the window altogether (browser chrome, another screen).
+ *  Pressing into the edge is a turn; stepping off it is not. */
+function onMouseOut(event: MouseEvent) {
+  if (!event.relatedTarget) edgePanX = edgePanY = 0
 }
 
 /** Stop moving when the chat input steals focus or the tab is hidden. */
@@ -549,6 +643,7 @@ function onVisibilityChange() {
  * isn't left frozen, and stop any held movement.
  */
 function onWindowBlur() {
+  edgePanX = edgePanY = 0
   altHeld.value = false
   relockOnAltUp = false
   view.cursorActive = false
@@ -564,12 +659,14 @@ onMounted(() => {
   document.addEventListener('pointerlockerror', onPointerLockError)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseout', onMouseOut)
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('focusin', onFocusIn)
   window.addEventListener('blur', onWindowBlur)
   document.addEventListener('pointerlockchange', onPointerLockChange)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  edgePanRaf = requestAnimationFrame(onEdgePanFrame)
 })
 
 onBeforeUnmount(() => {
@@ -583,12 +680,14 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerlockerror', onPointerLockError)
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseout', onMouseOut)
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('focusin', onFocusIn)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  cancelAnimationFrame(edgePanRaf)
 })
 
 defineExpose({ pointerLocked, requestLock, toggleMap })
@@ -598,7 +697,7 @@ defineExpose({ pointerLocked, requestLock, toggleMap })
   <div
     ref="root"
     class="relative size-full select-none"
-    :class="editor || altHeld || map.open.value ? 'cursor-default' : 'cursor-none'"
+    :class="!steering || editor || altHeld || map.open.value ? 'cursor-default' : 'cursor-none'"
     @click="onClick"
     @wheel="onWheel"
     @mousedown="onMouseDown"

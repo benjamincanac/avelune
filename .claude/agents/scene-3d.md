@@ -291,7 +291,16 @@ world from the seed and the committed layout JSON, because it authors them.
   `courtyard-props.json` and `courtyard-oracle.json`. Both play and editor use
   the same custom templates. The legacy colosseum `hub-*.json` files are deleted.
 - Pointer lock throws `WrongDocumentError` inside the Claude preview iframe; real
-  tabs/deploy are fine. A delta-look fallback covers embeds — keep it.
+  tabs/deploy are fine. A delta-look fallback covers embeds — keep it, and keep
+  it **gated on `steering`**: the raw-delta path is the embed fallback only.
+  Steering an unlocked cursor in a normal tab looks like working mouse-look
+  right up to the window edge, where the deltas stop and the camera sticks, and
+  it hides the fact that a click is what starts mouse-look at all. So nothing
+  steers before the lock in a lockable browser, the OS cursor stays visible
+  until then, and where the lock really is refused an edge band keeps the turn
+  going once the cursor runs out of window. The lock is asked for with
+  `unadjustedMovement: true`, retried plain on rejection — Chrome rejects that
+  option rather than ignoring it, and a rejection there is not a refusal.
 - Camera boom samples the wall grid and shared solid prop heights along its
   width. It uses conservative clearance for the head-to-camera path.
 - `.client.vue` suffix / `<ClientOnly>` matters: three.js is browser-only, never
