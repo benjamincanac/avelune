@@ -95,8 +95,22 @@ const MISSED_BEATS = 3
 
 const BUBBLE_DURATION = 4_000
 
-/** How often mouse-look heading changes are flushed to the server. */
-const LOOK_INTERVAL = 90
+/**
+ * How often mouse-look heading changes may be flushed to the server.
+ *
+ * The heading is the one input the server cannot predict, and it is the axis
+ * every movement is measured from: while you sweep the mouse and hold forward,
+ * the server drives you along whatever heading it last heard, so every
+ * millisecond it is stale becomes sideways velocity the reconcile then has to
+ * pull out of you — felt as crabbing diagonally across your own facing. So the
+ * flush is a *leading*-edge throttle, not a poll: the first change goes out at
+ * once and the rest are spaced one server tick apart, which is as often as the
+ * 20 Hz loop can read them anyway. The trailing timer below only catches a
+ * turn that ended inside the window.
+ */
+const LOOK_INTERVAL = 50
+/** Heading noise under this (radians, ~0.2°) is not worth a frame. */
+const LOOK_EPSILON = 0.004
 
 /** Beyond this distance a state update is a teleport, not movement. */
 const SNAP_DISTANCE = 5
@@ -153,6 +167,7 @@ export function useGame(): UseGame {
   let lookAngle = 0
   let sentLook = 0
   let lookTimer: ReturnType<typeof setInterval> | undefined
+  let lookSentAt = 0
 
   function send(msg: ClientMessage) {
     if (socket?.readyState === WebSocket.OPEN) {
@@ -162,6 +177,7 @@ export function useGame(): UseGame {
 
   function sendMove() {
     sentLook = lookAngle
+    lookSentAt = Date.now()
     send({ t: 'move', ...lastInput, a: lookAngle })
   }
 
@@ -347,7 +363,7 @@ export function useGame(): UseGame {
     heartbeatTimer = setInterval(beat, HEARTBEAT_INTERVAL)
     // Mouse-look changes are flushed on a small fixed cadence, not per-event.
     lookTimer ??= setInterval(() => {
-      if (Math.abs(lookAngle - sentLook) > 0.02) sendMove()
+      if (Math.abs(lookAngle - sentLook) > LOOK_EPSILON) sendMove()
     }, LOOK_INTERVAL)
   }
 
@@ -456,9 +472,17 @@ export function useGame(): UseGame {
     sendMove()
   }
 
-  /** Update the mouse-look heading; flushed to the server on a fixed cadence. */
+  /**
+   * Update the mouse-look heading.
+   *
+   * Sent straight away when the throttle window is clear, so a turn reaches the
+   * server on the same tick it started rather than up to a window later.
+   */
   function setLook(angle: number) {
     lookAngle = angle
+    if (Math.abs(lookAngle - sentLook) <= LOOK_EPSILON) return
+    if (Date.now() - lookSentAt < LOOK_INTERVAL) return
+    sendMove()
   }
 
   function sendAction(kind: 'jump' | 'dash' | 'respawn') {

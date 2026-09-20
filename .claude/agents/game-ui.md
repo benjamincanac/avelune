@@ -225,6 +225,16 @@ agent — hand oracle work there.
    must check `event.target`, NOT `document.activeElement` — `ChatPanel` blurs
    its input on the same keydown, so focus may already be gone by the time the
    event reaches another listener.
+8. **The mouse-look heading is flushed on a *leading*-edge throttle, never a
+   poll.** It is the one input the server cannot predict and the axis every
+   movement is measured from: while you sweep the mouse and hold forward, the
+   server drives you along whatever heading it last heard, so each millisecond
+   it is stale becomes sideways velocity that `MazeScene`'s perpendicular
+   reconcile has to pull back out of you — felt as crabbing diagonally across
+   your own facing. `setLook` sends at once when the window is clear, spaced at
+   `LOOK_INTERVAL` (50 ms, the 20 Hz tick), with the interval kept only as the
+   trailing edge. Widening that window or the `LOOK_EPSILON` deadband brings
+   the drift straight back.
 
 ## Building and terraforming
 
