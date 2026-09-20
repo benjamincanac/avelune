@@ -38,7 +38,7 @@
     "ai": "^7.0.105",
     "h3": "2.0.1-rc.32",
     "nitro": "3.0.260610-beta",
-    "nuxt": "npm:nuxt-nightly@5.0.0-29718546.252d77ed",
+    "nuxt": "npm:nuxt-nightly@5.0.0-29830089.dc519522",
     "tailwindcss": "^4.3.3",
     "three": "^0.186.0",
     "zod": "^4.6.5"
