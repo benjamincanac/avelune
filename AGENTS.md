@@ -9,7 +9,7 @@ Roadmap / status is [.claude/ROADMAP.md](.claude/ROADMAP.md) — the source of t
 - `pnpm dev` — dev server (port 3000 is occupied on this machine; use the preview harness / autoPort)
 - `pnpm typecheck` — `nuxt typecheck` (vue-tsc)
 - `pnpm lint` / `pnpm lint:fix` — ESLint
-- `pnpm test` — vitest: every `scripts/*-test.ts` suite (shared physics, terrain, world, building, chunk-store, the per-chunk index, characters and their animations, moat, ramparts, fountain, voice, audio, icon names)
+- `pnpm test` — vitest: every `scripts/*-test.ts` suite (shared physics, terrain, world, building, chunk-store, the per-chunk index, characters and their animations, moat, ramparts, fountain, voice, audio, graphics presets, icon names)
 - `node scripts/ws-test.mjs ws://localhost:<port>/api/ws` — protocol test (two clients create characters over `/api/auth`, then assert `welcome`/`chunk`/`state`/`terrain`/`remove`/`chat`/`pong`/`leave`/`kicked` frames)
 - `pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:<port> --count 30 --dig` — load test; `AVELUNE_TICK_LOG=1` on the server logs tick timings
 - Blender is headless: `"/Applications/Blender.app/Contents/MacOS/Blender" --background --python scripts/<x>.py -- <args>`
@@ -41,7 +41,7 @@ Work is divided into focused subagents in [.claude/agents/](.claude/agents/). Ea
 | `oracle-ai` | The Oracle AI NPC end to end — `server/utils/oracle.ts` (in-process classifier + responder with the `arena_state` tool), `useOracle`, prompts/model/tools. |
 | `assets` | Blender/glTF pipeline — `scripts/*`, `public/models/**`, compression. |
 
-Ownership seams to respect: physics belongs to `world-sim` (not `server-net`/`scene-3d`); the Oracle's AI is `oracle-ai` (not `server-net`/`game-ui`); the Oracle's 3D placement/proximity is `scene-3d`. The Escape menu's sound tab straddles two slices: `game-ui` owns `GameMenu.vue` and its markup, `scene-3d` owns the audio engine behind the mixer. The dev world editor (`app/composables/useEditor.ts`, `app/utils/hubEditor.ts`, `EditorPanel.vue`, `server/api/editor/save.post.ts`) authors the town JSON — `scene-3d` owns it.
+Ownership seams to respect: physics belongs to `world-sim` (not `server-net`/`scene-3d`); the Oracle's AI is `oracle-ai` (not `server-net`/`game-ui`); the Oracle's 3D placement/proximity is `scene-3d`. The Escape menu's sound and graphics tabs straddle two slices: `game-ui` owns `GameMenu.vue` and its markup, `scene-3d` owns the audio engine behind the mixer and what a quality setting costs the renderer (`app/utils/graphics.ts`). `useGraphics` is module state like `useAudio`: the menu writes it, the canvas and `MazeScene` read it, and neither owns the other. The dev world editor (`app/composables/useEditor.ts`, `app/utils/hubEditor.ts`, `EditorPanel.vue`, `server/api/editor/save.post.ts`) authors the town JSON — `scene-3d` owns it.
 
 **Keep agent definitions current.** When a change alters a slice's durable contract — an ownership boundary, a load-bearing invariant, or a hard-won gotcha (e.g. the WebP-probe race, the shared-kinematics rule) — amend the matching `.claude/agents/*.md` in the same change so the next run starts from the truth. Keep *status/progress* out of agent files (that's the ROADMAP's job), and amend the specific fact rather than rewriting hand-tuned prose. A change that only adds a feature without shifting a contract needs no agent-file edit.
 
