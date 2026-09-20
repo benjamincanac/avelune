@@ -4,7 +4,9 @@ description: >
   2D interface — HUD, chat, menus, and onboarding (Nuxt UI + Vue, not the 3D
   scene). Use for ChatPanel.vue, CharacterGate.vue, the character preview
   wrappers, BrandMark.vue, HudStatus.vue, WorldFeed.vue, PlayerRoster.vue,
-  GameMenu.vue, ConnectingOverlay.vue, EditorPanel.vue, useGame.ts / useFeed.ts /
+  SandboxNotice.vue, GameMenu.vue, ConnectingOverlay.vue, Hotbar.vue,
+  WorldMap.vue, VoiceHud.vue, EditorPanel.vue, useGame.ts / useFeed.ts /
+  useWorld.ts / useAssets.ts / useBuild.ts / useWorldMap.ts / useVoice.ts /
   useEditor.ts composables, and the two pages — app/pages/index.vue (the title
   screen) and app/pages/play.vue (the game shell). Reach for this for layout,
   HUD, chat UX, the character onboarding flow, the Escape menu, or the design
@@ -33,58 +35,91 @@ isn't the 3D world.
   live data, so nothing here may touch the browser outside `onMounted`.
 - `app/pages/play.vue` — the game shell that composes scene + UI, `noindex`.
 - `app/components/ChatPanel.vue` — bottom-left chat: one arena-wide history for
-  everyone, Enter to focus, Escape back to the game.
+  everyone, Enter or `/` to focus, Escape back to the game.
 - `app/components/BrandMark.vue` — the top-left identity/status chip.
 - `app/components/CharacterGate.vue` + the character preview wrappers
   (the model rendering inside them belongs to `scene-3d` — coordinate on the seam).
   It lives inside `/play`, not on the landing page: a full-screen character
   stage with the controls panel floating left, the outfit blurb right and the
   name field plus Enter at the bottom. It carries no pitch and no live line —
-  by the time anyone sees it they have already clicked Play. Reopened from the
-  Escape menu to change a look, the same screen reads "Customize your
-  character" and gains a Cancel button.
+  by the time anyone sees it they have already clicked Play. Handed an `initial`
+  look it reads "Customize your character" and gains a Cancel button. `play.vue`
+  binds that prop (`:initial="identity ?? undefined"`) but the binding always
+  resolves to `undefined`: the gate renders only for `view === 'creating'`, and
+  both ways into that state leave `identity` null. So the heading is always
+  "Create your character" and the Cancel branch is unreachable today. Leave the
+  prop as it is rather than reaching for a look to pass it.
   It fetches `GET /api/status` once on mount, for the world feed beside the
   dossier — the town is already running while you pick a face, and showing it is
   the point. The title screen polls the same route; both use it because neither
   has a socket.
-- The character creator exposes the downloaded pack's gender, outfit, hair
-  and texture color controls, validated by `shared/utils/characters.ts`.
-  Escape menu → Customize character opens the gate with a cloned initial look.
-  Save updates the signed cookie under the same identity; Cancel reconnects
-  without saving. Ignore stale socket events after the creator reconnects.
+- The character creator exposes the downloaded pack's gender, outfit, hair,
+  beard and texture color controls, validated by `shared/utils/characters.ts`.
+  Submitting POSTs `/api/auth`, which sets the signed identity cookie, and the
+  page drops into the arena on `done`. There is no in-game door back into it:
+  the Escape menu's way out is `logout()`, which clears the cookie first, so the
+  gate always opens on a fresh character rather than a saved one.
 - `app/components/HudStatus.vue`, `SandboxNotice.vue`, `WorldFeed.vue`,
   `PlayerRoster.vue`, `GameMenu.vue`, `ConnectingOverlay.vue` — the HUD's
   clusters, the title screen's panels, the Escape menu and the entry screen.
   `ConnectingOverlay` shows the handshake step by step because the handshake is
-  what this project demonstrates: socket, realm, terrain, placement, each
-  resolved from real state and the bar derived from them plus chunk progress,
-  never faked on a timer. It latches shut on first entry (chunks stream in and
-  out for the rest of the session and that is not a loading screen) and after
-  that only surfaces a dropped socket, as a notice rather than a screen.
+  what this project demonstrates: socket, realm, terrain, models, placement,
+  each resolved from real state and the bar derived from them plus the chunk and
+  model counts, never faked on a timer. It latches shut on first entry (chunks
+  stream in and out for the rest of the session and that is not a loading
+  screen) and after that only surfaces a dropped socket, as a notice rather than
+  a screen. Neither wait may hold a player out, so terrain settles a beat after
+  the last chunk lands (`SETTLE`) and the models step is capped once terrain is
+  in (`ASSET_CAP`), with `ASSET_QUIET` covering the lull between two load waves,
+  when the count sits at "all done" without being done.
+  `GameMenu` is one `UTabs` of two items (Controls, Sound) over a six-row stack:
+  Resume, Fullscreen, World map, World editor (dev only), Return to town, Log
+  out. Those six are everything it emits (`resume`, `fullscreen`, `map`, `edit`,
+  `respawn`, `logout`). You own the file and its markup; the audio engine behind
+  the Sound tab and the mixer's behaviour are `scene-3d`'s, so coordinate there
+  before changing what a control does.
 - `app/composables/useFeed.ts` — the world feed. There is no feed frame on the
   wire: `useGame` words rows from `join`, `terrain` (via its `by`/`mode`/`at`),
   `place` and `remove`, which is why it lives next to the roster rather than in
   `useWorld` — a frame carries ids, and a row needs names. Same-actor,
   same-kind rows coalesce inside a six-second window, so a wall going up in a
-  dozen clicks is one line. `useState`-backed, because the title screen is
-  prerendered and a module singleton would leak across renders there.
+  dozen clicks is one line. `adopt` is the other way in: `welcome.feed` and
+  `/api/status` carry the server's own rows, worded the same, so a fresh HUD and
+  the title screen both open on history rather than on an empty panel.
+  `useState`-backed, because the title screen is prerendered and a module
+  singleton would leak across renders there.
 - `app/composables/useGame.ts` — the client-side game/socket state composable the
   UI binds to. It also hands every frame to `useWorld` before reading it itself.
 - `app/composables/useWorld.ts` — the streamed world. A non-reactive `World`
   (`createWorld({ generate: false, town: false })`) fed entirely by `chunk` /
   `unchunk` / `terrain` / `place` / `remove`, plus `onChunk` / `onUnchunk` /
   `onTerrain` / `onProps` listeners the 3D scene and the minimap subscribe to,
-  `info` from `welcome.world`, and `predictTerrain` for the optimistic local
-  edit. `reject` surfaces as a throttled Nuxt UI toast. Nothing is generated
-  client-side; a chunk that has not arrived simply is not there.
-- `app/components/Hotbar.vue` + `app/composables/useBuild.ts` — the nine-slot
-  build bar and its shared state (armed slot, page, brush size, ghost rotation,
-  paint surface, piece count, target verdict). Presentation and state only:
-  `GameScene` writes the keys and the wheel into it, `MazeScene` reads the armed
-  slot when it aims and sends. **Demolish belongs to no page**: it is appended to
-  every one as a tenth slot on `0`, because the piece you want gone is the one
-  you just placed and paging back to the tools row to remove it was the wrong
-  shape. Arming it is a swap — it remembers what was in hand and `0` puts that
+  `persistent` / `realm` / `streamed` off `welcome.world`, and `predictTerrain`
+  for the optimistic local edit. `reject` surfaces as a throttled Nuxt UI toast.
+  Nothing is generated client-side; a chunk that has not arrived simply is not
+  there.
+- `app/composables/useAssets.ts` — how much of the scene's art has arrived. The
+  scene hands every model load to `track` and `ConnectingOverlay` reads the two
+  counts, which is the only place those two component trees meet, so it sits on
+  this side of the seam even though only the scene writes it. Module state like
+  `useWorld`, written only from the client-only scene. A load that fails still
+  counts as settled, because a missing model is drawn around and must never be
+  the thing that keeps a player out. Reporting is the call site's job: all three
+  log, and the two the render loop keeps asking for also back off for 10s so a
+  failure cannot latch.
+- `app/components/Hotbar.vue` + `app/composables/useBuild.ts` — the build bar
+  and its shared state (armed slot, page, brush size, ghost rotation, paint
+  surface, piece and plot counts, target verdict, the `holding`/`pressId` pair
+  the held button drives, and which shoulder the camera looks over).
+  Presentation and state only: `GameScene` writes the keys and the wheel into
+  it, `MazeScene` reads the armed slot when it aims and sends. Three pages over
+  the 13 kit kinds: `Tools` carries the four terraform tools and no pieces,
+  `Build 1` the first nine kinds, `Build 2` the last four, so the rows come out
+  5, 10 and 5 slots wide. **Demolish belongs to no page**: it is appended to
+  every one as its last slot, labelled `0` whatever that page's count is and
+  bound to `Digit0`, because the piece you want gone is the one you just placed
+  and paging back to the tools row to remove it was the wrong shape. Arming it
+  is a swap — it remembers what was in hand and `0` puts that
   back — and each page remembers its own armed slot across `Tab` / `Shift+Tab`.
 - `app/components/WorldMap.vue` + `app/composables/useWorldMap.ts` — the
   full-screen map, toggled with `M` and closed with `M` or Escape. `GameScene`
@@ -95,7 +130,9 @@ isn't the 3D world.
 - `app/components/EditorPanel.vue` + `app/composables/useEditor.ts` — the dev-only
   world editor's 2D overlay (palette / inspector w/ X·Y·Height·rot·scale /
   undo-redo / save-exit) and its shared state. There is one map, so there is one
-  working document: every placement in the arena plus the Oracle's position.
+  working document: every placement in the arena plus the Oracle's position,
+  which has a seed file of its own (`courtyard-oracle.json`) and rides the same
+  save.
   Placements keep a two-layer model so they persist to their own files — `props`
   (`courtyard-props.json`, free-standing clutter) and `structure` (`courtyard-structure.json`,
   the town's buildings and walls) — and `save()` splits them back out in a single
@@ -161,10 +198,11 @@ agent — hand oracle work there.
    on a socket that was never dead.
 4. **Chat is one arena-wide channel.** Frames carry only `{id, text}` plus an
    optional `voice: true` on a line that was spoken rather than typed (a
-   transcribed push-to-talk clip, which the panel marks with a small mic). There is
-   no scoping to filter on. The Oracle arrives under the reserved `ORACLE_ID` and is
-   styled apart (`npc`), and `announce()` pushes local system lines (`system`)
-   that never touch the wire.
+   transcribed push-to-talk clip, which the panel marks with a small mic) and a
+   `to` that rides the Oracle's lines alone, naming the player it is answering so
+   the scene can turn the rig. There is no scoping to filter on. The Oracle
+   arrives under the reserved `ORACLE_ID` and is styled apart (`npc`), and
+   `announce()` pushes local system lines (`system`) that never touch the wire.
 5. `.client.vue` / `<ClientOnly>` for anything browser-only.
 6. **Entry flow is a view state machine in `play.vue`**: `checking →
    creating | playing | editing` (`editing` is the dev-only world editor: same
@@ -174,15 +212,16 @@ agent — hand oracle work there.
    `checking` covers the `/api/auth` probe, then an identity drops straight into
    the arena and a visitor lands on `CharacterGate` — on `done` the page enters
    the arena directly. The socket opens only for `playing`. The `sessionStorage`
-   editor re-entry key and the editor's exit both target `/play`, never `/`. There is **no logout** — the character is permanent,
-   so a returning cookie always resumes the same person.
-7. **In-game session actions live in the Escape menu** (WoW-style overlay in
-   `play.vue`: controls reference, fullscreen, a dev-only "World editor" entry,
-   return-to-game) — not in HUD buttons. Two open paths, both needed: a bare
-   Escape keydown covers every unlocked state (and keyboard-locked fullscreen),
-   and `GameScene`'s `unlock` emit covers pointer-locked play, where the browser
-   swallows the Escape keydown (contract owned by `scene-3d`). Gotcha:
-   window-level Escape handlers
+   editor re-entry key and the editor's exit both target `/play`, never `/`.
+   `logout()` is the one way back out of the arena: it `DELETE`s `/api/auth` to
+   clear the signed cookie, disconnects, nulls the identity and returns to
+   `creating`, which is why the gate it lands on has no `initial` look to clone.
+7. **In-game session actions live in the Escape menu** (the WoW-style overlay in
+   `play.vue`, whose tabs and rows are listed under `GameMenu` above) — not in
+   HUD buttons. Two open paths, both needed: a bare Escape keydown covers every
+   unlocked state (and keyboard-locked fullscreen), and `GameScene`'s `unlock`
+   emit covers pointer-locked play, where the browser swallows the Escape
+   keydown (contract owned by `scene-3d`). Gotcha: window-level Escape handlers
    must check `event.target`, NOT `document.activeElement` — `ChatPanel` blurs
    its input on the same keydown, so focus may already be gone by the time the
    event reaches another listener.
@@ -192,15 +231,16 @@ agent — hand oracle work there.
 The hotbar is armed at all times and a left click in the world uses it, so
 `GameScene`'s click handler both requests pointer lock and queues `build.fire()`
 — `requestLock()` is the separate path that must NOT fire the tool. Keys: 1-9
-arm a slot, the wheel walks them, `Tab` turns the page (tools + four kit pieces,
-then the rest of the kit), `Q` cycles the paint surface, `R` turns the ghost a
-quarter turn (a *flip* for the kit's panels, which take their heading from the
-edge they snap to — the bar says `R Flip` for those), `[` and `]` size the
-brush, and `V` flips which shoulder the camera looks over while a tool is armed.
+arm a slot, `0` swaps demolish in and back out, the wheel walks them, `Tab`
+turns the page (three of them, the terraform tools then the kit in two halves),
+`Q` cycles the paint surface, `R` turns the ghost a quarter turn (a *flip* for
+the kit's panels, which take their heading from the edge they snap to — the bar
+says `R Flip` for those), `[` and `]` size the brush, and `V` flips which
+shoulder the camera looks over while a tool is armed.
 While a tool is armed the downward pitch clamp opens up to `PITCH_MAX_TOOL`
-(~80°, in `useBuild` beside `PITCH_MIN`/`PITCH_MAX`) so the crosshair reaches
-the tile you are standing on; `MazeScene` eases it back into the walking band on
-disarm.
+(1.5 rad, near straight down, in `useBuild` beside `PITCH_MIN`/`PITCH_MAX`) so
+the crosshair reaches the tile you are standing on; `MazeScene` eases it back
+into the walking band on disarm.
 
 **A pointer-lock request that is never answered used to kill the hotbar.** A
 refusal throws or rejects and sets `lockDenied`, so clicks act instead; a
@@ -267,11 +307,14 @@ all seven screens, and the tokens live in `app/assets/css/main.css` and
    over a frozen render. Borders are inset shadows, never `border`, so they
    don't move anything.
 3. **The HUD rule: only what you click gets a panel.** Anything you read rather
-   than click — the world feed, the roster, the status line, the typing caption —
-   sits as plain text on an edge-anchored gradient wash (`.wash-right`), never
-   blurred. Panels are reserved for things you interact with: chat, the hotbar,
-   the overlays. The handoff drew the roster as a panel and the hotbar bare; both
-   were corrected to follow this rule rather than the frame.
+   than click — the world feed, the status line, the typing caption — sits as
+   plain text on an edge-anchored gradient wash (`.wash-right`), never blurred.
+   Panels are reserved for things you interact with: chat, the hotbar, the
+   overlays. The handoff drew the hotbar bare, and it was corrected to follow
+   this rule rather than the frame. The roster looks like an exception and is
+   not one: it exists only on the title screen, where the live data is the whole
+   pitch, so it keeps a `.frost` panel of its own and the 2px accent edge that
+   marks it live. The in-game HUD never renders it.
 4. **The notch is the one shape signature**, and it marks a primary action and
    nothing else: `.notch-btn` / `.notch-wide` on primary buttons. Never on
    panels, avatars, rows, inputs or tool squares — it was tried on the creator's
@@ -333,9 +376,11 @@ all seven screens, and the tokens live in `app/assets/css/main.css` and
    seventh slot. `scripts/icons-test.ts` walks `app/` for icon literals and
    checks each against the bundled JSON; add icons freely, but run `pnpm test`.
 9. **One frame inset across the screens.** The title screen and the creator both
-   sit 36px in, so the roster card and the creator's option/dossier cards line
-   up at the same rails (`right: 36, top: 96`). The in-game HUD is tighter at
-   28px, which is the handoff's value for a denser surface.
+   sit 36px in. The creator's option and dossier cards are pinned to the rails
+   that follow from it (`left: 36` / `right: 36`, `top: 96`). The title screen's
+   roster is not pinned to them any more: it rides the centred flow row inside
+   the same 36px frame. The in-game HUD is tighter at 28px, which is the
+   handoff's value for a denser surface.
    Gotcha: `Kbd` is a flat `tv` config, not a slotted one — its `base` sits at
    the top level, and nesting it under `slots` makes the merge emit the literal
    class `base`.

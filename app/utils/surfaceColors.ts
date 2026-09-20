@@ -21,8 +21,10 @@ export const TERRAIN_TINTS = {
   soil: '#8a6e4c',
   rock: '#9b9483',
   sand: '#cfbd92',
-  /** Not paving: `path` tiles carry real flagstones on top, so the ground under
-   *  them only has to read as the mortar showing through the joints. */
+  /** Unused: `surfaceTint` leaves a `path` tile at the ground's own colour,
+   *  because the road in `chunkProps`'s paving bank is a skin over those same
+   *  vertices and covers them. Kept as the target if a joint tint is ever
+   *  wanted under it. */
   mortar: '#6b6559',
   wet: '#46695f',
   /** Snowfields. Deliberately not white: the terrain material is lit and then

@@ -184,8 +184,9 @@ onMounted(async () => {
           </div>
         </main>
 
-        <!-- Right: who is actually in there. Same treatment as the live line
-             above it — read, not clicked, so no panel. -->
+        <!-- Right: who is actually in there. The live data is the pitch on this
+             page, so unlike the line above it this one is content and keeps a
+             panel of its own, with the accent edge that marks it live. -->
         <PlayerRoster
           :entries="status?.roster ?? []"
           :realm="realm"

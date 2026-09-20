@@ -9,8 +9,11 @@
  * are verbatim the old `RAMPART_WALKWAYS` / `RAMPART_STAIRS` / `RAMPART_RAILS`
  * definitions that used to live in `shared/utils/ramparts.ts`, and the output is
  * normalised exactly like `server/api/editor/save.post.ts` writes it (round3 on
- * coordinates and scales, rotation normalised into `[0, 2π)`). Re-running it
- * would append a duplicate set, so don't.
+ * coordinates and scales, rotation normalised into `[0, 2π)`). Re-running it is
+ * idempotent for the baked pieces, since it filters those kinds out before
+ * appending, but the filter is by kind and takes every `Courtyard_Gallery*`,
+ * `Courtyard_Stairs` and `Courtyard_Rail` placement with it. Anything the world
+ * editor has authored in those kinds since the bake is dropped, so don't.
  */
 import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'

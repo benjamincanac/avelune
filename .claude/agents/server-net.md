@@ -5,7 +5,8 @@ description: >
   routes. Use for anything in server/** — the 20 Hz tick loop and arena state
   (server/utils/game.ts), the crossws handler (server/api/ws.ts), signed-cookie
   identity/sessions (server/utils/session.ts), and REST endpoints (auth, the
-  dev-only editor save). Reach for this for tick-rate, server-side validation,
+  title screen's status, the push-to-talk transcription route, the dev-only
+  editor save). Reach for this for tick-rate, server-side validation,
   connection lifecycle, or protocol wiring on the server side.
 model: inherit
 ---
@@ -35,10 +36,11 @@ bytes between it and clients.
   `chunk:<realm>:<cx>:<cy>` (realm = `AVELUNE_REALM` / `VERCEL_REGION` / `local`, one stored world per region; the `pieces` hash is `pieces:<realm>` too), holding `<version>\n<EncodedChunk as JSON>` — the version is
   in front so the CAS Lua reads it with a string match instead of parsing 3 KB.
   Credentials come from runtime config (`upstashRedisRestUrl`/`Token`, env
-  `NUXT_UPSTASH_REDIS_REST_URL`/`_TOKEN`) and fall back to the bare
-  `UPSTASH_REDIS_REST_URL`/`_TOKEN` the Vercel marketplace sets. The
-  `useRuntimeConfig()` read is inside a try/catch on purpose: `world-admin`
-  loads this same module through jiti, where that global does not exist.
+  `NUXT_UPSTASH_REDIS_REST_URL`/`_TOKEN`) and fall back through the bare
+  `UPSTASH_REDIS_REST_URL`/`_TOKEN` to `KV_REST_API_URL`/`_TOKEN`, which is the
+  pair the Vercel marketplace actually sets. The `useRuntimeConfig()` read is
+  inside a try/catch on purpose: `world-admin` loads this same module through
+  jiti, where that global does not exist.
 - `server/plugins/world.ts` — boot and shutdown: prefetch the 5×5 spawn
   neighbourhood so the first player of a cold instance isn't standing on chunks
   that are still in flight, and drain the dirty set on Nitro's `close` hook and
@@ -46,19 +48,21 @@ bytes between it and clients.
   registering one replaces Node's default.
 - `server/utils/pieces.ts` — every identity's owned-piece total against
   `MAX_PIECES_PER_PLAYER`. The budget is a fact about a person, so it is neither
-  per session nor per instance: the totals live in one Redis hash (`pieces`),
-  are read in full at boot by `server/plugins/world.ts` before the first socket
-  can ask for a welcome, and are written back as signed `HINCRBY` deltas on the
-  same 5 s flush as the chunks. Counting cannot be derived from memory — a
-  builder's pieces sit in chunks nobody has loaded — so the stored counter is
-  the only honest one. Deed plots ride the same hash under a `deed:<id>` field
-  (`deedCount`/`addDeed`/`removeDeed`), for exactly the same reason: `DEED_LIMIT`
-  is a fact about a person, and a plot of theirs can sit in a chunk nobody has
-  visited. A deed is an ordinary piece as well, so placing one moves both.
+  per session nor per instance: the totals live in one Redis hash
+  (`pieces:<realm>`), are read in full at boot by `server/plugins/world.ts`
+  before the first socket can ask for a welcome, and are written back as signed
+  `HINCRBY` deltas on the same 5 s flush as the chunks. Counting cannot be
+  derived from memory — a builder's pieces sit in chunks nobody has loaded — so
+  the stored counter is the only honest one. Deed plots ride the same hash under
+  a `deed:<id>` field (`deedCount`/`addDeed`/`removeDeed`), for exactly the same
+  reason: `DEED_LIMIT` is a fact about a person, and a plot of theirs can sit in
+  a chunk nobody has visited. A deed is an ordinary piece as well, so placing
+  one moves both.
 - `server/utils/positions.ts` — where each identity last stood, in one Redis
   hash (`positions:<realm>`), so a reload or a new login resumes there instead
-  of at the gate. The tick notes every session on the 5 s flush and
-  `disconnect()` notes it again, and the dirty entries ride `flushDirtyChunks`.
+  of at the gate. The tick notes every session on the 5 s flush and the dirty
+  entries ride `flushDirtyChunks`; `disconnect()` notes the body again and calls
+  `flushPositions()` itself, so a socket closing does not wait for a tick.
   Nothing is read at boot: `server/api/ws.ts` awaits `loadPosition` in `open`
   before calling `registerConnection`, which is why `open` is async and tracks
   `opening` peers, so a close that lands during the read registers nothing. A
@@ -85,11 +89,15 @@ bytes between it and clients.
   live frames are bare Opus, and muxing them here would be real code for nothing),
   transcribed through the Gateway on the boot-captured `nativeFetch` for the same
   reason the Oracle is. The route is gated on the signed cookie *and* on a live
-  session with voice on, capped by bytes and rate limited per identity, because
-  every call costs money on a public demo. The transcript goes in through
-  `sayChat`, the same function a typed line uses, which is why the Oracle's
-  classifier reads speech with no change at all. Nothing is stored and the
-  transcript is never logged.
+  session with voice on (`hasLiveVoice`), capped by bytes and rate limited per
+  identity, because every call costs money on a public demo. The transcript goes
+  in through `speakForIdentity`, the exported wrapper around the same `sayChat` a
+  typed line uses, which is why the Oracle's classifier reads speech with no
+  change at all. The transcript is never logged and the clip is dropped after the
+  model call, with one exception: `AVELUNE_VOICE_DEBUG` in dev keeps the uploaded
+  clips under `.data/voice-debug/`, so a bad transcript can be replayed against
+  other models. Never in a build, and never by default, since that is somebody's
+  voice on disk.
 - `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete`, `status.get`. The
   Oracle has no HTTP route: it runs in-process from the game loop
   (`server/utils/oracle.ts`, owned by the `oracle-ai` agent).
@@ -109,11 +117,12 @@ bytes between it and clients.
   statusCode: 404 })`) the world editor POSTs its whole working doc to; validates
   placements with zod against `ALL_PROP_KINDS`, normalizes (rounded coords,
   wrapped rotations) so diffs stay small, and overwrites the `courtyard-*.json`
-  town files on disk in one call (the only `node:fs` writes in the server;
-  `editorFiles.ts` walks up from cwd to find `shared/data`). Dev-only because
-  Vercel's prod FS is read-only. It's the sole writer of those files;
-  `world-sim`'s `createWorld`/`seedTown` in `shared/utils/world.ts` is the
-  reader. The old `hub-*.json` are deleted — don't reintroduce them.
+  town files on disk in one call (the only `node:fs` writes in the server apart
+  from the dev clip dump above; `editorFiles.ts` walks up from cwd to find
+  `shared/data`). Dev-only because Vercel's prod FS is read-only. It's the sole
+  writer of those files; `world-sim`'s `createWorld`/`seedTown` in
+  `shared/utils/world.ts` is the reader. The old `hub-*.json` are deleted —
+  don't reintroduce them.
 - `server/utils/nativeFetch.ts` + `server/plugins/nativeFetch.ts` — the real
   `fetch` captured at boot. Nuxt-nightly's SSR entry replaces `globalThis.fetch`
   with a loopback into this app's own router once a process renders any page
@@ -203,9 +212,9 @@ bytes between it and clients.
    `encodeChunk(chunk, { omitTown: true })`, and `restore` puts the
    `town:<index>` pieces back in front of the stored placements before handing
    the chunk to `installChunk` — otherwise a restore would double every brick.
-   `flushDirtyChunks` also drains the piece-count deltas and
-   runs the cache eviction, so every caller of it — the tick, the last player
-   leaving, shutdown — gets all three.
+   `flushDirtyChunks` also drains the piece-count deltas and the noted
+   positions, and runs the cache eviction, so every caller of it — the tick, the
+   last player leaving, shutdown — gets all four.
 6. **Edit rules live in `shared/utils/building.ts`, and every one of them is
    enforced here.** `checkTerraform`, `resolveBuild` and `checkDemolish` are
    pure predicates the client runs for its ghost preview and the server runs to
@@ -229,24 +238,31 @@ bytes between it and clients.
    so they only ever say `that plot is claimed`, and the roster lookup here
    turns it into `that plot belongs to <name>`. An owner who is not online
    stays anonymous — never name them from anywhere stale.
-7. **Identity is permanent — there is no logout.** `auth.post` sets an ~10-year
-   cookie and there is intentionally no `DELETE /api/auth`. The character is
-   never destroyed server-side, and a returning cookie always resumes the same
-   person.
+7. **The character is permanent, the session is not.** `auth.post` sets an ~10-year
+   cookie. `DELETE /api/auth` (`auth.delete`) only clears that cookie, so the
+   next page state is character creation. The character is never destroyed
+   server-side, and a returning cookie always resumes the same person.
 
 ## Protocol (shape is defined by world-sim in shared/types/game.ts)
 Consume/emit the `t`-keyed unions. Server emits: `welcome` (`self`/`players`/
-`now` clock/`world` — `{chunkSize, bounds, seed, persistent}` (`persistent` is `chunkStore().kind !== 'memory'`), all a client needs to build
+`now` clock/`world` — `{chunkSize, bounds, seed, realm, persistent, streamed}` (`persistent` is `chunkStore().kind !== 'memory'`, `streamed` the `STREAMED_CHUNKS` the entry screen counts a welcome's chunks against), all a client needs to build
 its empty `World` — plus `pieces`, this identity's owned-piece total across the
 whole world, and `deeds`, how many plots they hold, both of which
 `server/utils/pieces.ts` holds and the store survives a redeploy with, and `feed`, the world feed's ring buffer that `/api/status` also serves), `join`, `leave`, `state` (only players that moved, at 10 Hz,
-filtered to `STATE_RANGE`), `chat` (`{id, text}` — the Oracle broadcasts under the
-reserved `ORACLE_ID`), `chunk`/`unchunk` (a whole chunk as `encodeChunk` writes
-it, `h`/`s` base64), `terrain` (`[cornerIndex, quantised height]` pairs into the
-33×33 grid, plus `[tileIndex, value]` surface pairs), `place`/`remove` (with an
-optional `pieces`/`deeds` — the actor's new totals, on their copy of the frame
-only; `announceEdit` broadcasts the plain frame with the author `except`ed and
-sends them the annotated one directly), `reject`, `kicked` (booted for a duplicate tab; carries a `reason`), `pong`.
+filtered to `STATE_RANGE`), `chat` (`{id, text}`, plus `to` on the Oracle's lines
+and `voice: true` on a line a clip was transcribed into; the Oracle broadcasts
+under the reserved `ORACLE_ID`), `chunk`/`unchunk` (a whole chunk as `encodeChunk`
+writes it, `h`/`s` base64), `terrain` (`[cornerIndex, quantised height]` pairs
+into the 33×33 grid, plus `[tileIndex, value]` surface pairs, plus `by`/`mode`/
+`at` when a player's brush moved the ground, since a height carries no owner the
+way a placement does and the *client's* feed is built from these frames rather
+than from a feed frame of its own; the server's feed already has the name, from
+`recordEvent`), `place`/`remove` (with an optional `pieces`/`deeds` — the
+actor's new totals, on their copy of the frame only; `announceEdit` broadcasts
+the plain frame with the author `except`ed and sends them the annotated one
+directly), `reject`, `weather`/`time`/`system` (the shared sky and command
+feedback, below), `kicked` (booted for a duplicate tab; carries a `reason`),
+`pong`.
 Clients send `terraform`/`build`/`demolish`/`voice` alongside `move`/`action`/`chat`/
 `ping`. `voice-peers` names the listeners a talker currently has, each with the
 numeric `talker` id their audio frames carry; audio itself is a binary frame
@@ -266,9 +282,10 @@ only an index rebuild.
 
 ## Working style
 - Keep the tick loop allocation-light; it runs 20×/s per instance.
-- Deploy target is Vercel WebSockets — **the upgrade working in prod is
-  unverified and load-bearing** (see ROADMAP). Don't add anything that assumes a
-  long-lived Node process beyond what crossws/Nitro guarantees.
+- Deploy target is Vercel WebSockets. **The upgrade is verified in prod and
+  load-bearing** (2026-09-16; the ROADMAP has what was and wasn't covered).
+  Don't add anything that assumes a long-lived Node process beyond what
+  crossws/Nitro guarantees.
 - Test the wire protocol with `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`
   (two clients: it mints each a character over `POST /api/auth`, carries the
   cookie into the upgrade, then asserts welcome/state/chat/pong/leave/kicked,
@@ -302,19 +319,21 @@ only an index rebuild.
   `remove` with the same shared `apply*` calls a browser makes, which is what
   lets a bot run `checkTerraform`/`resolveBuild` itself and only send poses the
   server will accept. `--build` (composable with `--dig`, plans in
-  `scripts/bot-build.mjs`) gives each bot a 12-tile-pitch plot in the meadow
-  south of the gate, where it clears the wild vegetation, flattens the ground,
-  raises a two-storey kit cottage or a fenced paddock, paves a path back to the
-  road, then settles in to wander, dig and occasionally rebuild a piece. A
-  summary prints every 5 s and again at Ctrl-C. `AVELUNE_TICK_LOG=1` on the
-  server prints tick avg/max every 5 seconds: 30 digging bots sit around 1 ms
-  average, 12 building ones around 3 ms. What that budget actually goes on is
-  `stepBody`: with 12 bots standing in ~350 kit pieces, every tick over 6 ms
-  measured is physics, and streaming a welcome never showed up in one. A
-  welcome's chunk encoding is around 30 µs per chunk (17 µs of heights and
-  surface base64, 10 µs of placement JSON at ~33 pieces), so the whole 5×5 is
-  under a millisecond. If a join ever does cost a tick, suspect collision
-  before you suspect `syncChunks`.
+  `scripts/bot-build.mjs`) gives each bot a plot in the meadow south of the
+  gate, where it clears the wild vegetation, flattens the ground, raises a
+  two-storey kit cottage or a fenced paddock, paves a path back to the road,
+  then settles in to wander, dig and occasionally rebuild a piece. The plots sit
+  on an 18-tile lattice because a claim is 16 tiles across: any closer and two
+  bots would be refused each other's ground, and the load test would measure the
+  refusal path instead of the build path. A summary prints every 5 s and again at
+  Ctrl-C. `AVELUNE_TICK_LOG=1` on the server prints tick avg/max every 5 seconds:
+  30 digging bots sit around 1 ms average, 12 building ones around 3 ms. What
+  that budget actually goes on is `stepBody`: with 12 bots standing in ~350 kit
+  pieces, every tick over 6 ms measured is physics, and streaming a welcome never
+  showed up in one. A welcome's chunk encoding is around 30 µs per chunk (17 µs
+  of heights and surface base64, 10 µs of placement JSON at ~33 pieces), so the
+  whole 5×5 is under a millisecond. If a join ever does cost a tick, suspect
+  collision before you suspect `syncChunks`.
 
 ## Retired character identities
 `verifyToken` validates the stored character against the active roster. Unknown

@@ -61,8 +61,9 @@ export interface UseWorld {
   /**
    * Apply a terraform locally, ahead of the server, and notify the scene. The
    * chunk versions are left untouched so the authoritative `terrain` delta
-   * still reads as `version + 1` and overwrites these heights with absolute
-   * ones. A refused edit simply stays wrong until the chunk is re-sent.
+   * still reads as newer (`isNewer` tests `v > version`) and overwrites these
+   * heights with absolute ones. A refused edit simply stays wrong until the
+   * chunk is re-sent.
    */
   predictTerrain: (edit: TerrainEdit) => void
 }
@@ -213,7 +214,7 @@ export function useWorld(): UseWorld {
     }
     const changed = applyTerrain(world, edit)
     // Keep the versions the server still thinks we are on, so its own delta
-    // lands as `version + 1` and overwrites these predicted heights.
+    // still reads as newer and overwrites these predicted heights.
     for (const [chunk, version] of versions) chunk.version = version
     for (const chunk of changed) emit(listeners.terrain, chunk.cx, chunk.cy)
   }

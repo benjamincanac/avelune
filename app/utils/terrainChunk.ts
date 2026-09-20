@@ -27,7 +27,7 @@ import { TERRAIN_TINTS } from './surfaceColors'
  */
 
 /** How far the protected town's ground sinks below zero so every plaza plane in
- *  `courtyardScene` (the lowest sits at -0.025) stays on top of it rather than
+ *  `courtyardScene` (the lowest sits at -0.015) stays on top of it rather than
  *  z-fighting with it. Ramped out over the last tiles of the flat town ground,
  *  where it is a 6 cm step in open grass. */
 const TOWN_CLEARANCE = 0.06

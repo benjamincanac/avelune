@@ -18,14 +18,21 @@ files the game loads, and the scripts that do it.
 - `scripts/convert_universal_characters.py` — character pack conversion. Outfits
   come from the purchased CC0 superset `modular-character-outfits`
   (Peasant, Ranger, Knight, Knight_Cloth, Noble, Wizard; its Peasant and Ranger
-  meshes and textures are byte-identical to the older free `module-character-outfits`,
-  so the switch cannot change GLBs built before it). `ONLY="Name Name"` rebuilds a
-  subset, which is how a new outfit lands without rewriting the shipped ones.
+  meshes and textures were byte-identical to the older free `module-character-outfits`,
+  so the switch cannot change GLBs built before it). That free pack is no longer
+  under `~/GitHub/quaternius`, so the identity can't be re-checked, only relied
+  on. `ONLY="Name Name"` rebuilds a subset, which is how a new outfit lands
+  without rewriting the shipped ones.
   Its `build_animations()` is opt-in behind `--animations` and must stay that way:
   it knows 16 clips, `rebuild_animations.py` ships 21, so an unguarded run silently
-  dropped `Swim_Loop`/`Swim_Idle` from `animations.glb`.
+  dropped five from `animations.glb`: `Swim_Loop`, `Swim_Idle`,
+  `Spell_Simple_Shoot`, `Idle_FoldArms_Loop` and `OverhandThrow`. Every one of
+  those is driven by name at runtime (invariant 1).
   Head pieces (`*_Head_Hood`, `*_Head_Armet`, `*_Head_Crown`) ride inside the
   outfit's own `.gltf` already skinned, so nothing extra is imported or bound.
+  There is a fourth kind, `*_Head_Horns`, but it only exists in
+  `Male_Knight_Cloth.gltf` / `Female_Knight_Cloth.gltf`, which no roster entry
+  builds from.
   A head piece that fully encloses the skull goes in `HELMETED`, its build
   imports no hair and it ships one GLB per gender (`Knight_Male`), mirrored by
   `hairless` on the outfit in `shared/utils/characters.ts`: the Ranger's hood is open at the face and keeps the hair, the
@@ -40,8 +47,10 @@ files the game loads, and the scripts that do it.
   `app/utils/appearance.ts` does not match, so the runtime toggles it by hiding
   the node and no texture swap touches it. Colourway PNGs under
   `public/models/characters/textures/` are `sips -Z 512 -s format png` of the pack's
-  `T_<Outfit>_{2,3}_BaseColor.png`; that command reproduces the shipped ones byte
-  for byte, Blender's own `image.scale` does not.
+  `T_<Outfit>_{2,3}_BaseColor.png`. The pack has all ten, the shipped set is only
+  eight: there is no `T_Peasant_3.png` and no `T_Ranger_2.png`, matching
+  `OUTFIT_COLORS` in `shared/utils/characters.ts`. That command reproduces the
+  shipped ones byte for byte, Blender's own `image.scale` does not.
 - `scripts/rebuild_animations.py` — shared `animations.glb` retargeting (the
   Universal Animation Library 1 & 2 clip set: `Idle_Loop`, `Walk_Loop`,
   `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start/Loop/Land`, `Roll`, …), one NLA
@@ -68,7 +77,8 @@ files the game loads, and the scripts that do it.
   ship an unparented unit sphere as a bounds proxy that must be deleted, or it
   renders as a ball. The title and tagline are camera-locked text over a camera-locked scrim.
 - `scripts/convert_nature.sh` converts the Quaternius Stylized Nature MegaKit (CC0,
-  free tier, source at `~/GitHub/quaternius/stylized-nature-megakit/glTF`) into
+  free tier, source at `~/GitHub/quaternius/stylized-nature-megakit/glTF`, override
+  with `NATURE_SRC`) into
   `public/models/nature/*.glb`: textures capped at 512px WebP, normal maps stripped,
   `--palette false` so two-material trees keep separate bark/leaves primitives,
   `alphaMode MASK` + `doubleSided` preserved (the runtime relies on both), Meshopt
@@ -77,14 +87,17 @@ files the game loads, and the scripts that do it.
   most distinct silhouettes of that family's 5 source variants, picked by bounding
   box and triangle count — `TwistedTree` keeps its autumn-red leaf texture as-is,
   the `bush1` green swap doesn't apply to the trees), `mushroom1-2`, and
-  `pebble1-3` (mixed round/square). The twisted and dead trees are modelled two
-  to three times the size of the others, so the script scales their root nodes
-  (0.5 to 0.85) to keep every tree comparable at placement scale 1; the
+  `pebble1-3` (mixed round/square). The other 14 of the 29 outputs come from the
+  same pack and the same pass: `tree1-5` (`CommonTree_1-5`), `bush2`, `fern`,
+  `flowers1-2`, `clover`, `plant` and `rock1-3`. The twisted and dead trees are
+  modelled two to three times the size of the others, so the script scales their
+  root nodes (0.5 to 0.85) to keep every tree comparable at placement scale 1; the
   `SOLID_PROPS` radii in `shared/utils/props.ts` are the scaled trunks. `ONLY="a b"`
   reconverts a subset. The earlier Blender-built botanicals and
   their script are gone.
 - `scripts/convert_monsters.sh` converts curated Quaternius Ultimate Monsters
-  (`~/GitHub/quaternius/ultimate-monsters/{Big,Blob,Flying}/glTF`) into
+  (`~/GitHub/quaternius/ultimate-monsters`, override with `MONSTERS_SRC`; the
+  script appends `/{Big,Blob,Flying}/glTF` itself) into
   `public/models/monsters/*.glb` for ambient wildlife (`MushroomKing.glb` there
   is the unrelated Oracle model and is never touched by this script). These are
   skinned rigs, so `optimize` runs with `--simplify false --flatten false --join
@@ -98,21 +111,36 @@ files the game loads, and the scripts that do it.
   that `Big/` embeds correctly, so the fix is applied to every folder rather
   than assumed per-folder.
 - `scripts/build_courtyard_fountain.py` builds the original courtyard fountain
-  at `public/models/courtyard/fountain.glb`. Run it headless without arguments;
-  optional `--render` creates a studio preview after exporting.
-- `scripts/build_kit.py` builds the twelve player build-kit pieces into
+  at `public/models/courtyard/fountain.glb`. Run it headless with `--compress`:
+  that shells out to `gltf-transform meshopt` after exporting, and a plain
+  no-argument run writes an uncompressed GLB that does not match the shipped
+  one. Optional `--render` creates a studio preview after exporting.
+- `scripts/build_kit.py` builds the thirteen player build-kit pieces into
   `public/models/kit/*.glb` plus `manifest.json`, then `scripts/convert_kit.sh`
   Meshopt-compresses them (`optimize --simplify false --palette false`: the
   decimator rounds off grid-critical edges and a palette texture would defeat the
-  triplanar overlay, which skips any material carrying a map). Conventions: 2 unit
-  grid, origin at the bottom centre of the footprint, front is Blender +Y
-  (exported glTF -Z), depth-wise rises (roof pitch, stair climb) run toward glTF
-  +Z like `Courtyard_Stairs`, and the palette is the courtyard one so the town
-  overlay picks the pieces up by material name. Every painted material needs its
-  own roughness: COLOR_0 carries base colour, so materials sharing a roughness are
-  byte-identical and `optimize`'s dedup collapses their names into one.
-- `public/models/**` — the shipped `.glb` output: character models and shared
-  animations, the Oracle monster, the original courtyard models, and the build kit.
+  triplanar overlay, which skips any material carrying a map). `--sheet <path>`
+  renders every piece on its grid outline, which is how an off-grid origin gets
+  caught. Conventions: 2 unit grid, origin at the bottom centre of the footprint,
+  front is Blender +Y (exported glTF -Z), depth-wise rises (roof pitch, stair
+  climb) run toward glTF +Z like `Courtyard_Stairs`, and the palette is the
+  courtyard one so the town overlay picks the pieces up by material name. Every
+  painted material needs its own roughness: COLOR_0 carries base colour, so
+  materials sharing a roughness are byte-identical and `optimize`'s dedup
+  collapses their names into one.
+- `scripts/bake-ramparts.ts` is a spent one-off (`pnpm exec jiti
+  scripts/bake-ramparts.ts`) that turned the rampart gallery, its two stair
+  flights and its rails from generated geometry into authored placements in
+  `shared/data/courtyard-structure.json`. It stays in the repo so the derivation
+  is auditable, not to be run. A re-run is idempotent for the baked pieces, but
+  it filters by kind, so it deletes every `Courtyard_Gallery*`,
+  `Courtyard_Stairs` and `Courtyard_Rail` placement the editor has authored
+  since.
+- `public/models/**` holds the shipped output: the 18 character models, the
+  shared `animations.glb` and the 8 colourway PNGs under `characters/textures/`;
+  the 29 `nature/` props; `monsters/`, which is 7 ambient critters beside the
+  Oracle's `MushroomKing.glb`; the original courtyard models; and the build kit's
+  13 pieces plus its `manifest.json`.
 
 ## Environment (cold-start facts)
 - **Blender 5.1.2** at `/Applications/Blender.app/Contents/MacOS/Blender`. Scripts
@@ -131,15 +159,20 @@ files the game loads, and the scripts that do it.
 ## Invariants
 1. **Characters share one animation set.** All roster models use the universal
    skeleton and shared animation library.
-   `scene-3d` drives clips by exact
-   name — today `Idle_Loop`, `Jog_Fwd_Loop`, `Jump_Loop`, `Sprint_Loop` — so keep
+   `scene-3d` drives clips by exact name, eleven of them today: `Idle_Loop`,
+   `Jog_Fwd_Loop`, `Jump_Loop`, `Sprint_Loop`, `Swim_Loop` and `Swim_Idle` in
+   `MazeScene.vue`, plus the per-outfit preview emotes `Sword_Regular_A`,
+   `OverhandThrow`, `Idle_FoldArms_Loop`, `Spell_Simple_Shoot` and `Yes` in
+   `CharacterPreviewModel.client.vue`. Five of those eleven are clips
+   `convert_universal_characters.py` doesn't know, which is exactly why its
+   `build_animations()` stays behind `--animations`. Keep
    `rebuild_animations.py` output stable; renaming a clip silently breaks
    playback.
-2. **Props are authored for instancing** — consistent origins/scale so
-   `MazeScene.vue` can batch them. A piece that must sit flush on the ground
-   needs its top measured, not guessed: placement `y = 0.01 - meshTop`, where
-   `meshTop` is the mesh's Blender **max-Z**, not its height. Measure it headless
-   with a `bound_box` world-Z scan, never by eye.
+2. **Props are authored for instancing**, with consistent origins and scale so
+   `app/utils/chunkProps.ts` and `app/utils/courtyardScene.ts` can batch them.
+   A piece that must sit flush on the ground needs its top measured, not
+   guessed, and the number to read is the mesh's Blender **max-Z**, not its
+   height. Measure it headless with a `bound_box` world-Z scan, never by eye.
 3. Output stays in `public/models/<category>/`; keep the existing folder layout so
    loader paths don't move.
 4. **Character head-trim is by bone weight, not height.**

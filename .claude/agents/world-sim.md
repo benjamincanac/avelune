@@ -56,17 +56,28 @@ independently.
   `SOLID_PROPS` and `makeProp`. Split out of `maze.ts` so `world.ts` (which
   buckets placements) and `maze.ts` (which queries them) share it without a
   runtime import cycle.
+- `shared/utils/kit.ts` — `KIT_ASSETS`, the thirteen-piece dimension table that
+  `snapGridFor` (`building.ts`) and the kit's stair spec (`ramparts.ts`) read,
+  plus `KIT_NAMES`, `kitLabel` and `DEED_KIND`. It sits under `building.ts`
+  rather than in it, so `world.ts` can index a deed post without importing the
+  rules that decide what a plot means. The kit's collision entries in `props.ts`
+  do **not** read it: `props.ts` imports only `courtyard.ts` and `ramparts.ts`,
+  and its kit rows are hand-written literals restating the same numbers
+  (`Kit_Wall` is 2 wide by 0.3 deep by 2.5 tall in both files). A kit dimension
+  therefore has to change in both places, or collision keeps the old shape while
+  the model and the snap grid move.
 - `shared/utils/building.ts` — the pure edit rules both sides run: `EDIT_REACH`,
   `EDITS_PER_SECOND`, `MAX_PIECES_PER_PLAYER`, `BUILD_GRID`, `snapPlacement`,
-  `overlappingPiece` (AABB plus the vertical band `[z, z+top]`, which is what
-  lets pieces stack), `supportHeight` (a placed piece's `z`, bounded by the aim
-  height below), `pieceOverBrush`,
-  `isPlaceableKind`, `canRemove`, and the deed-plot rules below. The server
-  decides with them; the client only colours its ghost preview with them. `snapGridFor(kind)` is the grid a piece
-  snaps to: `BUILD_GRID` (2) for everything except pieces whose footprint fits
-  in a tile (`Kit_Crate`, `Kit_Torch`), which get `BUILD_GRID_SMALL` (1) so two
-  of them can sit side by side, and 0 for the free-standing nature kit. The
-  client ghost must call it too or it previews a pose the server won't store.
+  `overlappingPiece` (AABB plus the vertical band `[z, z + height]`, which is
+  what lets pieces stack), `supportHeight` (a placed piece's `z`, bounded by the
+  aim height below), `pieceOverBrush`, `isPlaceableKind`, `canRemove`, and the
+  deed-plot rules below. The server decides with them; the client only colours
+  its ghost preview with them. `snapGridFor(kind)` is the grid a piece snaps to:
+  `BUILD_GRID` (2) for everything except pieces whose footprint fits in a tile (`Kit_Crate`, `Kit_Torch`, `Kit_Deed`), which get `BUILD_GRID_SMALL`
+  (1) so two of them can sit side by side, and 0 for the free-standing nature
+  kit. It is the footprint that decides and not a list of kinds, so a new small
+  piece gets the small grid without a rule being touched. The client ghost must
+  call it too or it previews a pose the server won't store.
 
   **Cells and edges.** A kit piece is either a cell piece or an edge piece, and
   `isEdgeKind(kind)` says which. Cell pieces (`Kit_Floor`, `Kit_Roof`,
@@ -118,7 +129,11 @@ independently.
   per-chunk index of the deeds a chunk *owns* (rebuilt from `placements`
   wherever they change, moves no version, never persisted or sent) — a claim
   query widens its box by a whole plot before reading it, because a deed
-  `DEED_SIZE` tiles away still reaches in. Pulling the deed releases the plot
+  `DEED_SIZE` tiles away still reaches in. `plotsOverlapping` is that widened
+  query and `deedsInBox` in `world.ts` is the index it reads, the way
+  `propsInBox` is for props. `isProtectedBox`, also in `world.ts`, is the box
+  form of `isProtectedTile`, because a plot covers 256 tiles and testing them
+  one at a time is not a per-frame answer. Pulling the deed releases the plot
   and leaves every piece where it stands: the claim is the post, not the ground.
   A refusal carries `claim` (the owner's *id*) alongside the generic
   `that plot is claimed`; `refusalText(verdict, names)` is what turns it into
@@ -166,21 +181,44 @@ independently.
   the *ground* it plants on comes from `terrain.ts`, which is the server's.
   Widening this union breaks every `Record<Biome, …>` table in `app/**` — that is
   deliberate, and those are the rendering agent's to fill in.
-- `shared/utils/characters.ts` — character roster / assignment logic.
+- `shared/utils/characters.ts` — the character roster and everything that
+  qualifies one: `OUTFITS`, `HAIRSTYLES`, `OUTFIT_COLORS`, `BEARD_MESH`, and the
+  rules `canBeard` / `isBearded` / `isHairless` / `outfitColorCount` read.
+  `Player.character`, `Player.outfitColor` and `Player.beard` are validated
+  against this table, which is why it is shared and not the onboarding screen's.
 - `shared/utils/courtyard.ts` — the courtyard bounds, arena/fountain positions,
   and `COURTYARD_ASSETS` dimensions shared by collision and the art templates.
-- `shared/utils/propCatalog.ts` — the GLB template name lists (moved out of
-  `MazeScene.vue`) plus `PROP_CATALOG` / `ALL_PROP_KINDS`. Shared so the client
-  renderer and the dev prop editor agree on what's placeable. A prop `kind` is a
-  GLB basename; its directory is implied by which list it's in.
+- `shared/utils/moat.ts` — `MOAT` (the floor and water heights, the swim draft
+  and speed, the bridge underside, and `bodyHeight`, which `maze.ts` re-exports
+  as `BODY_HEIGHT`), `MOAT_STAIRS`, and the channel's geometry: `isOnMoatStairs`,
+  `moatGroundHeight`, `moatWaterDepth` and `hitsMoatObstacle`, all four of which
+  `maze.ts` imports. Nothing in here imports `maze.ts` back, so what a body
+  brings to those functions arrives as an argument (`feet`, `radius`) rather
+  than an import, the same arrangement `ramparts.ts` uses (see "Fortified city
+  boundary").
+- `shared/utils/ramparts.ts` — the height-aware kinds and the geometry of their
+  decks, treads and rails (see "Raised rampart passages").
+- `shared/utils/propCatalog.ts` — `PROP_CATALOG` and `ALL_PROP_KINDS`, composed
+  from `COURTYARD_NAMES` (`courtyard.ts`) and `KIT_NAMES` (`kit.ts`). The name
+  lists themselves live beside the dimensions they belong to, so a kind cannot
+  be catalogued without a footprint. Shared so the client renderer and the dev
+  prop editor agree on what's placeable. A prop `kind` is a GLB basename; its
+  directory is implied by which list it's in. The nature kit is deliberately not
+  in here: `NATURE_KINDS` in `building.ts` is what a player
+  may plant. `ALL_PROP_KINDS` gates every kind the editor may save
+  (`server/api/editor/save.post.ts`), courtyard pieces included; `isKitKind` is
+  the caller that narrows it to the `Kit_` ones.
+- `shared/utils/realm.ts` — `normalizeRealm` and `realmName`: the id every store
+  key is scoped by, and the city name shown for it. It rides the wire as
+  `welcome.world.realm`, which is why it is shared rather than the server's.
 - `shared/data/courtyard-props.json` — the courtyard's hand-placed furniture,
   trees, fountain, and lanterns (see invariant 5).
 - `shared/data/courtyard-structure.json` — editable town buildings and
   perimeter walls (see invariant 5). The legacy colosseum `hub-*.json` files are
   deleted.
-- `shared/data/courtyard-oracle.json` — the Oracle's stand position as a bare `[x, y]`
-  array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
-  scene and the editor; written by the editor's save route.
+- `shared/data/courtyard-oracle.json` — the Oracle's stand pose as a bare
+  `[x, y, rot]` array (a top-level-object JSON crashes the Nitro-beta dev
+  worker). Read by the scene and the editor; written by the editor's save route.
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, and the
   `ClientMessage` / `ServerMessage` unions.
 
@@ -207,7 +245,10 @@ independently.
    dirty set and frame cache hold `Chunk` objects. `removeChunk` is its inverse
    and takes the loans back. Neither ever invents a neighbour: `bucket` lends
    only into chunks that already exist, so a streaming client can never generate
-   terrain the server did not send it.
+   terrain the server did not send it. `LEND_RADIUS` (2) is how far out the
+   adopt and withdraw scans look, so it is also the real bound on how far a
+   placement may reach: `bucket` will happily lend a piece wider than that into
+   a chunk no later scan visits, and the loan would never come back.
    **`version` counts mutations of a chunk's own content — heights, surface,
    the placements it owns — exactly one per mutation.** Lending a piece to a
    neighbour or adopting one is derived index state and moves no version, which
@@ -351,25 +392,37 @@ keep them out of ordinary footprint collision. Kit stairs carry no rails
 ## Protocol shape (you define it; server-net + the client consume it)
 Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a` and the held `sprint` flag; the speed factor is
 shared `speedMultiplier`, never a constant inlined by a consumer),
-`action` (`jump`|`dash`), `chat`, `ping`, and the edit verbs `terraform`,
-`build` (with the optional aim height `h`), `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
+`action` (`jump`|`dash`|`respawn`, the last one the way out of a hole and on its
+own cooldown), `chat`, `ping`, `voice` (`{on}`, the opt-in switch only; the
+audio itself is the binary channel in `voice.ts` and never JSON), and the edit
+verbs `terraform` (a `TerraformKind` of `raise`|`lower`|`flatten`|`paint`, plus
+the `surface` the painting one writes), `build` (with the optional aim height
+`h`), `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
 `kicked`, `pong`, plus the world stream `chunk` (encoded heights/surface as
 base64 and the chunk's placements), `unchunk`, `terrain` (`[cornerIndex,
-int16Height][]` deltas, quantised exactly as `Chunk.heights`), `place`,
-`remove`, and `reject`. `terrain` also carries optional `by` (the player whose
+int16Height][]` deltas, quantised exactly as `Chunk.heights`, plus
+`[tileIndex, surface][]` deltas when the brush painted), `place`,
+`remove`, `voice-peers` (who this player may hear and under which numeric talker
+id their frames arrive, the whole set rather than a delta, so a client that
+missed one converges anyway), and `reject`. `terrain` also carries optional `by` (the player whose
 brush it was), `mode` and `at` (`[x, y]`): a height carries no owner the way a
 placement does, so this is the only way the world feed can attribute ground
-work, and a corner index is not a place anyone can read. `welcome` carries
-`{self, players, now, world, pieces, deeds, feed}` —
+work, and a corner index is not a place anyone can read. `TERRAFORM_VERBS` is
+how each mode gets worded for that feed, and `setSurface` in `world.ts` is the
+one place a raster tile changes: it only marks its chunk touched, and
+`applyTerrain` bumps each touched chunk once for the whole brush, however many
+tiles it wrote. `welcome` carries
+`{self, players, now, weather, timeOfDay, world, pieces, deeds, feed}` —
 `self` is always a `Player`, `now` is the server clock the client's day/night +
-weather run on, `world` is `{chunkSize, bounds, seed, realm, persistent, streamed}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD; `streamed` is how many chunks the server streams around a settled player, which the client cannot derive and the entry screen needs as a denominator), and `pieces` is how many
+weather run on, `weather` and `timeOfDay` are the shared overrides that clock
+yields to (see "Shared weather commands"), `world` is `{chunkSize, bounds, seed, realm, persistent, streamed}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD; `streamed` is how many chunks the server streams around a settled player, which the client cannot derive and the entry screen needs as a denominator), and `pieces` is how many
 pieces this identity owns in the *whole* world (only the server can count that;
 a client holds 25 chunks), and `deeds` how many plots they hold, counted the
 same way. `feed` is the server's recent `WorldEvent` rows, newest first, which
 the HUD feed starts from; after that the client words its own rows from the live frames. `place` and `remove` carry optional `pieces`/`deeds` with the same
 meaning, present only on the copy sent to the player whose edit it was — every
 other viewer gets the frame without them and ignores the fields. `state` is filtered
-per session to players within 96 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping; the Oracle
+per session to players within 192 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping, plus `voice` on a line the server transcribed from speech rather than read from a keyboard; the Oracle
 speaks through the reserved `ORACLE_ID` sender, never a roster player, and its lines carry `to`, the id of the player it answers, which the scene turns the NPC to face. `kicked`
 carries a `reason` and boots a socket when the same identity opens another
 (single session per player). When you change a frame's shape, flag both
@@ -394,8 +447,12 @@ agent are told what moved.
   sync, generation determinism, the encode round trip, and the protected
   footprint — that the road ends the protection, that the meadow beside it is
   editable, and that the bank stair is still covered.
-  `scripts/moat-test.ts` and `scripts/character-animation-test.ts` also build a
-  `World` and are run the same way.
+  `scripts/moat-test.ts`, `scripts/index-test.ts` and
+  `scripts/character-animation-test.ts` also build a `World` and are run the
+  same way; `index-test.ts` is the one that covers the per-chunk cell index and
+  what a query must never miss. Two more build no world at all:
+  `voice-test.ts` covers the pairing rules, the hysteresis and the frame layout
+  round trip, and `character-test.ts` the outfit, hair and beard rules.
 - The protocol test is `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`.
 
 ## Shared weather commands

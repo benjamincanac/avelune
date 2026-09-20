@@ -17,9 +17,9 @@ import { nativeFetch } from './nativeFetch'
  * OIDC on Vercel).
  */
 
-// The gate runs on Jev, an evaluation model: one boolean question over the
-// transcript, a probability back, priced per input token only. The reply runs
-// on DeepSeek V4.1 Flash with thinking off (`reasoning: 'none'`): thinking
+// The gate runs on Jev, an evaluation model: four judgments over the transcript
+// in one request, probabilities back, priced per input token only. The reply
+// runs on DeepSeek V4.1 Flash with thinking off (`reasoning: 'none'`): thinking
 // tokens bill as output and a one-line reply with one tool call does not need
 // them. Its implicit caching also covers the persona prefix resent on every step.
 //

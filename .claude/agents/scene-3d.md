@@ -2,12 +2,18 @@
 name: scene-3d
 description: >
   TresJS / three.js rendering — the 3D game view and everything drawn in it.
-  Use for the camera (wall-aware third-person boom, pointer-lock delta look),
-  sky/day-night cycle + weather, instanced arena architecture, character model
-  playback, the Oracle rig, the minimap, and the dev world editor's 3D side.
-  Files: GameScene.client.vue, MazeScene.vue, MiniMap.vue, CharacterPreview*
-  model components, and app/utils/{textures,composeColosseum,hubEditor,
-  characterModels,appearance,palette}.ts.
+  Use for the chunk-streamed scene and its camera boom, client prediction and
+  reconciliation, sky/day-night cycle + weather, instanced architecture and
+  terrain, character model playback, the Oracle rig, the map painter, the
+  crosshair build tools, the procedural sound layer, and the dev world editor's
+  3D side. Components: GameScene.client.vue (input + renderer host),
+  MazeScene.vue (the scene, the camera, prediction), MiniMap.vue,
+  CharacterPreview* model components. app/utils: courtyardSky, courtyardScene,
+  courtyardAssets, courtyardTextures, courtyardLandscape, courtyardRenderer,
+  terrainChunk, chunkProps, surfaceColors, materialTextures, townMaterials,
+  foliage, shadows, cityMoat, fortifications, critters, the four fountain
+  modules, buildTools, mapDraw, hubEditor, characterModels, characterAnimation,
+  characterRim, appearance, palette, and audio/.
 model: inherit
 ---
 
@@ -17,19 +23,23 @@ nothing of its own. The dev editor is the exception — it builds its own local
 world from the seed and the committed layout JSON, because it authors them.
 
 ## Files you own
-- `app/components/GameScene.client.vue` — the live game view: TresJS scene,
-  third-person camera (wall-aware boom, raw-delta mouse-look, pointer lock +
-  fullscreen `F`), local prediction, other-player interpolation. Contract with
+- `app/components/GameScene.client.vue` — the client-only wrapper: it hosts the
+  Tres renderer and owns all input (raw-delta mouse-look into `view.yaw`,
+  pointer lock, the movement keys, the tool and map keys). It does not move the
+  camera and does not simulate: `clipBoom` and `stepBody` are `MazeScene`'s, and
+  fullscreen `F` is `play.vue`'s. Contract with
   `game-ui`: it emits `unlock` when pointer lock drops without us initiating it
   (not Alt-cursor mode, document still focused) — that transition IS the
   "player pressed Escape" signal, because the browser swallows the Escape
-  keydown entirely while locked; `index.vue` opens the game menu on it. Gotcha:
+  keydown entirely while locked; `play.vue` opens the game menu on it. Gotcha:
   Chrome refuses re-lock for ~1.25s after an Escape-exit, so a failed
   `requestLock()` is normal — clicking the world recovers.
 - `app/components/MazeScene.vue` — the town: the walled streets, moat and
   terrain surrounding the playable space, the
   per-chunk instanced batches built from each chunk's `placements`, the Oracle
-  rig, and the sky/day-night + weather clock. It holds the chunk groups and the
+  rig, and the sky/day-night + weather clock. It also owns the third-person
+  camera (the polar boom, `clipBoom`, the shoulder offset), local prediction and
+  reconciliation, and other-player interpolation. It holds the chunk groups and the
   four hooks the streaming layer drives (see **Chunk rendering**), and it is what
   aims and sends the hotbar's verbs (see **Crosshair targeting**).
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
@@ -52,13 +62,16 @@ world from the seed and the committed layout JSON, because it authors them.
   The eight spill outlets follow the lily bowl low points; `fountainFlow.ts`
   supplies discharge-conserving ballistic parcels and breakup timing. Match
   `FOUNTAIN_FLOW` lip dimensions to `build_courtyard_fountain.py`.
-  Jet cross sections shrink with speed to preserve discharge. Its fixed timestep wave solver
-  is visual only. Impacts sample the moving surface, transfer vertical momentum
+  Jet cross sections shrink with speed to preserve discharge. `fountainSimulation.ts`
+  is the bounded circular shallow-water solver behind each bowl, fixed timestep at
+  a CFL bound and visual only. Impacts sample the moving surface, transfer vertical momentum
   and generate foam transported by the surface flow. `fountainSurface.ts` uses
-  disposable 256px Reflector targets, water Fresnel and animated fine normals.
+  disposable Reflector targets, water Fresnel and animated fine normals.
   Its full grid is clipped to each circular bowl in the shader. Exclude surfaces
   from GTAO overrides, hide other pools and sprites during reflection, and guard
-  against recursive reflection renders. Keep normals correct under nonuniform scale.
+  against recursive reflection renders. Its Reflector target is 512 for a bowl
+  wider than a unit radius and 256 for the rest, and is disposed with the pool.
+  Keep normals correct under nonuniform scale.
   Shared player collision uses the stepped basin and central pedestal from
   `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
   remote feet through each fountain inverse transform for cosmetic wakes; water
@@ -93,8 +106,9 @@ world from the seed and the committed layout JSON, because it authors them.
   `MazeScene`'s `DETAIL_RADIUS` ring or grass pops in instead of fading. The patch
   bounding sphere is padded for that displacement, or edge patches cull while their
   blades are still on screen. Botanicals are the
-  Quaternius Stylized Nature MegaKit under `public/models/nature/` (`NATURE_NAMES`:
-  `tree1..5`, `bush1..2`, `fern`, `clover`, `plant`, `flowers1..2`, `rock1..3`); outside
+  Quaternius Stylized Nature MegaKit under `public/models/nature/` (`NATURE_NAMES`,
+  29 entries: `tree1..5`, `pine1..3`, `twisted1..3`, `dead1..3`, `bush1..2`, `fern`,
+  `clover`, `plant`, `flowers1..2`, `mushroom1..2`, `pebble1..3`, `rock1..3`); outside
   the walls they are real chunk placements from `shared/utils/vegetation.ts`, not
   decoration. Their leaves are alpha-cut cards (`alphaMode MASK`): every batch that
   carries one is tagged `userData.foliage` and `courtyardRenderer` hides those during
@@ -103,8 +117,12 @@ world from the seed and the committed layout JSON, because it authors them.
   bark keeps its texture. Pass authored placements into `createCourtyardScene` so
   garden plants are excluded beneath rotated building footprints. `courtyardTextures.ts`
   owns the runtime pigment maps. Dispose this scenery when rebuilding the floor.
-- `app/utils/composeColosseum.ts` is the retained legacy composition. The current
-  map does not use it or the old `hub-*.json` layouts.
+- `app/utils/composeColosseum.ts` and `app/utils/textures.ts` have no call sites
+  left anywhere in `app/`, `shared/` or `server/`. The first is the legacy
+  colosseum composition, which the current map does not use, nor the old
+  `hub-*.json` layouts. The second is the old procedural canvas stone, replaced
+  by `courtyardTextures.ts` and `materialTextures.ts`. Do not reach for either
+  when adding a surface.
 - `app/utils/hubEditor.ts` — the dev-only world editor's 3D controller (fly
   camera, ground raycast, click-to-place / select / drag, keyboard nudges). Owns
   its own `editorGroup` on the scene root and renders selectable per-prop clones;
@@ -113,22 +131,34 @@ world from the seed and the committed layout JSON, because it authors them.
   `{x, y, rot}` live. Driven by `useEditor` state and mounted by `MazeScene`
   when its `editor` prop is set (dev-only, tree-shaken from prod).
   The 2D palette/inspector is `game-ui`'s `EditorPanel.vue`.
-- `app/components/MiniMap.vue` — square 214px minimap (top-right), north-up
-  and centred on you, with a mono bar beneath it carrying your tile coordinates
-  and the loaded chunk count. Nothing is fogged; ground colour comes from each chunk's
-  surface raster and walls from `occupancyGrid(chunk)` (from `world-sim`), one
-  chunk at a time over a fixed tile range that is no longer derived from
-  `COURTYARD`. Inside the protected *footprint* (`isProtectedTile`) the raster is
+- `app/utils/mapDraw.ts` is the map painter, and the only place a map is drawn.
+  Ground colour comes from each chunk's surface raster and walls from
+  `occupancyGrid(chunk)` (from `world-sim`), one chunk at a time over the window
+  the caller passes. That window is a zoom level, chosen by the caller and
+  unrelated to `COURTYARD`. Inside the protected *footprint* (`isProtectedTile`) the raster is
   a uniform `path` placeholder, so the town square and the meadow around it are
   coloured from the town constants instead; outside it, the rest of a town chunk
-  included, the raster is real and shows what players have painted.
+  included, the raster is real and shows what players have painted. Nothing is
+  fogged. `paintWorld` is the ground, with `paintChunkGrid`, `paintTownOutline`,
+  `paintPlots`, `drawPlayerDot` and `drawSelfArrow` layered over it.
+- `app/components/MiniMap.vue` — square 214px minimap (top-right), north-up
+  and centred on you, with a mono bar beneath it carrying your tile coordinates
+  and the loaded chunk count. It only picks the window (`SIZE`, `RANGE`) and
+  redraws on an interval; `mapDraw` does the drawing, which is what keeps it from
+  drifting apart from `game-ui`'s full-screen `WorldMap.vue` (`M`, state in
+  `useWorldMap`, key and pointer lock in `GameScene`), the other caller of the
+  same painter.
 - `CharacterPreview*.client.vue` — model preview rendering for onboarding
   (coordinate visuals with `game-ui`, which owns the surrounding UI). Framing is
-  `LIFT` and `DISTANCE` in `CharacterPreviewModel`, both in units of the figure's
-  own height so every character frames the same. `LIFT` pans the eye *and* the
-  target down by the same amount — a pan, not a tilt, because tilting
-  foreshortens a character the design wants read straight on — and it exists so
-  the boots clear the name field stacked below. The floor is a textured disc in
+  `CENTRE` (0.66) and `DISTANCE` (4.9) in `CharacterPreviewModel`, in world units
+  and deliberately *not* scaled to each figure's own height: backing the camera
+  off in proportion makes a taller character render smaller, which is exactly
+  backwards. A fixed frame is what lets the male peasant's 1.84 read as taller
+  than the female's 1.78. `CENTRE` is the height the camera looks at, with the
+  eye 0.15 above it at `DISTANCE` out, so the figure is read from very slightly
+  above, under two degrees down. `CENTRE` is what puts the feet
+  72% down the frame, which is what clears the summary line and the name field
+  stacked below. The floor is a textured disc in
   the scene at y = 0 (`floorTexture()` in `CharacterPreviewModel`), not CSS in
   the gate: only a disc in perspective wraps both boots, a flat rule across the
   stage cut through whichever foot stood nearer the camera.
@@ -147,22 +177,49 @@ world from the seed and the committed layout JSON, because it authors them.
   skeleton's GPU bone textures when replacing or removing the rig, but retain
   the cached template geometry and materials.
 - `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
-  `material.map` on the cloth materials only (`MI_Peasant*`/`MI_Ranger*`), with
-  materials cloned per rig so a swap never leaks into the shared template.
-- `app/utils/textures.ts` — procedural/canvas textures and normal maps.
+  `material.map` on the cloth materials only (`MI_(Peasant|Ranger|Knight|Noble|
+  Wizard)`, matched on the prefix so the importer's `.001` suffix still hits),
+  with materials cloned per rig so a swap never leaks into the shared template.
+  It also clears the clone's `userData.characterRim` guard, so the rim hook
+  reinstalls on the clone.
+- `app/utils/characterAnimation.ts` — the clip blend timings: `animationBlendDuration`
+  and `locomotionTransitionTime`, which is where the sprint/jog footfall phase is
+  preserved (see **Sprint gait transitions**).
+- `app/utils/characterRim.ts` — the character rim light hook (`setCharacterRim`
+  moves the key direction per frame, `applyCharacterRim` patches a rig's
+  materials), guarded by `userData.characterRim`.
+- `app/utils/foliage.ts` — `applyFoliage`, the leaf-card wind hook, guarded by
+  `userData.foliageShader`.
+- `app/utils/shadows.ts` — `createCascadedShadows`, the CSM the sky drives. Every
+  "CSM registration" and "cascade update" warning in this file is about this
+  module's `csm.shaders` map.
+- `app/utils/surfaceColors.ts` — `SURFACE_COLORS`, indexed by `SURFACE` for the
+  map, and `TERRAIN_TINTS`, the blend targets `terrainChunk`'s `surfaceTint`
+  lerps toward. The tints are keyed by pigment name, not by surface, so one
+  tint can serve several surfaces: a new `SURFACE` value needs a
+  `SURFACE_COLORS` slot and a `surfaceTint` case, and only a new tint target
+  needs an entry here. Grass appears in neither table as a tint because it is
+  the untinted base colour, and `mortar` is a target nothing currently reads,
+  since `surfaceTint` leaves a `path` tile alone.
 - `app/utils/palette.ts` — the brand palette (`PALETTE` / `PALETTE_HEX`), shared
   with the 2D UI and the generated art. Use it instead of hardcoding accents.
 - `app/utils/audio/` and `app/composables/useAudio.ts` — the whole sound layer
   (engine, named one-shots, ambient beds, footstep cadence) and the player's
-  volume and mute, persisted in `localStorage`. The mixer controls in
-  `GameMenu.vue` are the one piece of 2D interface this slice owns.
+  volume and mute, persisted in `localStorage`. You own the engine and what the
+  mixer does; `GameMenu.vue` is `game-ui`'s file and it owns the markup the
+  sliders sit in, so a new control is a change on both sides of that seam.
   The engine carries a third bus beside `world` and `ui`: `voice`, for other
   players' speech, with its own level so a person can be heard over the wind. The
-  voice graph itself (`app/utils/audio/voice.ts`) and the rest of proximity voice
+  voice graph itself (`app/utils/audio/voice.ts`), `app/utils/voice/` (the Opus
+  codec, the jitter buffer, the clip recorder) and the rest of proximity voice
   belong to `game-ui`; what this slice owns is the one line in `MazeScene`'s render
   loop that puts each talker's panner at their rendered rig, at mouth height. It
   follows the *rendered* body, not the authoritative one, for the same reason the
   footsteps do: the body you can see has to be the body you hear.
+- `app/composables/useAssets.ts` is `game-ui`'s, because the loading gate is what
+  reads the counts. Scene code is the only thing that writes it: hand every model
+  load to `track`, and a failed load still has to settle, or a missing GLB keeps a
+  player out of the world.
 
 ## Invariants & context
 1. **Client prediction uses the SHARED kinematics** (`shared/utils/maze.ts` →
@@ -304,7 +361,7 @@ an instance tint clone: a CSM-patched hook re-registers the clone's shader under
 the source material in `csm.shaders` and the source stops getting cascade
 updates. Re-install instead — `townMaterials.reapply` reads the
 `userData.townMaterial` recipe `apply` leaves behind, `applyFoliage` re-runs, and
-the CSM sweep (`sky.setupShadows()`, called after every build and rig) patches
+the CSM sweep (`atmosphere.setupShadows()`, called after every build and rig) patches
 the clone as a material of its own. Clear the `userData.foliageShader` /
 `userData.characterRim` guards on any clone, or the hooks they mark never
 reinstall. Every town material hook chains the previous one.
@@ -335,7 +392,7 @@ supporting leg abruptly.
 ## Chunk rendering
 
 The world is drawn chunk by chunk, not as one floor. `MazeScene` keeps a
-`Map<chunkKey, MountedChunk>` of `{ group, terrain, props, grass, detail }` and
+`Map<chunkKey, MountedChunk>` of `{ group, terrain, props, grass, paving, detail }` and
 exposes the four hooks the `chunk` / `unchunk` / `terrain` / `place` and
 `remove` frames map onto, via `defineExpose`:
 
@@ -352,7 +409,10 @@ the chunk was replaced by a resync), `onUnchunk` unmounts, `onTerrain` and
 refreshes the 3×3 around its chunk, not just its owner. The range follower still
 runs alongside, but only to pick the *detail level* by distance — terrain out to
 7 chunks (the camera's far plane), props, vegetation and grass in a ring of 2,
-dropped at 3 and 8, at most three chunks built per frame. Its terrain radius is
+dropped at 3 and 8. What it builds per frame is capped by time, not by count:
+`MOUNT_BUDGET_MS` is 5 ms of a frame, and the first sync ignores it and fills the
+whole view at once, because a horizon that fades in over the first minute on a
+slow machine is worse than one long frame at load. Its terrain radius is
 wider than the server's 5×5 loaded set on purpose: a chunk it asks for that has
 not arrived simply is not mounted, and `terrainHeight` reads `-Infinity` there so
 nobody can stand on it. The protected town is always detailed while mounted —
@@ -382,9 +442,12 @@ Terrain receives shadows and casts none (`userData.shadowTagged`), and is *not*
 excluded from GTAO.
 
 The protected town renders its terrain too, sunk `TOWN_CLEARANCE` below zero so
-every plaza plane in `courtyardScene` — the lowest sits at -0.025 — stays on top
+every plaza plane in `courtyardScene` — the lowest sits at -0.015 — stays on top
 of it instead of z-fighting. **Protection is a tile footprint, not a chunk**:
-`isProtectedTile(x, y)` is the moat ring plus the gate bridge's landing, and
+`isProtectedTile(x, y)` walks three rects, the moat's outer square plus
+`TOWN_MARGIN`, the outer-bank stair with that margin on x only and its raw
+`zStart`/`zEnd` along the flight, and exactly the tiles
+under the gate bridge's landing, and
 `isTownChunk(cx, cy)` is only "this chunk overlaps it", used for seeding and for
 keeping the town permanently detailed. Every rendering special case is keyed to
 the tile, so a town chunk's outer tiles are ordinary meadow that grows grass,
@@ -395,19 +458,26 @@ are punched out of the index: that channel is real geometry in `cityMoat` and a
 flat lid would seal the water off.
 
 `app/utils/chunkProps.ts` also owns `createPavingBank`: the `path` surface is
-real flagstones, not a tint. One `InstancedMesh` per chunk of the town's own
-`RoundedBoxGeometry(0.983, 0.045, 0.983, 2, 0.014)` slab on the town's `stone`
-material (same `makeCourtyardSurface('stone')` map and `materials.apply` recipe
-as `courtyardScene`), one instance per `path` tile outside the protected
-footprint, sitting at the tile's mean corner height and tilted to the plane
-through its four corners — an unflattened tile gets a tilted slab. The underside
-is buried a centimetre because that plane and the bilinear ground only coincide
-on a flat tile. It depends on heights *and* the raster, so `refreshChunkTerrain`
-rebuilds the slabs and the chunk's detail (grass, flowers) alongside the mesh,
+real road, not a tint. One `Mesh` per chunk, a `BufferGeometry` indexed straight
+into the chunk's own 33×33 corner grid, two triangles per `path` tile outside the
+protected footprint, every corner lifted `ROAD_LIFT` (0.02) above the terrain's
+own height. It follows the ground exactly rather than approximating it, so there
+is no per-tile slab to tilt and nothing to bury: the road shares the terrain's
+vertices. Normals are central differences through the caller's
+`HeightSampler`, so a corner on a chunk border is lit from the neighbour's
+heights too, and uvs are world tile coordinates times `ROAD_UV_SCALE` (1/8), so
+the stone runs continuous across the seam. The material is `createPaleStone`
+(from `courtyardScene`) over a `makeCourtyardSurface('stone')` map, cached once
+for the bank. The `RoundedBoxGeometry(0.983, 0.045, 0.983, 2, 0.014)` slab bank
+is a different thing: that one is the authored town's own paving inside
+`courtyardScene`, instanced, and it is not what a player's road is made of.
+The road depends on heights *and* the raster, so `refreshChunkTerrain`
+rebuilds it and the chunk's detail (grass, flowers) alongside the mesh,
 not `refreshChunkProps`; it is not detail-gated, because a road has to still be
-there from the next hill. The ground under it keeps a dark `mortar` tint so the
-joints read, and `isGrassTile` already refuses a non-grass raster, which is what
-keeps blades and flowers off the slabs.
+there from the next hill. It receives shadows and casts none
+(`userData.shadowTagged`, deliberate so the blanket tagging leaves it alone), and
+`isGrassTile` already refuses a non-grass raster, which is what keeps blades and
+flowers off it.
 
 `app/utils/chunkProps.ts` owns `instantiateModule` and builds one
 `InstancedMesh` per kind *per chunk*, which costs more draw calls than one batch
@@ -536,12 +606,13 @@ used to be an ad-hoc pair (camera up by `pitch * 1.8`, target down by
 `pitch * 1.2`) which topped out around 28° at full extension, so the tiles
 around the player's own feet could not be aimed at. It now orbits a pivot at
 `PIVOT_HEIGHT` and the crosshair looks down at exactly `pitch`. An armed tool
-raises the ceiling from `PITCH_MAX` to `PITCH_MAX_TOOL` (~80°, both in
+raises the ceiling from `PITCH_MAX` (0.55 rad, ~32°) to `PITCH_MAX_TOOL`
+(1.5 rad, ~86°, both in
 `useBuild`) — `GameScene` clamps the input, `MazeScene` eases the view back up
 when the tool is put away. Steep pitch also shortens the boom by `STEEP_CLOSE`,
 or the camera would hang four tiles overhead and the tile under the crosshair
 would be a postage stamp; that is also what brings the camera inside
-`SELF_FADE_DISTANCE`, where `fadeSelf` dissolves the local character so you can
+`SELF_FADE_DISTANCE`, where `hideSelfWhenClose` dissolves the local character so you can
 see your own tile. Fading rather than hiding, because the rig's materials are
 per-clone (`appearance.ts`) and nothing else shares them. The ray itself never
 needed the character excluded — players are not placements, so `propsNear` has

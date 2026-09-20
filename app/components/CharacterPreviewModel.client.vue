@@ -190,9 +190,9 @@ function onPointerUp() {
 
 onBeforeRender(({ delta }) => {
   // Frame the (origin-centered) figure from slightly above, looking at its mid.
-  // Both the eye and the target drop by the same amount, so this is a pan and
-  // not a tilt — tilting would foreshorten the character the design wants read
-  // straight on.
+  // The eye sits 0.15 over the look target at `DISTANCE` out, so the view tilts
+  // under two degrees down: enough to read as "from slightly above" and far too
+  // little to foreshorten a character the design wants read straight on.
   const cam = cameraManager.activeCamera.value
   if (cam instanceof PerspectiveCamera) {
     cam.position.set(0, CENTRE + 0.15, DISTANCE)
