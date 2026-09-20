@@ -51,8 +51,8 @@ export default defineEventHandler(async (event) => {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    // Effectively permanent — the character is kept indefinitely (there is no
-    // logout; the in-game "leave" only returns to the menu).
+    // Effectively permanent. The character is kept until the player logs out
+    // from the Escape menu, which clears the cookie through `DELETE /api/auth`.
     maxAge: 60 * 60 * 24 * 365 * 10,
     secure: !import.meta.dev,
   })

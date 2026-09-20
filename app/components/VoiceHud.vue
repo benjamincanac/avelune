@@ -34,8 +34,8 @@ defineProps<{
   level: number
   /** Why the talk key did nothing just now, or null. Shown even with voice off. */
   hint: 'off' | 'muted' | 'unsupported' | 'blocked' | 'asking' | null
-  /** Say that voice exists: somebody is in range and this player has never
-   *  turned it on. The page decides when, and only ever once. */
+  /** Say that voice exists: this player has never turned it on. It stays up
+   *  the whole time, since the feature is otherwise invisible from the HUD. */
   nudge?: boolean
   rows: VoiceRow[]
 }>()
