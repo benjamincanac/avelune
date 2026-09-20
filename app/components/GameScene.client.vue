@@ -217,9 +217,15 @@ function onKeyDown(event: KeyboardEvent) {
     if (!event.repeat) triggerDash()
     return
   }
-  // Hotbar. Digits arm a slot, Tab turns the page, and the modifiers belong to
-  // whichever tool is armed: Q cycles the paint surface, R turns the ghost a
-  // quarter turn, and the brackets widen or narrow the terraform brush.
+  // Hotbar. Digits arm a slot, 0 swaps demolish in and back out, Tab turns the
+  // page (Shift+Tab back), and the modifiers belong to whichever tool is armed:
+  // Q cycles the paint surface, R turns the ghost a quarter turn, and the
+  // brackets widen or narrow the terraform brush.
+  if (event.code === 'Digit0') {
+    event.preventDefault()
+    build.toggleDemolish()
+    return
+  }
   if (event.code.startsWith('Digit')) {
     const index = Number(event.code.slice(5)) - 1
     if (index >= 0 && index < 9) {
@@ -230,7 +236,7 @@ function onKeyDown(event: KeyboardEvent) {
   }
   if (event.code === 'Tab') {
     event.preventDefault()
-    build.turnPage()
+    build.turnPage(event.shiftKey ? -1 : 1)
     return
   }
   if (event.code === 'KeyQ') {

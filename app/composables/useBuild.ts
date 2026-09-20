@@ -44,8 +44,12 @@ const TOOL_SLOTS: Slot[] = [
   { id: 'lower', label: 'Lower', icon: 'i-lucide-chevrons-down' },
   { id: 'flatten', label: 'Flatten', icon: 'i-lucide-minus' },
   { id: 'paint', label: 'Paint', icon: 'i-lucide-paintbrush' },
-  { id: 'demolish', label: 'Demolish', icon: 'i-lucide-hammer' },
 ]
+
+/** Demolish belongs to no page. The piece you want gone is almost always the
+ *  one you just placed, so it sits last on every page, on `0`, instead of
+ *  costing two page turns back to the tools row. */
+const DEMOLISH_SLOT: Slot = { id: 'demolish', label: 'Demolish', icon: 'i-lucide-hammer' }
 
 const KIT_ICONS: Record<string, string> = {
   Kit_Wall: 'i-lucide-rectangle-vertical',
@@ -66,8 +70,9 @@ const KIT_ICONS: Record<string, string> = {
 
 const KIT_SLOTS: Slot[] = KIT_NAMES.map(kind => ({ id: kind, kind, label: kitLabel(kind), icon: KIT_ICONS[kind] ?? 'i-lucide-box' }))
 
-/** Nine slots a page. The first page is the environment tools, the rest are
- *  the pieces to place. Tab turns the page. */
+/** Nine slots a page plus demolish on the end. The first page is the
+ *  environment tools, the rest are the pieces to place. Tab turns the page,
+ *  Shift+Tab turns it back. */
 export interface BuildPage {
   label: string
   slots: Slot[]
@@ -76,7 +81,12 @@ export const BUILD_PAGES: BuildPage[] = [
   { label: 'Tools', slots: TOOL_SLOTS },
   { label: 'Build 1', slots: KIT_SLOTS.slice(0, 9) },
   { label: 'Build 2', slots: KIT_SLOTS.slice(9) },
-]
+].map(page => ({ ...page, slots: [...page.slots, DEMOLISH_SLOT] }))
+
+/** Where demolish sits on a page: always last, always `0`. */
+export function demolishIndex(page: number): number {
+  return (BUILD_PAGES[page]?.slots.length ?? 1) - 1
+}
 
 /** Label per `SURFACE` value. `path` is called paving in the bar because that
  *  is what it lays: real flagstones, not a worn track. `snow` is here to be
@@ -124,7 +134,9 @@ export interface UseBuild {
   select: (index: number) => void
   disarm: () => void
   cycleSlot: (delta: number) => void
-  turnPage: () => void
+  /** Arm demolish, or put back whatever it was swapped in for. */
+  toggleDemolish: () => void
+  turnPage: (delta?: number) => void
   cycleSurface: () => void
   rotate: () => void
   nudgeSize: (delta: number) => void
@@ -158,29 +170,69 @@ export function useBuild(): UseBuild {
   // the ghost behind them.
   const shoulder = ref<1 | -1>(1)
 
+  // What each page had armed when it was last left, so turning back to one
+  // picks it up rather than landing on whatever shares the index.
+  const memory: number[] = BUILD_PAGES.map(() => -1)
+  // What demolish was swapped in for, on this page. Not a ref: nothing renders it.
+  let swapBack = -1
+
   const active = computed(() => BUILD_PAGES[page.value]?.slots[slot.value])
 
   /** Arm a slot; the same slot again disarms, so nothing stays armed by accident. */
   function select(index: number) {
-    if (index < 0 || index >= (BUILD_PAGES[page.value]?.slots.length ?? 0)) return
+    const count = BUILD_PAGES[page.value]?.slots.length ?? 0
+    if (index < 0 || index >= count) return
+    if (index === count - 1) {
+      toggleDemolish()
+      return
+    }
+    swapBack = -1
     slot.value = slot.value === index ? -1 : index
+  }
+
+  /** Demolish is a swap, not a mode to undo: arming it remembers what was in
+   *  hand and `0` again puts that back, so knocking down the wall you just
+   *  placed costs two taps and leaves you still holding a wall. */
+  function toggleDemolish() {
+    const at = demolishIndex(page.value)
+    if (slot.value === at) {
+      slot.value = swapBack
+      swapBack = -1
+      return
+    }
+    swapBack = slot.value
+    slot.value = at
   }
 
   function disarm() {
     slot.value = -1
+    swapBack = -1
   }
 
   /** The wheel only walks the bar once a slot is armed, so an incidental scroll
-   *  while running never picks a tool. */
+   *  while running never picks a tool. Demolish sits outside the loop — the
+   *  wheel is for choosing what to place, and a scroll past it would arm the
+   *  one tool that takes something away. From demolish it walks on from
+   *  whatever demolish was swapped in for. */
   function cycleSlot(delta: number) {
     if (slot.value < 0) return
-    const length = BUILD_PAGES[page.value]?.slots.length ?? 1
-    slot.value = (slot.value + delta % length + length) % length
+    const count = demolishIndex(page.value)
+    if (count < 1) return
+    const from = slot.value === count ? Math.max(swapBack, 0) : slot.value
+    swapBack = -1
+    slot.value = (from + delta % count + count) % count
   }
 
-  function turnPage() {
-    page.value = (page.value + 1) % BUILD_PAGES.length
-    slot.value = Math.min(slot.value, (BUILD_PAGES[page.value]?.slots.length ?? 1) - 1)
+  /** Turn the page, forwards by default and back on Shift. Demolish is on every
+   *  page, so it stays in hand across the turn. */
+  function turnPage(delta = 1) {
+    const wasDemolish = slot.value === demolishIndex(page.value)
+    memory[page.value] = wasDemolish ? swapBack : slot.value
+    const count = BUILD_PAGES.length
+    page.value = (page.value + delta % count + count) % count
+    const restored = memory[page.value] ?? -1
+    swapBack = wasDemolish ? restored : -1
+    slot.value = wasDemolish ? demolishIndex(page.value) : restored
   }
 
   function cycleSurface() {
@@ -234,6 +286,7 @@ export function useBuild(): UseBuild {
     select,
     disarm,
     cycleSlot,
+    toggleDemolish,
     turnPage,
     cycleSurface,
     rotate,

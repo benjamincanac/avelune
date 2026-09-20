@@ -66,7 +66,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>
-  <div class="frost pointer-events-auto flex w-105 min-h-0 flex-col overflow-hidden rounded-[6px]">
+  <!-- `max-w-full` is load-bearing: the panel shares the bottom row with the
+       build bar and gives up width to it rather than sliding under it. -->
+  <div class="frost pointer-events-auto flex w-105 min-h-0 max-w-full flex-col overflow-hidden rounded-[6px]">
     <div
       ref="scrollback"
       class="flex max-h-56 flex-col gap-1.5 overflow-y-auto overscroll-contain px-4 py-3"

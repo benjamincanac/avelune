@@ -313,19 +313,21 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
         <span class="size-1.5 rounded-full bg-white/80 ring-1 ring-black/50" />
       </div>
 
-      <!-- Bottom left: chat. The one thing down here you can click, so the one
-           thing down here with a panel. -->
-      <div class="pointer-events-none absolute bottom-6.5 left-7 z-10">
+      <!-- The bottom row: chat on the left, the build bar centred in what is
+           left of the width. One grid rather than two absolutes, because the
+           two used to be laid out as if the viewport were always wide enough
+           and met in the middle when it was not — chat now narrows instead.
+           The empty third column is what keeps the bar on the centre line.
+           Chat is the one thing down here you can click, so the one thing down
+           here with a panel. -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-6.5 z-10 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-x-5 px-7">
         <ChatPanel
           :game="game"
           @focus="typing = true"
           @blur="typing = false"
         />
-      </div>
-
-      <!-- Bottom centre: the build bar. -->
-      <div class="pointer-events-none absolute inset-x-0 bottom-6.5 z-10 flex justify-center">
         <Hotbar :dimmed="typing" />
+        <div />
       </div>
 
       <!-- Bottom right, above the typing caption: who is speaking nearby, and

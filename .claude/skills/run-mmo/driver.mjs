@@ -502,8 +502,11 @@ if (mode === 'build') {
   await page.waitForTimeout(400)
   await look(Number(process.env.MMO_PITCH || 120), 'movementY')
   await page.waitForTimeout(600)
-  // Slot 6 on the first hotbar page is Kit_Wall (five tools, then the kit).
-  await page.keyboard.press('Digit6')
+  // The kit lives on the second hotbar page: Tab turns to it, and Kit_Wall is
+  // its first slot. (The first page is the terraform tools, with demolish on 0.)
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(300)
+  await page.keyboard.press('Digit1')
   await page.waitForTimeout(500)
   // Two clicks without moving: the second wall stacks on the first, which is
   // the thing worth seeing. Stay still afterwards so both stay in frame.

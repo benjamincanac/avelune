@@ -81,7 +81,11 @@ isn't the 3D world.
   build bar and its shared state (armed slot, page, brush size, ghost rotation,
   paint surface, piece count, target verdict). Presentation and state only:
   `GameScene` writes the keys and the wheel into it, `MazeScene` reads the armed
-  slot when it aims and sends.
+  slot when it aims and sends. **Demolish belongs to no page**: it is appended to
+  every one as a tenth slot on `0`, because the piece you want gone is the one
+  you just placed and paging back to the tools row to remove it was the wrong
+  shape. Arming it is a swap — it remembers what was in hand and `0` puts that
+  back — and each page remembers its own armed slot across `Tab` / `Shift+Tab`.
 - `app/components/WorldMap.vue` + `app/composables/useWorldMap.ts` — the
   full-screen map, toggled with `M` and closed with `M` or Escape. `GameScene`
   owns the key: opening drops the pointer lock and freezes movement and
