@@ -343,7 +343,7 @@ restoration and WebSocket upgrades use this normalization.
 
 ## Shared weather commands
 
-Players change the shared sky by asking the Oracle: `oracleReply` reads the
+Players change the shared sky by asking the Oracle: `oracleHears` reads the
 request in its classifier pass and calls `setWeather` / `setTimeOfDay` in
 `server/utils/game.ts`, and its reply is the announcement.
 `/weather clear|overcast|rain|auto` is the same switch as a dev-only chat

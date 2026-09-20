@@ -47,8 +47,8 @@ import type { Identity } from './session'
 import { FORTIFICATIONS } from '#shared/utils/courtyard'
 import { realmName } from '#shared/utils/realm'
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
-import type { HubMessage } from './oracle'
-import { oracleGreeting, oracleReply } from './oracle'
+import type { HubMessage, SkyControl } from './oracle'
+import { oracleAnswer, oracleGreeting, oracleHears } from './oracle'
 
 /**
  * The authoritative arena.
@@ -137,7 +137,7 @@ let weather: WeatherMode = 'auto'
 let timeOfDay: TimeOfDayMode = 'auto'
 
 /**
- * Turn the shared sky. Players ask the Oracle for this (`oracleReply` calls
+ * Turn the shared sky. Players ask the Oracle for this (`oracleHears` calls
  * these on its classifier's verdict, and its reply is the announcement); the
  * dev commands below reach them too, so a harness can fix the sky without a
  * model.
@@ -851,19 +851,63 @@ export function snapshot(): ArenaState {
 /** Recent arena chat as context for the Oracle (players' lines and its own). */
 const hubChat: HubMessage[] = []
 const HUB_CHAT_CONTEXT = 12
-/** One reply in flight at a time, plus a cooldown after each — anti-flood. */
-let oracleBusy = false
+/**
+ * One *answer* in flight at a time, plus a cooldown after each — anti-flood.
+ *
+ * Listening is not gated with speaking, and that separation is the point. The
+ * classifier runs on every line, banter included, so a single lock around both
+ * halves let ordinary player-to-player chatter swallow the one line that was a
+ * question: it was dropped before anyone had even read it. Classification is
+ * cheap and fast, so it runs concurrently; only the reply waits its turn.
+ */
+let oracleSpeaking = false
 let oracleQuietUntil = 0
 const ORACLE_COOLDOWN = 4000
 /**
- * A line that misses the cooldown by less than this waits for it instead of
- * being dropped. Losing a question by 60ms reads as the Oracle ignoring you,
- * and the asker gets no sign it was even heard. Much longer than this and the
- * answer lands after they have moved on, which is worse than silence.
+ * Classifier calls allowed at once. Uncapped, a chat flood fans out one model
+ * call per line; this bounds the spend while leaving enough room that a
+ * question is never dropped behind ordinary banter.
  */
-const ORACLE_DEFER_GRACE = 1000
-/** At most one line waits at a time; anything else during the wait is dropped. */
-let oracleDeferred: ReturnType<typeof setTimeout> | undefined
+const ORACLE_MAX_CLASSIFY = 4
+let oracleClassifying = 0
+/** Order of arrival in chat, so the newest addressed line wins the slot even
+ *  when the classifiers resolve out of order. */
+let oracleSeq = 0
+/**
+ * A question this old is dropped rather than answered. Generous, because the
+ * gates above cap the wait at about one cooldown plus one reply; it is there so
+ * a pathological backlog can never surface an answer nobody remembers asking for.
+ */
+const ORACLE_PENDING_MAX_AGE = 15_000
+
+/** A line heard, its sky already turned, waiting for the Oracle to be free. */
+interface PendingAnswer {
+  /** The player to answer, so clients turn the NPC to face them. */
+  id: string
+  seq: number
+  /** The transcript as it stood when this line was classified, ending on it —
+   *  not `hubChat` as it will be later, which may have moved on. */
+  recent: HubMessage[]
+  /** Sky changes already applied, for the responder to acknowledge. */
+  done: string[]
+  at: number
+}
+/**
+ * The line waiting to be answered, at most one. A newer question replaces an
+ * older one rather than queueing behind it: by the time the Oracle is free the
+ * freshest question is the one whose asker is still looking, and a FIFO queue
+ * would answer all of them several seconds late.
+ */
+let oraclePending: PendingAnswer | undefined
+let oraclePendingTimer: ReturnType<typeof setTimeout> | undefined
+
+/** The Oracle's hand on the sky, and the dev commands' — one object so the two
+ *  halves of a reply (the turn, then the wording) see the same sky. */
+const skyControl: SkyControl = {
+  now: () => skyNow(Date.now()),
+  setWeather,
+  setTime: setTimeOfDay,
+}
 
 /**
  * Say an Oracle line: remember it as context for later replies, start the
@@ -933,46 +977,92 @@ export function hasLiveVoice(id: string): boolean {
   return sessions.get(id)?.voice === true
 }
 
+/**
+ * Let the Oracle hear a chat line.
+ *
+ * Every line is classified, whatever the Oracle is doing — a reply in flight or
+ * a cooldown gates speaking, never listening. A line that turns out to be for
+ * the Oracle takes the answer slot and is answered as soon as it is free, so
+ * asking while it is mid-sentence to someone else no longer loses the question.
+ */
 function considerOracle(id: string, name: string, text: string) {
   hubChat.push({ name, text })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
-  // Don't even classify while replying or cooling down: the classifier gates
-  // *what* it answers, these gate *how often* — together they prevent floods.
-  const cooling = oracleQuietUntil - Date.now()
-  if (oracleBusy || cooling > 0) {
-    if (!oracleBusy && !oracleDeferred && cooling <= ORACLE_DEFER_GRACE) {
-      console.log('[oracle] defer', `${cooling}ms`, JSON.stringify(text))
-      // +20ms so the re-check inside askOracle is past the boundary, not on it.
-      oracleDeferred = setTimeout(() => {
-        oracleDeferred = undefined
-        askOracle(id)
-      }, cooling + 20)
-      return
-    }
+  if (oracleClassifying >= ORACLE_MAX_CLASSIFY) {
     // Logged, because silence here is indistinguishable from the classifier
     // deciding the line wasn't for the Oracle — and that one logs a score.
-    console.log('[oracle] skip', oracleBusy ? 'busy' : `cooling ${cooling}ms`, JSON.stringify(text))
+    console.log('[oracle] skip', `classifying ${oracleClassifying}`, JSON.stringify(text))
     return
   }
-  askOracle(id)
-}
-
-/**
- * Run the Oracle over the transcript as it stands, answering `id`.
- *
- * Re-checks the gates itself because the deferred path calls it a beat later,
- * by which time someone else's line may have taken the turn.
- */
-function askOracle(id: string) {
-  if (oracleBusy || Date.now() < oracleQuietUntil) return
-  oracleBusy = true
-  oracleReply([...hubChat], snapshot, { now: () => skyNow(Date.now()), setWeather, setTime: setTimeOfDay })
-    .then((reply) => {
-      if (reply) speak(reply, id)
+  const seq = ++oracleSeq
+  const recent = [...hubChat]
+  oracleClassifying++
+  oracleHears(recent, skyControl)
+    .then((done) => {
+      if (!done) return
+      rememberOracle({ id, seq, recent, done, at: Date.now() })
+      drainOracle()
     })
     .catch(() => {})
     .finally(() => {
-      oracleBusy = false
+      oracleClassifying--
+    })
+}
+
+/**
+ * Take the answer slot, or settle with whoever holds it. The newest line wins,
+ * because its asker is the one still waiting — but the loser's sky deeds carry
+ * over, since the sky already turned for them and the line that does get
+ * answered is the only one left to own it.
+ */
+function rememberOracle(next: PendingAnswer) {
+  const held = oraclePending
+  if (!held) {
+    oraclePending = next
+    return
+  }
+  const winner = next.seq > held.seq ? next : held
+  const loser = winner === next ? held : next
+  console.log('[oracle] supersede', JSON.stringify(loser.recent.at(-1)?.text), 'by', JSON.stringify(winner.recent.at(-1)?.text))
+  oraclePending = { ...winner, done: [...held.done, ...next.done] }
+}
+
+/**
+ * Answer the waiting line once the Oracle is free and the cooldown has run out.
+ * Called when the slot is filled and again after every answer, so a question
+ * asked mid-reply is answered a beat later instead of being dropped.
+ */
+function drainOracle() {
+  if (!oraclePending || oracleSpeaking) return
+  const cooling = oracleQuietUntil - Date.now()
+  if (cooling > 0) {
+    // +20ms so the re-check lands past the boundary, not on it. One timer only:
+    // a line that supersedes this one inherits the wait already running.
+    if (!oraclePendingTimer) {
+      oraclePendingTimer = setTimeout(() => {
+        oraclePendingTimer = undefined
+        drainOracle()
+      }, cooling + 20)
+      // Never hold the process open just for a pending answer.
+      ;(oraclePendingTimer as { unref?: () => void }).unref?.()
+    }
+    return
+  }
+  const pending = oraclePending
+  oraclePending = undefined
+  if (Date.now() - pending.at > ORACLE_PENDING_MAX_AGE) {
+    console.log('[oracle] stale', JSON.stringify(pending.recent.at(-1)?.text))
+    return
+  }
+  oracleSpeaking = true
+  oracleAnswer(pending.recent, pending.done, snapshot, skyControl)
+    .then((reply) => {
+      if (reply) speak(reply, pending.id)
+    })
+    .catch(() => {})
+    .finally(() => {
+      oracleSpeaking = false
+      drainOracle()
     })
 }
 
@@ -998,10 +1088,11 @@ const greetedAt = new Map<string, number>()
  * at once. Gated once per identity per `GREET_INTERVAL`, so walking back and
  * forth through the gate, a refresh or a tab take-over stays silent.
  *
- * Never talks over a reply in flight or a cooldown: it waits, looking again
- * every `GREET_RETRY`, and gives up once `GREET_WINDOW` has passed — a party
- * arriving together is worth a short wait, a busy chat is not, and a greeting
- * never queues indefinitely. Giving up, or the traveller leaving first,
+ * Never talks over a reply in flight, a cooldown, or a question already waiting
+ * to be answered: it waits, looking again every `GREET_RETRY`, and gives up once
+ * `GREET_WINDOW` has passed — a party arriving together is worth a short wait, a
+ * busy chat is not, and a greeting never queues indefinitely. A traveller's
+ * question always outranks the welcome they get for walking in. Giving up, or the traveller leaving first,
  * releases the slot so the next visit is greeted.
  */
 function deliverGreeting(session: Session) {
@@ -1018,7 +1109,7 @@ function deliverGreeting(session: Session) {
     const timer = setTimeout(() => {
       // Gone again, or the Oracle stayed busy too long: drop it, don't queue.
       if (sessions.get(id) !== session) return void greetedAt.delete(id)
-      if (oracleBusy || Date.now() < oracleQuietUntil) {
+      if (oracleSpeaking || oraclePending || Date.now() < oracleQuietUntil) {
         if (Date.now() > deadline) return void greetedAt.delete(id)
         // Wait out whatever the Oracle is saying, then look again.
         return attempt(Math.max(oracleQuietUntil - Date.now() + 200, GREET_RETRY))

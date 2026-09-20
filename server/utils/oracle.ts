@@ -47,11 +47,28 @@ import { nativeFetch } from './nativeFetch'
 /** Cheap + fast — this runs on every chat message, so keep it small. */
 const CLASSIFIER_MODEL = 'typesafe-ai/jev'
 /**
- * P(addressed) at or above this answers. Set from a labelled probe of Jev:
- * player-to-player lines scored 0.06 at most, while unnamed lines meant for the
- * Oracle ("make it stop lol", "who has been building the most?") sit near 0.4
- * and a bare "who are you?" near 0.5, so the cut sits between with room on both
- * sides. Probabilities are not calibrated across providers, so retune from the
+ * P(addressed) at or above this answers. Player-to-player lines score 0.03 at
+ * the median, and unnamed lines meant for the Oracle sit anywhere from 0.3 to
+ * 0.9, so the cut sits above the banter with room for the weak positives.
+ *
+ * **Both sides have a tail, and tuning this on one probe run will mislead you.**
+ * Measured over 173 banter samples with the town talking: p95 is 0.06, but
+ * "careful of the moat lol" reached 0.34 and "meet me by the fountain" 0.20,
+ * both right after an Oracle exchange entered the transcript — a line scores
+ * higher simply for following a question. A cut at 0.25 was tried on a single
+ * labelled probe that showed a clean gap; repeated sampling killed it, because
+ * one banter line in 173 clears it and at four chat lines a second that is the
+ * Oracle interrupting a conversation about every 45 seconds. 0.35 gives 0/173.
+ *
+ * The recall it used to cost was **not** a threshold problem, and was fixed in
+ * the `addressed` criteria instead: questions about the town's people taken
+ * together ("who is here right now?", "who has been here the longest", "what
+ * have people been building?") scored 0.10 to 0.33 against criteria that named
+ * them, and spelling out that the Oracle alone can answer for the whole town
+ * took the same lines to 0.61 and above with banter unmoved. The probe was 12
+ * lines a side, three repetitions: 27/33 addressed before, 35/36 after, 0
+ * banter either way. Reword the criteria before touching this number.
+ * Probabilities are not calibrated across providers, so also retune from the
  * `[oracle] classify` logs on a model swap.
  */
 const ADDRESSED_THRESHOLD = 0.35
@@ -109,7 +126,7 @@ export type ArenaStateReader = () => unknown
 
 /**
  * The Oracle's hand on the shared sky, injected by the game loop like the state
- * reader. `oracleReply` drives it from the classifier's verdict.
+ * reader. `oracleHears` drives it from the classifier's verdict.
  */
 export interface SkyControl {
   /** The sky as players see it this instant, in `ArenaState` wording. */
@@ -206,8 +223,8 @@ async function classify(recent: HubMessage[]): Promise<Verdict> {
           type: 'boolean',
           instructions: 'This is the recent chat in a game\'s fortified town courtyard, where players talk to each other. An NPC called "the Oracle", an ancient seer standing just inside the gate, is the only non-player presence and players can talk to it. Is the LAST line addressed to the Oracle?',
           criteria: {
-            true: 'The line addresses the Oracle by name, or is a question or remark clearly seeking the seer\'s knowledge, guidance, or lore about the courtyard, or is a direct question aimed at a singular "you" (who are you, what are you, your name, your purpose, what you know, what is this place) when no other player is being addressed. A question about the town itself that only its watcher could answer (who is here, who has been building, what is new, what the weather or the hour is) is for the Oracle even when it is not named. A request to change, stop or restore the weather, the sky or the hour is for the Oracle, who alone can turn them, even when phrased casually. A genuine question with no other addressee is for the Oracle.',
-            false: 'Clearly player-to-player talk: greetings between players, coordination, addressing another player by name, or idle banter. A question that names or clearly targets another player, or that asks the other players for help or company (anyone know how, anyone want to).',
+            true: 'The line addresses the Oracle by name, or is a question or remark clearly seeking the seer\'s knowledge, guidance, or lore about the courtyard, or is a direct question aimed at a singular "you" (who are you, what are you, your name, your purpose, what you know, what is this place) when no other player is being addressed. **A question about the town as a whole, or about the people in it taken together, is for the Oracle even when it is not named**, because the Oracle alone watches all of it and no single player could answer: who is here, how many are here, who has stayed longest, who arrived when, what has been built and by whom, what people have been building, how the building is going, what is new, what the weather or the hour is. Such a question speaks *about* the other players in the third person or counts them, rather than asking one of them something. A request to change, stop or restore the weather, the sky or the hour is for the Oracle, who alone can turn them, even when phrased casually. A genuine question with no other addressee is for the Oracle.',
+            false: 'Clearly player-to-player talk: greetings between players, coordination, addressing another player by name, or idle banter. A question that names or clearly targets another player, or that asks the other players for help or company (anyone know how, anyone want to). A question put *to* the other players as a group (what are you all up to, where are you off to, you going east or west, anyone else coming), as against one asked about the town and answered only by its watcher. This never covers a question to a singular "you" with no other player addressed — "who are you", "what are you", "what do you know" are for the Oracle. Announcing your own movements or plans is not a question at all.',
           },
         },
         turn: {
@@ -297,17 +314,23 @@ async function respond(prompt: string, getState: ArenaStateReader): Promise<stri
 }
 
 /**
- * If the latest chat line is addressed to the Oracle, return its in-character
- * reply (with live arena data when relevant); otherwise return null. Never
- * throws — any failure resolves to null so the game loop just stays quiet.
+ * Listen to the latest chat line: decide whether it was meant for the Oracle
+ * and, if it asks for the sky, turn it. Returns null when the line was not for
+ * the Oracle, otherwise what was done to the sky — an empty list when nothing
+ * was. Never throws.
+ *
+ * This is the cheap half and it runs on *every* line, so the game loop runs it
+ * concurrently and never behind an answer in flight: a question must not go
+ * unheard because two other players happen to be mid-sentence.
+ *
+ * The sky turns here, on Jev's word, rather than at answering time, because the
+ * change is the classifier's to make and costs nothing. A line that has to wait
+ * its turn behind another answer still gets the weather it asked for at once.
  */
-export async function oracleReply(recent: HubMessage[], getState: ArenaStateReader, sky: SkyControl): Promise<string | null> {
+export async function oracleHears(recent: HubMessage[], sky: SkyControl): Promise<string[] | null> {
   if (recent.length === 0) return null
   const verdict = await classify(recent)
   if (!verdict.addressed) return null
-  // The sky turns here, on Jev's word, before the Oracle speaks. The responder
-  // is told exactly what was done and what the sky is now: the transcript holds
-  // its own earlier lines about the weather, and those go stale.
   const done: string[] = []
   if (verdict.weather) {
     sky.setWeather(verdict.weather)
@@ -317,6 +340,19 @@ export async function oracleReply(recent: HubMessage[], getState: ArenaStateRead
     sky.setTime(verdict.time)
     done.push(verdict.time === 'auto' ? 'released the hour to its own course' : `turned the hour to ${verdict.time}`)
   }
+  return done
+}
+
+/**
+ * The in-character reply to a line `oracleHears` accepted, with live arena data
+ * when relevant. Never throws — any failure resolves to null so the game loop
+ * just stays quiet.
+ *
+ * `done` is what the sky was already made to do for this answer. The responder
+ * is told exactly that and what the sky is now: the transcript holds its own
+ * earlier lines about the weather, and those go stale.
+ */
+export async function oracleAnswer(recent: HubMessage[], done: string[], getState: ArenaStateReader, sky: SkyControl): Promise<string | null> {
   const { weather, timeOfDay } = sky.now()
   const deed = done.length
     ? `At their asking you have just ${done.join(' and ')}. It is done: say so in your answer.`

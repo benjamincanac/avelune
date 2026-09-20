@@ -17,7 +17,8 @@ in-character, and reactive to live multiplayer state.
 
 ## Files you own
 - `server/utils/oracle.ts` — the Oracle's brain, run **in-process by the game
-  loop** (`server/utils/game.ts` calls `oracleReply` on arena chat). A cheap
+  loop** (`server/utils/game.ts` calls `oracleHears` then `oracleAnswer` on
+  arena chat). A cheap
   classifier gates whether the line is addressed to the Oracle; the responder
   runs `generateText` with the persona and an `arena_state` tool in its
   tool-loop. The reply goes out as an ordinary chat frame under the reserved
@@ -60,7 +61,21 @@ in-character, and reactive to live multiplayer state.
   string-id rule): four questions in one request, and the Oracle answers when
   `addressed` clears `ADDRESSED_THRESHOLD` (the other three are the sky,
   below). The probabilities are not calibrated across providers, so retune the
-  threshold from the `[oracle] classify` logs on any swap. The responder is
+  threshold from the `[oracle] classify` logs on any swap — and from a labelled
+  probe of a dozen lines a side, **repeated**, never one run. Both sides have a
+  tail: a line scores higher for merely following an Oracle exchange, so banter
+  that normally sits at 0.03 was measured at 0.34, and a question that scored
+  0.35 in one run scored 0.11 in another. A 0.25 cut looked clean on one probe
+  and had the Oracle interrupting conversations once repeated. Weak unnamed
+  questions are a criteria-wording problem, not a threshold one: **the criteria
+  have to say that the Oracle alone can answer for the town as a whole**, or a
+  question about the people in it taken together ("who is here right now?",
+  "what have people been building?") reads as one player asking the others and
+  scores 0.1 to 0.3. Saying so took a 12-a-side probe from 27/33 addressed to
+  35/36 with banter unmoved. Mind the other side of that line: an early pass
+  put group questions ("what are you all up to") in the `false` criteria without
+  excepting a singular "you", and knocked a bare "who are you" from 0.83 to
+  0.17. The responder is
   `deepseek/deepseek-v4.1-flash` with `reasoning: 'none'`: thinking tokens bill
   as output and one `arena_state` call does not need them. **It is picked on
   tool-call reliability and latency, and price is the last tiebreak** since the
@@ -172,7 +187,7 @@ few times a minute at most, so nothing here may become per-tick work.
 - **The Oracle turns the shared sky, and Jev decides it, not the responder.**
   The one classifier request asks four questions of the last line: `addressed`
   (boolean), `turn` (boolean: does it want the sky changed or released at all),
-  and `weather` / `time` (choice: a mode, `auto`, or `keep`). `oracleReply`
+  and `weather` / `time` (choice: a mode, `auto`, or `keep`). `oracleHears`
   applies a mode through the `SkyControl` injected by `game.ts` when the line is
   addressed and both `turn` and the chosen mode clear `SKY_THRESHOLD`, then
   tells the responder in the prompt exactly what was done and what the sky is
@@ -195,21 +210,39 @@ few times a minute at most, so nothing here may become per-tick work.
   players use) belongs to `scene-3d`; you consume the `near` state it writes,
   and it consumes the `speech` bubble `useGame` sets from the chat frame, `to`
   included.
-- The game loop calls `oracleReply(recent, getState, sky)` and broadcasts the
-  result as a chat frame — keep that seam: `oracle.ts` stays free of WS/protocol
-  details (`server-net` owns frame handling), and never throws into the loop
-  (fail closed to silence). Anti-flood gating lives in the loop, not here: one
-  reply in flight, then an `ORACLE_COOLDOWN` of 4s. A line that misses the
-  cooldown by up to `ORACLE_DEFER_GRACE`, 1s, waits it out instead of being
-  dropped, because losing a question by 60ms reads as the Oracle ignoring you.
-  Only one line defers at a time; anything else during the wait is dropped, and
-  the defer and the drop are both logged.
+- The brain is split in two at the loop's seam: `oracleHears(recent, sky)`
+  classifies and turns the sky, returning the deeds or null, and
+  `oracleAnswer(recent, done, getState, sky)` writes the line. The loop
+  broadcasts the result as a chat frame — keep that seam: `oracle.ts` stays free
+  of WS/protocol details (`server-net` owns frame handling), and never throws
+  into the loop (fail closed to silence).
+- **Gate speaking, never listening.** Anti-flood gating lives in the loop, not
+  here, and it covers only `oracleAnswer`: one reply in flight (`oracleSpeaking`)
+  then an `ORACLE_COOLDOWN` of 4s. `oracleHears` runs on every line, concurrently,
+  capped at `ORACLE_MAX_CLASSIFY` (4) calls at once. Root-caused live: a single
+  lock around both halves was held for the classifier pass of *ordinary
+  player-to-player banter*, so in a busy chat a real question was dropped before
+  anyone read it, which is exactly the "I spoke to the Oracle and nothing
+  happened" report. An addressed line takes `oraclePending`, a one-slot
+  last-one-wins hold answered as soon as the Oracle is free — a newer question
+  displaces an older one (its asker is the one still waiting) but inherits its
+  sky deeds, since the sky already turned and the answered line is the only one
+  left to own it. Not a FIFO queue: in a busy room that would answer everyone
+  several seconds after they moved on. `ORACLE_PENDING_MAX_AGE` (15s) drops a
+  hold nobody remembers asking for. Every drop is logged, because silence is
+  otherwise indistinguishable from the classifier declining the line.
+- The pending line carries its **own transcript snapshot**, taken when it was
+  classified, not `hubChat` as it stands when the answer finally runs. Passing
+  the live array meant a deferred answer was prompted with "the last line is
+  meant for you" over someone else's banter.
 - Arrivals are greeted too, **from written lines, with no model call**:
   `oracleGreeting(name, scene)` picks one to suit the company (`others`) and a
   notable sky (rain, else dawn/sunset/night), on a coin flip between the two.
   This is deliberate: a greeting fires for every arrival and ran outside the
-  busy lock, so a bot run or reconnecting tabs fanned out into one responder
-  call each and that is where the gateway spend went. Do not put a model back
+  speaking lock, so a bot run or reconnecting tabs fanned out into one responder
+  call each and that is where the gateway spend went. It now also stands aside
+  for `oraclePending`: a traveller's question outranks the welcome someone gets
+  for walking in. Do not put a model back
   behind it; vary the pools instead. It is not pure: each pool is dealt from a
   module-level shuffled bag, so a run of arrivals never hears the same welcome
   twice in a row and the same arguments give a different line each call. The
