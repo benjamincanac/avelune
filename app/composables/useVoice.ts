@@ -59,9 +59,9 @@ export type VoiceMode = 'ptt' | 'open'
 /** `quiet` is a clip that was never sent, because the mic picked up nothing worth
  *  a model call while the key was held. */
 export type SayState = 'idle' | 'sending' | 'failed' | 'quiet'
-/** What the talk key ran into: voice is off, the browser cannot do it, the mic
- *  was refused, or it is still being asked for. */
-export type VoiceHint = 'off' | 'unsupported' | 'blocked' | 'asking'
+/** What the talk key ran into: voice is off, the mic is muted, the browser
+ *  cannot do it, the mic was refused, or it is still being asked for. */
+export type VoiceHint = 'off' | 'muted' | 'unsupported' | 'blocked' | 'asking'
 
 export interface VoicePeer {
   id: string
@@ -100,6 +100,15 @@ export interface VoiceDebug {
 
 const enabled = ref(false)
 const mode = ref<VoiceMode>('ptt')
+/**
+ * The microphone is muted: nothing this player says leaves the machine.
+ *
+ * A fact about the person and not about the mode, so it gates push to talk and
+ * open mic alike, and it is persisted: a reload that quietly reopened a muted
+ * mic would be the one failure this whole file exists to avoid. The track itself
+ * stays warm (see `requestMic`), so what a mute stops is the encoder.
+ */
+const micMuted = ref(false)
 const volume = ref(1)
 /** Post what I say to chat. On by default, and only ever applies to push to
  *  talk. */
@@ -143,6 +152,7 @@ function load(): void {
       const saved = JSON.parse(raw) as Record<string, unknown>
       if (typeof saved.enabled === 'boolean') enabled.value = saved.enabled
       if (saved.mode === 'ptt' || saved.mode === 'open') mode.value = saved.mode
+      if (typeof saved.micMuted === 'boolean') micMuted.value = saved.micMuted
       if (typeof saved.volume === 'number') volume.value = Math.min(1, Math.max(0, saved.volume))
       if (typeof saved.speechToChat === 'boolean') speechToChat.value = saved.speechToChat
       if (typeof saved.noticeSeen === 'boolean') noticeSeen.value = saved.noticeSeen
@@ -164,6 +174,7 @@ function save(): void {
     localStorage.setItem(KEY, JSON.stringify({
       enabled: enabled.value,
       mode: mode.value,
+      micMuted: micMuted.value,
       volume: volume.value,
       speechToChat: speechToChat.value,
       noticeSeen: noticeSeen.value,
@@ -317,6 +328,12 @@ async function resumeOptIn(): Promise<void> {
 }
 
 /**
+ * Set while a mute is what closed the mic, so the half utterance under it is
+ * dropped instead of posted to chat as a sentence cut in two.
+ */
+let discardClip = false
+
+/**
  * Open or shut the mic, and start or stop the encoder with it.
  *
  * The track's `enabled` flag and the encoder are both moved: the flag stops the
@@ -325,7 +342,9 @@ async function resumeOptIn(): Promise<void> {
  * release is where that upload starts.
  */
 function applyTalking(): void {
-  const open = enabled.value && mic.value === 'live' && (mode.value === 'open' || pressed)
+  const discard = discardClip
+  discardClip = false
+  const open = enabled.value && mic.value === 'live' && !micMuted.value && (mode.value === 'open' || pressed)
   const was = talkingNow
   talkingNow = open
   micOpen.value = open
@@ -342,12 +361,35 @@ function applyTalking(): void {
   // Transcription is push to talk only. The edges of a held key are the clip.
   if (mode.value !== 'ptt' || !speechToChat.value) return
   if (open && !was) recorder?.start()
-  else if (!open && was) void uploadClip()
+  else if (!open && was) {
+    if (discard) void recorder?.stop().catch(() => {})
+    else void uploadClip()
+  }
 }
 
 /** Whether the mic was open on the previous `applyTalking`, so the edges of an
  *  utterance can be told from the middle of one. */
 let talkingNow = false
+
+/**
+ * Mute or unmute the microphone.
+ *
+ * The one write path for `micMuted`, because a mute has to reach the encoder in
+ * the same breath: leaving the ref to a watcher would let a frame out between
+ * the flip and the gate.
+ */
+function setMicMuted(on: boolean): void {
+  if (on === micMuted.value) return
+  // Muting mid-utterance throws the clip away rather than posting to chat the
+  // half of it that was already spoken.
+  discardClip = on
+  micMuted.value = on
+  // The mute is an answer to the talk key, so whatever hint that key left on
+  // screen is stale the moment this lands.
+  clearTimeout(hintTimer)
+  hint.value = null
+  applyTalking()
+}
 
 /**
  * Send the utterance for transcription.
@@ -539,6 +581,8 @@ export interface UseVoice {
   supported: Ref<boolean | null>
   /** Speech is being picked up right now. */
   talking: Ref<boolean>
+  /** The mic is muted: read only, written through `setMicMuted`. */
+  micMuted: Ref<boolean>
   /** The mic is open and frames are going out. */
   micOpen: Ref<boolean>
   /** The open mic has carried nothing for a while. */
@@ -555,6 +599,10 @@ export interface UseVoice {
   /** Push to talk. Also the dev hook's way in, since a synthetic key hold is
    *  unreliable. */
   setTalking: (on: boolean) => void
+  /** Mute or unmute the microphone. */
+  setMicMuted: (on: boolean) => void
+  /** What the key is bound to. */
+  toggleMicMute: () => void
   /** Hand the scene's rendered rig position for one peer, once a frame. */
   positionPeer: (id: string, point: AudioPoint) => void
   /** Wire up the socket. Called by `useGame` when it opens one. */
@@ -582,6 +630,7 @@ export function useVoice(): UseVoice {
     mic,
     supported,
     talking,
+    micMuted,
     micOpen,
     micSilent,
     level,
@@ -616,16 +665,22 @@ export function useVoice(): UseVoice {
 
     setTalking(on) {
       pressed = on
-      if (on && !(enabled.value && mic.value === 'live')) {
+      if (on && !(enabled.value && mic.value === 'live' && !micMuted.value)) {
         hint.value = supported.value === false
           ? 'unsupported'
-          : !enabled.value ? 'off' : mic.value === 'blocked' ? 'blocked' : 'asking'
+          : !enabled.value ? 'off' : mic.value === 'blocked' ? 'blocked' : micMuted.value ? 'muted' : 'asking'
         clearTimeout(hintTimer)
         hintTimer = setTimeout(() => {
           hint.value = null
         }, 3200)
       }
       applyTalking()
+    },
+
+    setMicMuted,
+
+    toggleMicMute() {
+      setMicMuted(!micMuted.value)
     },
 
     positionPeer(id, point) {
@@ -728,7 +783,7 @@ if (import.meta.client) {
     setVoiceVolume(value)
     save()
   })
-  watch([enabled, mode, speechToChat, noticeSeen], () => {
+  watch([enabled, mode, micMuted, speechToChat, noticeSeen], () => {
     save()
     applyTalking()
   })
