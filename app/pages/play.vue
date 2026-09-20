@@ -185,6 +185,10 @@ async function toggleFullscreen() {
   try {
     if (document.fullscreenElement) {
       await document.exitFullscreen()
+      // Leaving fullscreen drops the pointer lock with it. The player is still
+      // in the world, so take it back on this same gesture rather than leaving
+      // them with a free cursor.
+      if (!showMenu.value && !map.open.value) gameScene.value?.requestLock()
     }
     else {
       await gameRoot.value?.requestFullscreen()

@@ -134,16 +134,22 @@ function triggerDash() {
 }
 
 /**
- * When the map last closed.
+ * When the lock last moved for a reason that isn't the player reaching for the
+ * menu: we asked for it back (the map or the menu closing), or fullscreen ended
+ * and took it with it.
  *
- * Closing it re-takes the pointer lock, and when the key that closed it was
- * Escape the browser is still processing that same Escape: the lock is granted
- * and then dropped again a moment later. That drop is the tail of the map
- * interaction, not the player reaching for the menu, so the emit below ignores
- * one inside this window.
+ * Both bounce. When the key behind them was Escape the browser is still
+ * processing that same Escape, so the lock is granted and then dropped again a
+ * moment later; leaving fullscreen drops it outright. Either drop is the tail
+ * of an interaction the player already made, so the emit below ignores one
+ * inside this window.
  */
-let mapClosedAt = 0
-const MAP_UNLOCK_GRACE = 600
+let unlockGraceAt = 0
+const UNLOCK_GRACE = 600
+
+/** Mirror of `document.fullscreenElement`, so a lock drop can be attributed to
+ *  a fullscreen exit even when `pointerlockchange` lands first. */
+let wasFullscreen = false
 
 /**
  * Open or close the world map. Opening drops the pointer lock (the map is a
@@ -153,7 +159,6 @@ const MAP_UNLOCK_GRACE = 600
 function toggleMap() {
   if (map.open.value) {
     map.open.value = false
-    mapClosedAt = Date.now()
     requestLock()
     return
   }
@@ -457,9 +462,16 @@ function onPointerLockChange() {
   }
   // Losing the mouse loses the drag with it.
   if (wasLocked && !locked) build.release()
-  // Opening the map releases the lock on purpose, and closing it with Escape
-  // can bounce one — neither is the player reaching for the menu.
-  if (map.open.value || Date.now() - mapClosedAt < MAP_UNLOCK_GRACE) return
+  // Leaving fullscreen drops the lock with it, and the order of the two events
+  // isn't guaranteed — a lock lost while we still believe we're fullscreen, with
+  // no fullscreen left, is that exit.
+  if (wasFullscreen && !document.fullscreenElement) {
+    wasFullscreen = false
+    unlockGraceAt = Date.now()
+  }
+  // Opening the map releases the lock on purpose, and a close or a fullscreen
+  // exit can bounce one — none of those is the player reaching for the menu.
+  if (map.open.value || Date.now() - unlockGraceAt < UNLOCK_GRACE) return
   if (wasLocked && !locked && !altHeld.value && document.hasFocus()) emit('unlock')
 }
 
@@ -467,7 +479,16 @@ function onPointerLockChange() {
  *  is a lock request, not a click — it must not fire the armed tool. */
 function requestLock() {
   if (props.editor || map.open.value || altHeld.value || pointerLocked.value) return
+  // A lock we asked for ourselves can be undone by the same keypress that asked
+  // for it; don't read that drop as a menu request.
+  unlockGraceAt = Date.now()
   attemptLock()
+}
+
+function onFullscreenChange() {
+  const full = document.fullscreenElement != null
+  if (!full && wasFullscreen) unlockGraceAt = Date.now()
+  wasFullscreen = full
 }
 
 function onMouseMove(event: MouseEvent) {
@@ -538,6 +559,7 @@ function onWindowBlur() {
 }
 
 onMounted(() => {
+  wasFullscreen = document.fullscreenElement != null
   window.addEventListener('keydown', onKeyDown)
   document.addEventListener('pointerlockerror', onPointerLockError)
   window.addEventListener('keyup', onKeyUp)
@@ -546,6 +568,7 @@ onMounted(() => {
   window.addEventListener('focusin', onFocusIn)
   window.addEventListener('blur', onWindowBlur)
   document.addEventListener('pointerlockchange', onPointerLockChange)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
@@ -564,6 +587,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('focusin', onFocusIn)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
