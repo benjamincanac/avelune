@@ -22,7 +22,7 @@
 - [x] Oracle sees the built world: `arena_state` carries pieces standing, top builders, the busiest spot worded as a direction from the gate, weather, time of day and the realm
 - [x] Building bots: `spawn-bots.mjs --build` claims a plot, levels it, raises a two-storey hut or a fence paddock on cells and edges, paves back to the road, and runs the shared `resolveBuild` before sending, so zero refused builds is the pass mark. Refuses to target the prod host
 - [x] Per-chunk collision cells (8 tiles): `propsNear` and the build checks read only the cells a query covers. 12 bots among 377 pieces went from 4.7 ms to 1.4 ms average tick
-- [x] Realms: every store key is scoped by `AVELUNE_REALM` / `VERCEL_REGION`, one stored world per deploy region, named in the HUD and on the landing page (`shared/utils/realm.ts`)
+- [x] Realms: every store key is scoped by `AVELUNE_REALM` / `VERCEL_REGION`, one stored world per deploy region, named in the HUD and on the landing page (`shared/utils/realm.ts`). Production runs three, set in the Vercel project: `fra1`, `iad1` and `sin1`
 
 ### Core loop & simulation
 - [x] Shared time of day (`dawn|day|sunset|night|auto`), independent of weather and synchronized on join. Players ask the Oracle for it; `/time` is a dev-only command.

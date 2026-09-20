@@ -52,7 +52,7 @@ The world is 32×32 chunks of 32 tiles, each holding a corner heightmap, a surfa
 
 Clients get the 5×5 chunks around them as `chunk` and `unchunk` frames, then `terrain`, `place` and `remove` deltas as people edit, and `state` filtered to the players within 192 tiles. Only the server builds the world. Clients mirror every edit by calling the same shared `apply*` functions.
 
-Chunks persist to Upstash Redis, one key each, written behind a CAS on the chunk version and drained on shutdown. Every key is scoped by **realm**, taken from `VERCEL_REGION`, so each deploy region keeps a world of its own instead of racing the others.
+Chunks persist to Upstash Redis, one key each, written behind a CAS on the chunk version and drained on shutdown. Every key is scoped by **realm**, taken from `VERCEL_REGION`, so each deploy region keeps a world of its own instead of racing the others. The live deployment runs three: Frankfurt (`fra1`), Washington (`iad1`) and Singapore (`sin1`).
 
 ### Authoritative simulation, client-owned heading
 
