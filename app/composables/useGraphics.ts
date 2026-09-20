@@ -57,7 +57,10 @@ function load(): void {
   }
   finally {
     // Attached after the read, so loading what was saved is not itself a write.
-    watch([scale, detail, shadows, occlusion, bloom], save)
+    // Detached, because `load()` runs from whichever component reached the
+    // module first: bound to that scope the watcher would die with the scene on
+    // logout, and `loaded` would keep the next session from ever re-attaching.
+    effectScope(true).run(() => watch([scale, detail, shadows, occlusion, bloom], save))
   }
 }
 
