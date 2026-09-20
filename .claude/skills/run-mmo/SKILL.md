@@ -127,6 +127,179 @@ Frame it at `MMO_SIZE=1280x720` first, a full-size SwiftShader frame takes
 minutes. The landing page darkens the left third, so keep the subject in the
 right two thirds.
 
+## Record a take — [`record.mjs`](record.mjs)
+
+The driver takes one screenshot. `record.mjs` records a **continuous take of the
+game being played**, for a demo clip. Six beats, about forty seconds: the town
+with people in it, a question put to the Oracle that it answers off live state,
+a sprint out of the south gate, a bot's house going up in the meadow, the player
+raising a wall of their own in open ground and setting a torch beside it, and
+the Oracle turning the weather and the hour over the lot. Playwright writes a
+`.webm`, and the marks it prints are what the cut is made against.
+
+```bash
+AVELUNE_DEV_COMMANDS=1 AVELUNE_REALM=demo NUXT_IGNORE_LOCK=1 pnpm dev --port 4380 &
+MMO_URL=http://localhost:4380 MMO_OUT=/tmp/take node .claude/skills/run-mmo/record.mjs
+```
+
+**Dev server, not a prod build** — `window.__maze` is behind `import.meta.dev`
+and `/tp` needs `AVELUNE_DEV_COMMANDS=1`. **Restart it between takes**: with no
+Upstash the store is in-memory, so a restart is what gives the bots empty meadow
+to build on. It always launches **headed**, on the real GPU.
+
+It starts its own bots: two builders paced at `MMO_PACE` (default 400 ms/edit,
+via `spawn-bots --pace`) and five townsfolk (`--cast --home`) who wear the five
+outfits between them. Both swarms are launched **before** the onboarding pass, so
+by the time the Oracle is asked who is building, there is an answer. **Two
+builders, not more**: each plants a `Kit_Deed` that claims the `DEED_SIZE` square
+around it, and four of them leave no unclaimed ground within a sprint of the gate
+for the player's own beat.
+
+Env: `MMO_URL`, `MMO_OUT` (directory), `MMO_NAME`, `MMO_TIME`/`MMO_WEATHER` (the
+sky the take *opens* on, read back and re-sent until it takes), `MMO_PLOT_X/Y`,
+`MMO_BOTS`/`MMO_PACE`, `MMO_FOLK`/`MMO_FOLK_AT`, `MMO_ASK`, `MMO_ASK_SKY`,
+`MMO_CLEAN=0`.
+
+Cutting: the marks are milliseconds from `page.goto`, the video runs **~0.9 s
+behind them** (it starts at context creation), and `MARK curtain` is the first
+frame of the take. Duration minus the `end` mark gives the offset exactly.
+
+```bash
+ffmpeg -ss <curtain + offset> -i /tmp/take/page@*.webm -t 30 \
+  -vf "fade=t=in:st=0:d=0.4,fade=t=out:st=29.4:d=0.6,format=yuv420p" \
+  -c:v libx264 -preset slow -crf 20 -movflags +faststart -an out.mp4
+```
+
+### Gotchas on top of the driver's
+- **There is no audio.** Playwright's recorder captures video only, and the
+  game's sound is synthesized in the page. A take with sound needs a screen
+  recorder, not this.
+- **The camera is driven through `window.__maze`, not the keyboard.**
+  `view.yaw` + `game.setLook` for an absolute heading, `held` + `game.setInput`
+  for movement. Pans, runs and orbits all re-aim **every frame from inside the
+  page** — a heading set once from node is only true until something disturbs
+  it, and a reconnect writes the server's angle straight back over `view.yaw`
+  (MazeScene watches `selfId`). An early take ran the wrong way up the town for
+  eighteen seconds on exactly that.
+- **The rig is a `page.evaluate`, so a reload takes it with the document.** It
+  closes over `window.__maze`, which only exists once the game view is up, so it
+  cannot be an init script. `demo()` puts it back when it finds it gone, which
+  is always safe: the rig holds no state and every call reads `__maze` fresh.
+  Without that, a take dies on its next pan with `Cannot read properties of
+  undefined`.
+- **Don't record while the app is being edited.** Nuxt's dev server reloads on
+  its own schedule and hot-applies module changes underneath a running take.
+  Saving in `app/` mid-take cost two of them here: one lost the rig, the next
+  came back with `uRimSun : redefinition` on every character material, an 18 s
+  run south that takes 6 s on a quiet tree, and `built-0` with every placement
+  refused. None of it looks like an editor problem from the log, so check
+  `git status` and the file mtimes before blaming the beat.
+- **The Oracle drops a question that lands inside its cooldown.** It answers one
+  line at a time, four seconds apart, and it greets every bot that walks through
+  the gate — so `oracleQuiet()` waits for a gap before each question and `ask()`
+  retries. Three seconds is enough, not four: the server defers a line that
+  misses by up to `ORACLE_DEFER_GRACE`.
+- **A player build needs ground nobody has claimed, and the recorder finds it by
+  being refused.** Claim bounds move with the bot count, so it tries, reads the
+  refusal, steps six tiles east and tries again. Same for the pitch: a lower
+  `view.pitch` aims *higher*, and which value puts the crosshair on the cell
+  underfoot is settled by placing, not by arithmetic.
+- **Don't build a ring around the camera and expect to see it.** Four panels on
+  the edges of the cell you stand on is the cheapest real structure there is,
+  one click a quarter turn and no aiming at all, but the boom collapses onto the
+  player's face: two of the four frames are the inside of a panel and the take
+  shows grass while the feed fills with pieces. The beat aims instead, from a
+  spot it never leaves. The crosshair ray takes the first thing it meets and
+  builds against the face it entered, which gives three useful aims: open ground
+  ahead for a panel, a shallower look onto that panel's broad face for the
+  storey above it, and a small swing for the next cell edge along.
+- **Every number in that beat is found by being refused, including the pitch.**
+  A lower `view.pitch` aims *higher*, and which value reaches open ground rather
+  than the player's own boots depends on the terrain under it. Whether this is
+  somebody's plot depends on where the bots planted their posts. Both are
+  settled the same way, by placing and reading the piece counter, which only
+  moves when the server books something.
+- **Take the refusal off the screen the moment it is raised, and hide it
+  rather than remove it.** The aim search finds its pitch by being told no, and
+  every no parks a toast in the corner and a line under the crosshair. They are
+  true things the game said, but they are answering the recorder's guesswork
+  rather than a player's aim, and one raised during the search sits in frame
+  for the rest of the beat. Two approaches failed first. A style rule missed
+  them, because `addStyleTag` rejects if it lands mid-navigation and the rule
+  only covers whatever roles the component library renders this version. Then
+  matching the text and lifting the node out of the document worked on screen,
+  and two takes in a row went black for their last twenty seconds, still
+  marking every beat and rendering nothing. `placeOnce` now matches the text
+  and sets `display: none`, which cannot orphan a ref, a listener or a portal
+  root. It keeps clear of the chat log by ignoring anything left of the panel:
+  the Oracle talks about plots belonging to people too.
+- **No second storey.** Aiming at a placed panel's broad face to stack on it is
+  the one aim that will not come good: too shallow and the ray flies over the
+  wall, too steep and it resolves to the edge the panel already stands on and
+  comes back "in the way". Searching for it cost twenty-four seconds of a
+  forty-second take and left a blocked red ghost filling the frame for most of
+  them. The run along the ground places first time, every time.
+- **Wait on `chatLog`, never on the bubble.** A rig's `.chat-bubble` is one
+  element made once and then hidden and reshown, so `data-npc` matches a bubble
+  that has never said anything.
+- **Type with `insertText`, a word at a time.** `keyboard.type` is a CDP round
+  trip per character against a busy main thread — about 180 ms each, five
+  seconds to ask a short question.
+- **The setup happens behind a black curtain** and the chat log is wiped just
+  before it lifts, so `/tp`, `/time` and `/weather` are not in frame. The
+  sandbox chip is hidden too: it is true of this local server, not of the game.
+
+## Record the creator — [`creator.mjs`](creator.mjs)
+
+`record.mjs` mints its character in a throwaway context so onboarding never
+reaches the take, which is right for a take of the world and leaves no footage
+of the creator at all. `creator.mjs` records that screen and nothing else: the
+five outfits, the dossier rewriting itself on the right, a colourway dyeing the
+cloth on the model already standing there, a drag on the turntable, the gender
+swap, Randomize, and the name typed a letter at a time.
+
+```bash
+NUXT_IGNORE_LOCK=1 pnpm dev --port 4380 &
+MMO_URL=http://localhost:4380 MMO_OUT=/tmp/creator node .claude/skills/run-mmo/creator.mjs
+```
+
+It wants a **plain** dev server. No `AVELUNE_DEV_COMMANDS`, no bots, no `/tp`:
+nothing here touches the world, so it does not care what is in it and does not
+need restarting between runs. It does need a real GPU, so it launches headed
+like the other two.
+
+What puts `/play` on the gate rather than in the arena is simply that the
+context is fresh. The cookie is the whole of identity, and a context that has
+never seen one has never onboarded.
+
+Env: `MMO_URL`, `MMO_OUT` (directory), `MMO_NAME`, `MMO_HOLD` (ms held on each
+choice, default 1050), `MMO_PW`. Marks and cutting work exactly as they do for
+`record.mjs`.
+
+### Gotchas
+- **The options panel is a scroller, and Randomize lives under its fold.** It
+  is `max-h-[calc(100dvh-8rem)] overflow-y-auto`, so at 720p the colourways and
+  the button sit below it. Two things go wrong there. A click on a control off
+  the bottom of a scroller is not a fast failure, it is the full default
+  timeout: thirty seconds of a stationary screen in the middle of the take, so
+  the wait is capped. And scrolling it into view is still not enough, because a
+  real pointer click wants the element's centre inside the viewport and it is
+  not. The pointer is the preference, not the requirement: it falls back to
+  dispatching the click on the element, which Vue handles the same way. What
+  the take needs is the character changing, not a cursor travelling to a button
+  that is off screen anyway.
+- **The turntable has no spring, so a drag is a round trip.** Wherever the drag
+  stops is where the character stays. A one-way turn leaves it facing away for
+  every beat after it, which is how the first pass ended on the back of a
+  Peasant. Drag out far enough to show the back of the outfit, then most of the
+  way home.
+- **A radio card's input is hidden, so the label takes the click.**
+  `URadioGroup` with `indicator="hidden"` paints the card and leaves the input
+  `sr-only`. The accessible radio is still there, which is why the role
+  selector is tried first, but `force: true` is what makes it land.
+- **The colourways have no text.** Their labels are `sr-only` swatch names, so
+  they are reached through the `fieldset` its legend names rather than by text.
+
 ## Run (human path)
 Run the project's dev command (`pnpm dev`, or the `--port`/`NUXT_IGNORE_LOCK=1`
 form above if a server is already up), open the printed URL → **Play** → **Create your
