@@ -57,7 +57,6 @@ export interface UseAudio {
   /** Park and restore the context, for a hidden tab. */
   suspend: () => void
   resume: () => void
-  toggleMute: () => void
   /** Dev-only telemetry, behind `window.__maze.audio`. */
   debug: () => AudioDebug
 }
@@ -74,9 +73,6 @@ export function useAudio(): UseAudio {
     },
     suspend: suspendAudio,
     resume: resumeAudio,
-    toggleMute() {
-      muted.value = !muted.value
-    },
     debug: audioDebug,
   }
 }
