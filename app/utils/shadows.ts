@@ -1,6 +1,8 @@
 import { MeshStandardMaterial, Vector3 } from 'three'
-import type { BufferGeometry, Color, Material, Object3D, PerspectiveCamera, Scene, Sphere } from 'three'
+import type { Color, Material, Object3D, PerspectiveCamera, Scene } from 'three'
 import { CSM } from 'three/addons/csm/CSM.js'
+import { measureRanged, withinReach } from './ranged'
+import type { Ranged } from './ranged'
 
 /** Two splits retain a sharp near field and a shadowed horizon while avoiding
  * a third scene render on every frame. Keep this explicit for visual A/Bs. */
@@ -216,16 +218,6 @@ export type CascadedShadows = ReturnType<typeof createCascadedShadows>
 const CASTER_SPANS = 30
 const CASTER_FLOOR = 20
 
-interface RangedCaster {
-  object: Object3D
-  radius: number
-  /** The bounding sphere's centre in the object's own space, so a rig that
-   *  walks is followed without recomputing anything. */
-  cx: number
-  cy: number
-  cz: number
-}
-
 /**
  * Drops a caster out of the shadow pass once it is too far to read.
  *
@@ -235,7 +227,7 @@ interface RangedCaster {
  * rescan, or the rebuild would read them as having never cast.
  */
 export function createCasterRange(scene: Scene) {
-  let casters: RangedCaster[] = []
+  let casters: Ranged[] = []
   let version = Number.NaN
 
   function rescan() {
@@ -243,22 +235,8 @@ export function createCasterRange(scene: Scene) {
     casters = []
     scene.traverse((object) => {
       if (!object.castShadow) return
-      const mesh = object as Object3D & { isInstancedMesh?: boolean, boundingSphere?: Sphere | null, computeBoundingSphere?: () => void, geometry?: BufferGeometry }
-      // An InstancedMesh is culled as one batch, so its sphere is the one over
-      // every instance rather than the geometry's.
-      let sphere: Sphere | null | undefined
-      if (mesh.isInstancedMesh) {
-        if (!mesh.boundingSphere) mesh.computeBoundingSphere?.()
-        sphere = mesh.boundingSphere
-      }
-      else {
-        if (mesh.geometry && !mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere()
-        sphere = mesh.geometry?.boundingSphere
-      }
-      if (!sphere) return
-      const e = object.matrixWorld.elements
-      const scale = Math.max(Math.abs(e[0]!), Math.abs(e[5]!), Math.abs(e[10]!))
-      casters.push({ object, radius: sphere.radius * scale, cx: sphere.center.x, cy: sphere.center.y, cz: sphere.center.z })
+      const entry = measureRanged(object)
+      if (entry) casters.push(entry)
     })
   }
 
@@ -270,14 +248,7 @@ export function createCasterRange(scene: Scene) {
         version = current
         rescan()
       }
-      for (const caster of casters) {
-        const e = caster.object.matrixWorld.elements
-        const x = e[0]! * caster.cx + e[4]! * caster.cy + e[8]! * caster.cz + e[12]! - eye.x
-        const y = e[1]! * caster.cx + e[5]! * caster.cy + e[9]! * caster.cz + e[13]! - eye.y
-        const z = e[2]! * caster.cx + e[6]! * caster.cy + e[10]! * caster.cz + e[14]! - eye.z
-        const reach = Math.max(CASTER_FLOOR, caster.radius * CASTER_SPANS)
-        caster.object.castShadow = x * x + y * y + z * z <= reach * reach
-      }
+      for (const caster of casters) caster.object.castShadow = withinReach(caster, eye, CASTER_SPANS, CASTER_FLOOR)
     },
     dispose() {
       for (const caster of casters) caster.object.castShadow = true

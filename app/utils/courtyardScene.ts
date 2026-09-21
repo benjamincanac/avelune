@@ -107,6 +107,10 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     paving.setColorAt(i, new Color().setHSL(s.road ? 0.10 : 0.53, s.road ? 0.12 : 0.035, (s.edge ? 0.66 : s.road ? 0.87 : 0.78) + s.shade * 0.1))
   })
   paving.receiveShadow = true
+  // A slab 45mm tall casts nothing anyone can see, and as one batch spanning the
+  // town it is never culled: left to `tagShadows` it was drawn whole into every
+  // cascade, more than half of everything the shadow pass rasterised.
+  paving.userData.shadowTagged = true
   group.add(paving)
 
   for (const garden of gardens) {

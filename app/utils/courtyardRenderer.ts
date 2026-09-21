@@ -1,5 +1,5 @@
-import { HalfFloatType, Sprite, Vector2, WebGLRenderTarget } from 'three'
-import type { Camera, Object3D, Scene, WebGLRenderer } from 'three'
+import { HalfFloatType, Sprite, Vector2, Vector3, WebGLRenderTarget } from 'three'
+import type { Camera, Mesh, Object3D, Scene, WebGLRenderer } from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
@@ -7,6 +7,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { measureRanged, withinReach } from './ranged'
+import type { Ranged } from './ranged'
 
 /** A soft corner falloff, applied after tone mapping so it darkens the graded
  *  image rather than the linear radiance feeding bloom. */
@@ -45,6 +47,27 @@ export interface RenderQuality {
   bloom: boolean
 }
 
+/**
+ * How far a mesh is still drawn into GTAO's normal pass, as a multiple of its
+ * own radius with a floor under it. The pass redraws the whole scene to shade
+ * contact within half a unit of a surface: a crate across the square contributes
+ * a pixel or two of it and costs the same draw call as the one at your feet. The
+ * same rule, and the same numbers, as the shadow casters in `shadows.ts`.
+ */
+const OCCLUSION_SPANS = 30
+const OCCLUSION_FLOOR = 20
+
+/**
+ * The occlusion pass runs at this share of the frame's width and height. Its
+ * shader takes eight samples a pixel and the denoise eight more, which on a
+ * retina display was the single biggest per-pixel cost in the pipeline, and
+ * what it produces is soft contact shading with nothing in it finer than a few
+ * pixels. The blend samples the result by uv with a linear filter, so the
+ * upscale is free. The normal and depth pass it draws for itself shrinks with
+ * it.
+ */
+const OCCLUSION_SCALE = 0.5
+
 const FULL_QUALITY: RenderQuality = { samples: 4, occlusion: true, bloom: true }
 
 /** A linear-light render pipeline. Contact shading grounds the detailed assets;
@@ -69,12 +92,17 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
   function createOcclusion() {
     const occlusion = new GTAOPass(scene, camera, 1, 1)
     const renderOcclusion = occlusion.render.bind(occlusion)
+    const sizeOcclusion = occlusion.setSize.bind(occlusion)
+    occlusion.setSize = (width, height) => sizeOcclusion(Math.max(1, Math.round(width * OCCLUSION_SCALE)), Math.max(1, Math.round(height * OCCLUSION_SCALE)))
     const hiddenObjects: Object3D[] = []
     // The list only changes when the scene does, so it is cached against the
     // version `MazeScene` bumps on a floor rebuild or a rig coming and going —
     // traversing the whole town every frame just to find a handful of sprites is
     // the kind of per-frame work this pipeline cannot afford.
     const excluded: Object3D[] = []
+    // Leaf meshes only, so hiding one never takes a subtree with it.
+    const ranged: Ranged[] = []
+    const eye = new Vector3()
     let excludedVersion = -1
     const isExcluded = (object: Object3D) => object instanceof Sprite
       || object.name === 'courtyard-atmosphere'
@@ -85,14 +113,25 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
       if (version !== excludedVersion) {
         excludedVersion = version
         excluded.length = 0
+        ranged.length = 0
         scene.traverse((object) => {
           if (isExcluded(object)) excluded.push(object)
+          else if ((object as Mesh).isMesh && object.children.length === 0) {
+            const entry = measureRanged(object)
+            if (entry) ranged.push(entry)
+          }
         })
       }
       for (const object of excluded) {
         if (!object.visible) continue
         hiddenObjects.push(object)
         object.visible = false
+      }
+      eye.setFromMatrixPosition(occlusion.camera.matrixWorld)
+      for (const entry of ranged) {
+        if (!entry.object.visible || withinReach(entry, eye, OCCLUSION_SPANS, OCCLUSION_FLOOR)) continue
+        hiddenObjects.push(entry.object)
+        entry.object.visible = false
       }
       try {
         renderOcclusion(...args)

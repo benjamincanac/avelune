@@ -359,6 +359,12 @@ world from the seed and the committed layout JSON, because it authors them.
   rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
   dome too, since it has no world surface for the normal pass. Text sprites also disable depth writes
   while retaining depth testing against the world.
+- GTAO's normal pass is ranged like the shadow casters: a leaf mesh further than
+  thirty times its own radius (floored at 20 units) is hidden for that pass
+  only, through the same hide and restore as the exclusion list. `ranged.ts`
+  holds the measuring both passes share. A hidden mesh also drops out of the
+  pass's depth, so keep the rule to things whose contact shading is a pixel or
+  two at that range, and check a change to the numbers with a frame diff.
 - **Chat bubbles are DOM, not sprites.** `scene/Player.vue` projects each speaker's
   head anchor in the frame loop and moves a `.chat-bubble` element (styled in
   `main.css`) inside a layer appended next to the canvas. Do not put them back on
