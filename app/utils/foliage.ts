@@ -1,4 +1,5 @@
-import type { MeshStandardMaterial, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
+import { IcosahedronGeometry, InstancedMesh, MeshBasicMaterial, Vector3 } from 'three'
+import type { BufferGeometry, MeshStandardMaterial, WebGLProgramParametersWithUniforms, WebGLRenderer } from 'three'
 
 /**
  * Wind sway and backlit translucency for the nature kit's alpha-cut cards.
@@ -55,4 +56,59 @@ export function applyFoliage(material: MeshStandardMaterial, time: { value: numb
   }
   material.needsUpdate = true
   return material
+}
+
+/**
+ * A crown's stand-in for the shadow pass.
+ *
+ * Leaf cards are the dearest thing a cascade can draw: over a million triangles
+ * in a busy view, every one through an alpha-tested depth material, which costs
+ * a tiled GPU its hidden-surface removal. Taking them out of the shadow pass was
+ * worth ten frames a second in the town, far more than their share of the
+ * triangles. So the cards cast nothing, and an eighty-triangle ellipsoid fitted
+ * to them casts in their place through the plain depth material. At the
+ * cascades' resolution a crown's shadow was already a soft blot.
+ *
+ * The stand-in writes neither colour nor depth, so the main pass draws nothing
+ * for it, and it is `gtaoExclude` because the occlusion pass overrides materials
+ * and would draw it solid. It shares the batch's instance matrices rather than
+ * copying them.
+ */
+const CANOPY_FILL = 0.82
+/** Anything shorter casts nothing at all: a fern's shadow is contact shading. */
+const CANOPY_MIN_HEIGHT = 1.2
+const canopyMaterial = new MeshBasicMaterial({ colorWrite: false, depthWrite: false })
+const canopyShapes = new WeakMap<BufferGeometry, BufferGeometry>()
+const canopySize = new Vector3()
+const canopyCentre = new Vector3()
+const canopyScale = new Vector3()
+
+export function createCanopyShadow(batch: InstancedMesh): InstancedMesh | null {
+  const source = batch.geometry
+  if (!source.boundingBox) source.computeBoundingBox()
+  const box = source.boundingBox
+  if (!box || !batch.count) return null
+  box.getSize(canopySize)
+  // The first instance stands for the batch: a kind is placed at one scale give
+  // or take a little, and this only decides whether it is tall enough to bother.
+  const e = batch.instanceMatrix.array
+  canopyScale.set(Math.hypot(e[0]!, e[1]!, e[2]!), Math.hypot(e[4]!, e[5]!, e[6]!), Math.hypot(e[8]!, e[9]!, e[10]!))
+  if (Math.max(canopySize.x * canopyScale.x, canopySize.y * canopyScale.y, canopySize.z * canopyScale.z) < CANOPY_MIN_HEIGHT) return null
+  let shape = canopyShapes.get(source)
+  if (!shape) {
+    box.getCenter(canopyCentre)
+    shape = new IcosahedronGeometry(1, 1)
+    shape.scale(canopySize.x / 2 * CANOPY_FILL, canopySize.y / 2 * CANOPY_FILL, canopySize.z / 2 * CANOPY_FILL)
+    shape.translate(canopyCentre.x, canopyCentre.y, canopyCentre.z)
+    canopyShapes.set(source, shape)
+  }
+  const canopy = new InstancedMesh(shape, canopyMaterial, batch.count)
+  canopy.instanceMatrix = batch.instanceMatrix
+  canopy.name = 'canopy shadow'
+  canopy.castShadow = true
+  canopy.receiveShadow = false
+  canopy.userData.shadowTagged = true
+  canopy.userData.gtaoExclude = true
+  canopy.computeBoundingSphere()
+  return canopy
 }

@@ -6,6 +6,7 @@ import { smoothstep } from '#shared/utils/terrain'
 import { biomeAt } from '#shared/utils/biome'
 import type { Biome } from '#shared/utils/biome'
 import type { HubPropPlacement, WorldPlacement } from '#shared/utils/props'
+import { createCanopyShadow } from './foliage'
 import { isGrassTile, meadowCover } from './terrainChunk'
 import type { HeightSampler } from './terrainChunk'
 import { makeCourtyardSurface } from './courtyardTextures'
@@ -96,11 +97,19 @@ export function createChunkProps(options: ChunkPropsOptions) {
           }
         })
       }
-      // Alpha-cut leaf cards: the renderer keeps them out of the opaque GTAO
-      // pass (see courtyardRenderer), otherwise each card occludes as a quad.
-      if (material.alphaTest > 0) instanced.userData.foliage = true
       instanced.computeBoundingSphere()
       group.add(instanced)
+      if (material.alphaTest > 0) {
+        // Alpha-cut leaf cards: the renderer keeps them out of the opaque GTAO
+        // pass (see courtyardRenderer), otherwise each card occludes as a quad.
+        instanced.userData.foliage = true
+        // The cards cast nothing; a stand-in does it for them (see `foliage.ts`).
+        instanced.castShadow = false
+        instanced.receiveShadow = true
+        instanced.userData.shadowTagged = true
+        const canopy = createCanopyShadow(instanced)
+        if (canopy) group.add(canopy)
+      }
     })
     return group
   }

@@ -359,6 +359,15 @@ world from the seed and the committed layout JSON, because it authors them.
   rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
   dome too, since it has no world surface for the normal pass. Text sprites also disable depth writes
   while retaining depth testing against the world.
+- Leaf cards never cast. An alpha-tested depth material costs a tiled GPU its
+  hidden-surface removal, and taking the cards out of the cascades was worth ten
+  frames a second in the town, far more than their triangle share.
+  `createCanopyShadow` in `foliage.ts` gives each foliage batch an 80 triangle
+  ellipsoid that shares its instance matrices, writes neither colour nor depth,
+  and casts through the plain depth material. It is `gtaoExclude` because the
+  occlusion pass overrides materials and would draw it solid. Any new alpha-cut
+  batch has to set `castShadow = false` with `shadowTagged`, or `tagShadows`
+  puts the cards back in every cascade.
 - GTAO's normal pass is ranged like the shadow casters: a leaf mesh further than
   thirty times its own radius (floored at 20 units) is hidden for that pass
   only, through the same hide and restore as the exclusion list. `ranged.ts`

@@ -12,6 +12,7 @@ import type { HubPropPlacement } from '#shared/utils/props'
 import type { TownMaterials } from './townMaterials'
 import { createGrassBank, updateGrassLod } from './courtyardLandscape'
 import type { GrassBlade } from './courtyardLandscape'
+import { createCanopyShadow } from './foliage'
 import { createFountainWater } from './fountainWater'
 import { createCityMoat } from './cityMoat'
 import { createFortifiedGate } from './fortifications'
@@ -235,12 +236,16 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
         plantMatrix.multiplyMatrices(dummy.matrix, source)
         batch.setMatrixAt(i, plantMatrix)
       })
-      if (material.alphaTest > 0) batch.userData.foliage = true
-      batch.castShadow = !name.startsWith('flowers')
+      const foliage = material.alphaTest > 0
+      if (foliage) batch.userData.foliage = true
+      // Leaf cards cast nothing; a stand-in does it for them (see `foliage.ts`).
+      batch.castShadow = !foliage && !name.startsWith('flowers')
       batch.receiveShadow = true
       batch.userData.shadowTagged = true
       batch.computeBoundingSphere()
       planting.add(batch)
+      const canopy = foliage && !name.startsWith('flowers') ? createCanopyShadow(batch) : null
+      if (canopy) planting.add(canopy)
     })
   }
 
