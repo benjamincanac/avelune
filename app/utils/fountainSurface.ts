@@ -1,5 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color, DataTexture, DynamicDrawUsage, LinearFilter, RepeatWrapping, RGBAFormat, HalfFloatType, WebGLRenderTarget, Mesh, ShaderMaterial, AdditiveBlending, Sprite, UniformsLib, UniformsUtils, Vector3 } from 'three'
-import type { Object3D, Scene } from 'three'
+import type { Camera, Object3D, PerspectiveCamera, Scene } from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { FOUNTAIN } from '../../shared/utils/courtyard'
 import type { createFountainSimulation } from './fountainSimulation'
@@ -236,6 +236,36 @@ function createCaustics(geometry: BufferGeometry, normalMap: DataTexture, radius
   return mesh
 }
 
+/**
+ * How far past the pool a refraction capture sees, as a multiple of the pool's
+ * own radius. Refraction only ever shows what is directly under the water — the
+ * basin, the pedestal, whatever is standing in it — so the far plane is put just
+ * beyond the pool and the rest of the town is culled instead of drawn.
+ *
+ * It is a far plane rather than a layer mask because narrowing `far` leaves the
+ * x, y and w rows of a perspective projection untouched: the capture still lines
+ * up with the screen coordinates the surface samples it by, and only depth
+ * values move. The sky dome and the rain are `frustumCulled = false`, so the
+ * backdrop survives it. The reflection gets no such treatment — Reflector
+ * replaces the third and fourth rows of the projection with its oblique clip
+ * plane, which throws the far plane away, so a clamp there would cost the same
+ * frame and buy nothing.
+ */
+const REFRACTION_MARGIN = 4
+
+function perspective(camera: Camera): PerspectiveCamera | null {
+  return (camera as PerspectiveCamera).isPerspectiveCamera ? camera as PerspectiveCamera : null
+}
+
+/** Reflector copies the *main* camera's projection matrix, so the only way to
+ *  narrow what a capture draws is to narrow the camera itself and put it back. */
+function setFar(camera: Camera, far: number) {
+  const lens = perspective(camera)
+  if (!lens || lens.far === far) return
+  lens.far = far
+  lens.updateProjectionMatrix()
+}
+
 /** A deforming pool over one mean reflection plane. Reflector owns the mirror
  * camera/target, while the shallow-water solver owns geometry and foam. */
 export function createFountainSurface(sim: ReturnType<typeof createFountainSimulation>, height: number) {
@@ -280,6 +310,12 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
   const capture = createFountainCaptureSchedule()
   material.uniforms.refractionMatrix!.value = capture.refractionMatrix
   const surfacePosition = new Vector3()
+  // The list of what a capture hides only changes when the scene does, so it is
+  // cached against the version `MazeScene` bumps — traversing the whole town
+  // twice a capture to find a handful of sprites is exactly the work these
+  // captures cannot afford.
+  const hideable: Object3D[] = []
+  let hideableVersion = -1
   let disposed = false
   mesh.onBeforeRender = (renderer, scene, camera, ...args) => {
     // GTAO's normal override and mirrored/shadow cameras must never trigger a
@@ -290,22 +326,30 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
     surfacePosition.setFromMatrixPosition(mesh.matrixWorld)
     const distanceSquared = surfacePosition.distanceToSquared(material.uniforms.eye!.value)
     // The ordinary render-list visibility test already excludes offscreen
-    // pools. Both still and moving views capture at 30 Hz nearby / 10 Hz farther
-    // away. Reflection and refraction sample their saved capture projections;
-    // live camera motion must not bypass this budget.
+    // pools. Both still and moving views capture on the schedule's budget, which
+    // thins with distance. Reflection and refraction sample their saved capture
+    // projections; live camera motion must not bypass this budget.
     if (!capture.needsCapture(now, distanceSquared, camera, mesh.matrixWorld)) return
     if (import.meta.dev) scene.userData.fountainCaptures = (scene.userData.fountainCaptures ?? 0) + (refractionTarget ? 2 : 1)
     const mirrorCamera = mesh.getReflectionCamera(camera)
     mirrorCamera.userData.fountainReflection = true
-    scene.traverse((object) => {
-      if (object !== mesh && object.visible && (object instanceof Sprite || object.userData.fountainSurface || object.userData.fountainParticles)) {
-        hidden.push(object)
-        object.visible = false
-      }
-    })
+    const version = typeof scene.userData.version === 'number' ? scene.userData.version : 0
+    if (version !== hideableVersion) {
+      hideableVersion = version
+      hideable.length = 0
+      scene.traverse((object) => {
+        if (object !== mesh && (object instanceof Sprite || object.userData.fountainSurface || object.userData.fountainParticles)) hideable.push(object)
+      })
+    }
+    for (const object of hideable) {
+      if (!object.visible) continue
+      hidden.push(object)
+      object.visible = false
+    }
     const renderTarget = renderer.getRenderTarget()
     const xrEnabled = renderer.xr.enabled
     const shadowAutoUpdate = renderer.shadowMap.autoUpdate
+    const far = perspective(camera)?.far
     reflecting.add(scene)
     try {
       if (refractionTarget) {
@@ -314,16 +358,22 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
         mesh.visible = false
         renderer.xr.enabled = false
         renderer.shadowMap.autoUpdate = false
+        setFar(camera, Math.sqrt(distanceSquared) + sim.radius * REFRACTION_MARGIN)
         renderer.setRenderTarget(refractionTarget)
         renderer.clear()
         renderer.render(scene, camera)
         renderer.setRenderTarget(renderTarget)
         mesh.visible = true
+        // Back before the schedule commits: it remembers the projection it
+        // captured with, and a narrowed one would never match the live camera
+        // again, which reads as a capture every frame.
+        if (far !== undefined) setFar(camera, far)
       }
       reflect(renderer, scene, camera, ...args)
       capture.captured(now, camera, mesh.matrixWorld)
     }
     finally {
+      if (far !== undefined) setFar(camera, far)
       reflecting.delete(scene)
       mesh.visible = true
       renderer.xr.enabled = xrEnabled

@@ -94,10 +94,20 @@ world from the seed and the committed layout JSON, because it authors them.
   against recursive reflection renders. Its Reflector target is 512 for a bowl
   wider than a unit radius and 256 for the rest, and is disposed with the pool.
   Keep normals correct under nonuniform scale. `fountainCapture.ts` limits captures
-  to 30 Hz nearby / 10 Hz beyond 12 units, including moving views. Camera identity,
-  projection or pool transform changes force an immediate capture. Refraction
-  stores the captured world-to-clip matrix alongside the image; sampling with
-  the live camera matrix would make cached imagery slide as the camera moves.
+  to 30 Hz nearby, 10 Hz beyond 12 units, then 400ms beyond 48 and 1500ms beyond
+  96, including moving views: from outside the gate the pool is behind a wall but
+  still passes the frustum test, and a capture is two more renders of the town.
+  Camera identity, projection or pool transform changes force an immediate
+  capture. Refraction stores the captured world-to-clip matrix alongside the
+  image; sampling with the live camera matrix would make cached imagery slide as
+  the camera moves. The refraction pass narrows the camera's far plane to just
+  past the pool, which is safe because a perspective projection's x, y and w rows
+  do not depend on `far` and the shader only samples `xy / w`. Put `far` back
+  before `captured()`: the schedule remembers the projection it captured with,
+  and a narrowed one never matches the live camera again, which reads as a
+  capture every frame. Do not try the clamp on the reflection: Reflector replaces
+  the projection's third and fourth rows with its oblique clip plane, which
+  throws the far plane away, so it costs the same frame and buys nothing.
   Shared player collision uses the stepped basin and central pedestal from
   `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
   remote feet through each fountain inverse transform for cosmetic wakes; water
@@ -244,7 +254,15 @@ world from the seed and the committed layout JSON, because it authors them.
   (the canvas's `shadows` prop), which leaves `NUM_DIR_LIGHT_SHADOWS` positive so
   CSM's patched light loop falls into its no-shadowmap branch and still lights the
   town. Clearing `castShadow` instead would drop that branch and leave the world
-  lit by ambient alone.
+  lit by ambient alone. `createCasterRange` is the one thing here that does write
+  `castShadow`, per object and never as an off switch: a caster stops casting
+  past thirty times its own radius (floored at 20 units), which is where its
+  shadow is a couple of texels on a cascade covering the whole town. It only ever
+  switches off what `tagShadows` already switched on, so the batches that
+  deliberately cast nothing stay off, and it rebuilds its list on
+  `scene.userData.version`. That counter is load bearing for two things now:
+  anything that adds or drops a caster has to bump it, or the new mesh is never
+  ranged and the old one is held alive by the list.
 - `app/utils/graphics.ts` — the quality tables: what each preset writes and what
   each detail level costs. Plain data, no Vue, so the test suite can import it.
   `useGraphics` (game-ui's) owns what the player picked; this owns what a pick

@@ -1,5 +1,5 @@
 import { MeshStandardMaterial, Vector3 } from 'three'
-import type { Color, Material, Object3D, PerspectiveCamera, Scene } from 'three'
+import type { BufferGeometry, Color, Material, Object3D, PerspectiveCamera, Scene, Sphere } from 'three'
 import { CSM } from 'three/addons/csm/CSM.js'
 
 /** Two splits retain a sharp near field and a shadowed horizon while avoiding
@@ -200,3 +200,88 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
 }
 
 export type CascadedShadows = ReturnType<typeof createCascadedShadows>
+
+/**
+ * How far a caster still casts, as a multiple of its own radius, with a floor
+ * under it so nothing near the player ever stops. A lantern is about a metre
+ * across: thirty times that away its shadow is a couple of texels on a cascade
+ * covering the whole square, and drawing it there costs the same as the
+ * building behind it. The far cascade is where this is felt — it covers the
+ * town whole, so every crate and rail in it is drawn for a smudge.
+ *
+ * Nothing is ever *given* a shadow here. The list is built from what
+ * `tagShadows` already turned on, so the batches that deliberately cast nothing
+ * (the distant treeline, the meadow grass) stay off.
+ */
+const CASTER_SPANS = 30
+const CASTER_FLOOR = 20
+
+interface RangedCaster {
+  object: Object3D
+  radius: number
+  /** The bounding sphere's centre in the object's own space, so a rig that
+   *  walks is followed without recomputing anything. */
+  cx: number
+  cy: number
+  cz: number
+}
+
+/**
+ * Drops a caster out of the shadow pass once it is too far to read.
+ *
+ * Rebuilt whenever `scene.userData.version` moves — the same signal GTAO's
+ * exclusion list uses — because that is when chunks mount their props and rigs
+ * come and go. Casters this has switched off are switched back on before a
+ * rescan, or the rebuild would read them as having never cast.
+ */
+export function createCasterRange(scene: Scene) {
+  let casters: RangedCaster[] = []
+  let version = Number.NaN
+
+  function rescan() {
+    for (const caster of casters) caster.object.castShadow = true
+    casters = []
+    scene.traverse((object) => {
+      if (!object.castShadow) return
+      const mesh = object as Object3D & { isInstancedMesh?: boolean, boundingSphere?: Sphere | null, computeBoundingSphere?: () => void, geometry?: BufferGeometry }
+      // An InstancedMesh is culled as one batch, so its sphere is the one over
+      // every instance rather than the geometry's.
+      let sphere: Sphere | null | undefined
+      if (mesh.isInstancedMesh) {
+        if (!mesh.boundingSphere) mesh.computeBoundingSphere?.()
+        sphere = mesh.boundingSphere
+      }
+      else {
+        if (mesh.geometry && !mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere()
+        sphere = mesh.geometry?.boundingSphere
+      }
+      if (!sphere) return
+      const e = object.matrixWorld.elements
+      const scale = Math.max(Math.abs(e[0]!), Math.abs(e[5]!), Math.abs(e[10]!))
+      casters.push({ object, radius: sphere.radius * scale, cx: sphere.center.x, cy: sphere.center.y, cz: sphere.center.z })
+    })
+  }
+
+  return {
+    /** Call once a frame, before the shadow maps are drawn. */
+    update(eye: Vector3) {
+      const current = typeof scene.userData.version === 'number' ? scene.userData.version : 0
+      if (current !== version) {
+        version = current
+        rescan()
+      }
+      for (const caster of casters) {
+        const e = caster.object.matrixWorld.elements
+        const x = e[0]! * caster.cx + e[4]! * caster.cy + e[8]! * caster.cz + e[12]! - eye.x
+        const y = e[1]! * caster.cx + e[5]! * caster.cy + e[9]! * caster.cz + e[13]! - eye.y
+        const z = e[2]! * caster.cx + e[6]! * caster.cy + e[10]! * caster.cz + e[14]! - eye.z
+        const reach = Math.max(CASTER_FLOOR, caster.radius * CASTER_SPANS)
+        caster.object.castShadow = x * x + y * y + z * z <= reach * reach
+      }
+    },
+    dispose() {
+      for (const caster of casters) caster.object.castShadow = true
+      casters = []
+    },
+  }
+}

@@ -17,7 +17,12 @@ export function createFountainCaptureSchedule() {
       if (capturedCamera !== camera
         || !projection.equals(camera.projectionMatrix)
         || !surfaceWorld.equals(surface)) return true
-      const interval = distanceSquared <= 12 * 12 ? 1000 / 30 : 1000 / 10
+      // Past the plaza the pool is a few pixels across and mostly behind a
+      // wall, but it still passes the frustum test, and a capture there is two
+      // more renders of the whole town.
+      const interval = distanceSquared <= 12 * 12
+        ? 1000 / 30
+        : distanceSquared <= 48 * 48 ? 1000 / 10 : distanceSquared <= 96 * 96 ? 400 : 1500
       return now < capturedAt || now - capturedAt >= interval
     },
     // Commit only after both renders succeed; an interrupted capture must not

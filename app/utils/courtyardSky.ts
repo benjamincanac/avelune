@@ -1,7 +1,7 @@
 import { AmbientLight, BackSide, BufferAttribute, BufferGeometry, Color, CubeCamera, FogExp2, HalfFloatType, HemisphereLight, LineSegments, Mesh, PerspectiveCamera, PMREMGenerator, PointLight, Scene, ShaderMaterial, SphereGeometry, Vector3, Vector4, WebGLCubeRenderTarget } from 'three'
 import type { Camera, WebGLRenderer, WebGLRenderTarget } from 'three'
 import type { TimeOfDayMode, WeatherMode } from '#shared/types/game'
-import { createCascadedShadows } from './shadows'
+import { createCascadedShadows, createCasterRange } from './shadows'
 import type { CascadedShadows } from './shadows'
 
 /**
@@ -302,6 +302,11 @@ export function createCourtyardSky(scene: Scene) {
   // projection until the real one arrives on the first update.
   const shadowCamera = new PerspectiveCamera(62, 16 / 9, 0.1, 260)
   const shadows: CascadedShadows = createCascadedShadows(scene, shadowCamera)
+  // Driven from here because this is where the cascades are updated: what a
+  // caster is worth depends on how far the eye is from it, and the far cascade
+  // covers the whole town.
+  const casterRange = createCasterRange(scene)
+  const eye = new Vector3()
   // Warm pools on the plaza lamps, so night is lit rather than merely blue.
   const lanterns = PLAZA_LANTERNS.map(([x, z]) => {
     const light = new PointLight('#ffbe72', 0, 13, 1.9)
@@ -466,7 +471,10 @@ export function createCourtyardSky(scene: Scene) {
         ? (0.25 + daylight * 3.9) * (1 - state.overcast * 0.7)
         : 0.62
       sunColor.set(state.sunHeight < 0 ? '#93b0ff' : daylight < 0.3 ? '#ffb877' : '#fff0cb')
-      if (camera instanceof PerspectiveCamera) shadows.update(camera, lightDirection, sunColor, intensity, delta)
+      if (camera instanceof PerspectiveCamera) {
+        casterRange.update(eye.setFromMatrixPosition(camera.matrixWorld))
+        shadows.update(camera, lightDirection, sunColor, intensity, delta)
+      }
       hemi.intensity = 0.2 + state.dayness * 0.4 + glow * 0.9
       ambient.intensity = 0.04 + state.dayness * 0.03 + glow * 0.5
       // Lantern pools fade in as the sun goes down, and stay out of daylight.
@@ -505,6 +513,7 @@ export function createCourtyardSky(scene: Scene) {
     },
     dispose() {
       scene.remove(dome, ambient, hemi, rain, ...lanterns)
+      casterRange.dispose()
       shadows.dispose()
       geometry.dispose()
       material.dispose()

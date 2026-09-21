@@ -16,6 +16,14 @@ test('water captures immediately, then limits unchanged near and distant views',
   distant.captured(0, camera, surface)
   assert.equal(distant.needsCapture(99, 400, camera, surface), false)
   assert.equal(distant.needsCapture(100, 400, camera, surface), true)
+
+  // From outside the gate the pool is a few pixels wide and behind a wall.
+  const beyond = createFountainCaptureSchedule()
+  beyond.captured(0, camera, surface)
+  assert.equal(beyond.needsCapture(399, 80 * 80, camera, surface), false)
+  assert.equal(beyond.needsCapture(400, 80 * 80, camera, surface), true)
+  assert.equal(beyond.needsCapture(1499, 120 * 120, camera, surface), false)
+  assert.equal(beyond.needsCapture(1500, 120 * 120, camera, surface), true)
 })
 
 test('moving cameras obey the capture budget; projection and pool changes invalidate it', () => {
