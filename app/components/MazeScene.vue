@@ -1,32 +1,22 @@
 <script setup lang="ts">
 import {
-  AnimationMixer,
   Box3,
-  CanvasTexture,
   Group,
-  LinearFilter,
   Mesh,
-  MeshBasicMaterial,
-  MeshStandardMaterial,
   PerspectiveCamera,
-  PlaneGeometry,
-  PointLight,
-  SkinnedMesh,
-  SRGBColorSpace,
-  Sprite,
-  SpriteMaterial,
   Texture,
   Vector3,
   WebGLRenderer,
 } from 'three'
-import type { AnimationAction, AnimationClip, BufferGeometry,
-  InstancedMesh, Object3D } from 'three'
+import type { BufferGeometry,
+  MeshStandardMaterial,
+  PointLight } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { createGltfResourcePool } from '~/utils/gltfResources'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
-import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
 import type { MoveInput } from '#shared/types/game'
-import type { GamePlayer, UseGame } from '~/composables/useGame'
+import type { UseGame } from '~/composables/useGame'
 import type { HubPropPlacement } from '#shared/utils/props'
 import {
   DASH_COOLDOWN,
@@ -36,16 +26,13 @@ import {
   speedMultiplier,
   isWalkable,
   surfaceHeight,
-  bodySurfaceHeight,
-  getSwimmingContact,
   isPieceCameraBlocked,
   isRampartCameraBlocked,
   slideBody,
   stepBody,
 } from '#shared/utils/maze'
-import { TERRAFORM_STEP, applyPlace, chunkCoord, chunkKey, cornerHeight, createWorld, isTownChunk, parseChunkKey, worldProps } from '#shared/utils/world'
-import type { Chunk, SurfaceType } from '#shared/utils/world'
-import { generateVegetation } from '#shared/utils/vegetation'
+import { TERRAFORM_STEP, createWorld, worldProps } from '#shared/utils/world'
+import type { SurfaceType } from '#shared/utils/world'
 import { EDITS_PER_SECOND } from '#shared/utils/building'
 import { KIT_NAMES } from '#shared/utils/kit'
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
@@ -54,37 +41,29 @@ import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
 import { courtyardWeather, createCourtyardSky } from '~/utils/courtyardSky'
-import { NATURE_NAMES, createGrassBank, setGrassDetail, setGrassPushers, updateGrassLod } from '~/utils/courtyardLandscape'
-import { createTerrainMaterial, createTerrainMesh, updateTerrainMesh } from '~/utils/terrainChunk'
-import type { HeightSampler } from '~/utils/terrainChunk'
-import { chunkGrassBlades, createChunkProps, createPavingBank } from '~/utils/chunkProps'
+import { NATURE_NAMES, setGrassDetail, setGrassPushers } from '~/utils/courtyardLandscape'
 import { createCritters } from '~/utils/critters'
-import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import { createBuildTools } from '~/utils/buildTools'
 import { PITCH_MAX, PITCH_MAX_TOOL } from '~/composables/useBuild'
-import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
-import { applyBeard, applyOutfitColor } from '~/utils/appearance'
-import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
-import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
-import type { CharacterAsset } from '~/utils/characterModels'
-import { animationBlendDuration, locomotionTransitionTime, updateDashAnimation } from '~/utils/characterAnimation'
+import { setCharacterRim } from '~/utils/characterRim'
 import {
   closeAudio,
   createAmbience,
-  createFootstepState,
-  footSurfaceAt,
   play,
   rememberListener,
   setAudioListener,
-  stepFootsteps,
 } from '~/utils/audio'
-import type { FootstepState } from '~/utils/audio'
 import { biomeAt } from '#shared/utils/biome'
+import WorldChunks from './scene/WorldChunks.vue'
+import PostProcessing from './scene/PostProcessing.vue'
+import OracleCharacter from './scene/OracleCharacter.vue'
+import Players from './scene/Players.vue'
+import { tagSceneShadows } from '~/utils/sceneObjects'
 
 /**
- * Avelune's 3D world, built imperatively with three.js inside the Tres context.
+ * Avelune's scene coordinator: declarative scene ownership, direct frame updates.
  *
  * Tres provides the renderer, scene, camera, and render loop. The courtyard
  * uses authored placements of custom buildings, furniture and trees, drawn as
@@ -121,12 +100,14 @@ interface ViewState {
 const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState, editor?: boolean }>()
 const emit = defineEmits<{ ready: [dispose: () => void] }>()
 
-// Hub Oracle proximity/dialogue state, shared with GameScene and the HUD.
-const oracle = useOracle()
-
 const { scene, camera: cameraManager, renderer } = useTresContext()
 const camera = cameraManager.activeCamera
-const { onBeforeRender, render } = useLoop()
+const { onBeforeRender } = useLoop()
+const postProcessing = shallowRef<InstanceType<typeof PostProcessing> | null>(null)
+const worldChunks = shallowRef<InstanceType<typeof WorldChunks> | null>(null)
+const oracleCharacter = shallowRef<InstanceType<typeof OracleCharacter> | null>(null)
+const players = shallowRef<InstanceType<typeof Players> | null>(null)
+const torchLight = shallowRef<PointLight | null>(null)
 
 /**
  * What the player let the renderer spend. Applied from the render loop rather
@@ -139,35 +120,13 @@ watch(graphics.profile, () => {
   graphicsDirty = true
 })
 
-let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
-render((notify) => {
-  if (sceneDisposed) return
-  const active = camera.value
-  const gl = renderer.instance
-  if (!active || !(gl instanceof WebGLRenderer)) return
-  if (graphicsDirty) applyGraphics()
-  pipeline ??= createCourtyardRenderer(gl, scene.value, active, graphics.profile.value)
-  pipeline.render(active)
-  tickFps()
-  notify()
-})
-
-/** A quality change lands everywhere at once. The post pipeline is rebuilt
- *  rather than mutated — a composer's passes are fixed once it is built — and
- *  the chunk ring is resynced so the new detail radius takes on the next frame
- *  instead of at the next border crossing. `shadows` itself is the canvas's,
- *  because Tres recompiles the town's materials when it flips. */
+/** Scene quality changes touch shared uniforms and the sun. The postprocessing
+ * and chunk components own the settings that change their own resources. */
 function applyGraphics() {
   graphicsDirty = false
   const quality = graphics.profile.value
   atmosphere.setQuality(quality)
   setGrassDetail(quality.grassDensity, quality.grassRange)
-  detailRadius = quality.detailRadius
-  detailDrop = quality.detailDrop
-  lastChunkCx = Number.NaN
-  lastChunkCy = Number.NaN
-  pipeline?.dispose()
-  pipeline = null
 }
 
 // Dev-only world editor: created in onMounted when `editor` is set (see the
@@ -178,8 +137,6 @@ let ed: ReturnType<typeof useEditor> | null = null
 
 // The sky owns atmosphere, outdoor lighting, weather and water reflections.
 const atmosphere = createCourtyardSky(scene.value)
-const torchLight = new PointLight('#ffc98a', 0.6, 7, 1.7)
-scene.value.add(torchLight)
 
 /* -------------------------------------------------------------------------- */
 /* Arena geometry                                                             */
@@ -204,15 +161,12 @@ const build = useBuild()
 const hubWorld = props.editor ? createWorld() : stream.world
 
 const waterActors: FountainInteractor[] = []
-let courtyard: ReturnType<typeof createCourtyardScene> | null = null
+const courtyard = shallowRef<ReturnType<typeof createCourtyardScene> | null>(null)
 
-/** Everything world-shaped lives here so a rebuild can swap it wholesale. */
+/** Wildlife owns its internal instances; Tres attaches its root. */
 const floorGroup = new Group()
-scene.value.add(floorGroup)
+floorGroup.name = 'Ambient_Wildlife'
 
-// The Oracle NPC — a monster (Quaternius Ultimate Monsters) as the arena's
-// ancient seer. Declared here (before the synchronous initial buildFloor) so
-// buildFloor can reset it on a rebuild.
 /** Where the Oracle stands (tiles) and faces (yaw). In the editor it follows the
  *  working doc live (the rig is selectable/draggable there like a prop); in play
  *  it's the saved pose from courtyard-oracle.json. */
@@ -220,291 +174,19 @@ function oraclePos(): { x: number, y: number, rot: number } {
   if (props.editor && ed?.current.value.oracle) return ed.current.value.oracle
   return { x: HUB_ORACLE[0]!, y: HUB_ORACLE[1]!, rot: HUB_ORACLE[2]! }
 }
-/** Within this many tiles the player may consult it (drives the HUD prompt). */
-const ORACLE_NEAR = 7
-/** How fast the Oracle turns to face the player it answers (1/s, eased). */
-const ORACLE_TURN_RATE = 4
-interface OracleRig {
-  dispose: () => void
-  group: Group
-  mixer: AnimationMixer
-  /** Speech bubble mirroring the players' — shows the Oracle's latest chat line. */
-  bubble: HTMLDivElement
-  bubbleText: string
-  /** Height above the rig's origin that the bubble's tail points at. */
-  bubbleBaseY: number
-}
-let oracleRig: OracleRig | null = null
-
-/**
- * Tag the freshly built world for shadows: opaque standard-material meshes cast
- * and receive; the flat ground plane only receives; glowing/transparent bits
- * (rift, beams, runes) do neither. Instanced meshes cast shadows too.
- *
- * `userData.shadowTagged` opts a batch out: the landscape sets its own flags
- * (the ~200-instance distant treeline and the meadow grass deliberately cast
- * nothing) and a blanket pass would push all of that back into every cascade.
- */
-function tagShadows(root: Group) {
-  root.traverse((o) => {
-    if (!(o instanceof Mesh) || o.userData.shadowTagged) return
-    const mat = o.material
-    const opaqueStd = mat instanceof MeshStandardMaterial && !mat.transparent
-    o.castShadow = opaqueStd && !(o.geometry instanceof PlaneGeometry)
-    o.receiveShadow = opaqueStd
-  })
-}
-
-/** GTAO's exclusion list is cached by the renderer; bump this whenever the
- *  scene gains or loses objects so it rescans. */
+/** Scene caches observe topology changes only after Vue attaches primitives. */
+let sceneChangeQueued = false
 function bumpSceneVersion() {
   scene.value.userData.version = (scene.value.userData.version ?? 0) + 1
 }
-
-/* -------------------------------------------------------------------------- */
-/* Chunk streaming                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Terrain reaches out to the camera's far plane so the hills still close the
- * horizon; the detailed pass — props, generated vegetation, grass — is a tight
- * ring around the player, because batching per chunk costs a draw call per kind
- * per chunk and a whole meadow of those would not fit in a frame.
- */
-const TERRAIN_RADIUS = 7
-const TERRAIN_DROP = 8
-/** The detail ring, tightened by the graphics settings (`useGraphics`). Terrain
- *  is not: the hills have to keep closing the horizon whatever the machine, and
- *  the fog is nowhere near thick enough to hide a nearer edge of the world. */
-let detailRadius = 2
-let detailDrop = 3
-
-/** The authored town is a fixed 25 chunks and reads as one place: half of it
- *  fading out as you cross the square would be worse than the draw calls. It
- *  keeps its detail for as long as it is mounted at all. */
-const alwaysDetailed = (cx: number, cy: number) => isTownChunk(cx, cy)
-/** Detail level for a chunk, by its distance from the chunk we last synced on.
- *  Shared by the range follower and the streaming listeners so a chunk mounts
- *  at the same level whichever of them gets to it first. */
-function detailFor(cx: number, cy: number): boolean {
-  if (alwaysDetailed(cx, cy)) return true
-  if (Number.isNaN(lastChunkCx)) return true
-  return Math.max(Math.abs(cx - lastChunkCx), Math.abs(cy - lastChunkCy)) <= detailRadius
-}
-/** Milliseconds of a frame a border crossing may spend building chunks. The
- *  first sync ignores it: the whole view is filled at once, while the models are
- *  still streaming in, because a horizon that fades in over the first minute on
- *  a slow machine is far worse than one longer frame at load. */
-const MOUNT_BUDGET_MS = 5
-
-interface MountedChunk {
-  group: Group
-  terrain: Mesh
-  props: Group | null
-  grass: InstancedMesh | null
-  /** Player-laid road. Not detail-gated: a road is architecture, and it has to
-   *  still be there when you look back at it from the next hill. */
-  paving: Mesh | null
-  /** Whether this chunk currently draws its props and grass. */
-  detail: boolean
-}
-
-const mounted = new Map<string, MountedChunk>()
-const mountQueue: { cx: number, cy: number, detail: boolean, distance: number }[] = []
-/** Chunks whose generated vegetation has been placed. Once, like the server. */
-const seededChunks = new Set<string>()
-let lastChunkCx = Number.NaN
-let lastChunkCy = Number.NaN
-let chunksPrimed = false
-
-/** Corner heights read across chunk borders, so terrain normals do not crease
- *  along every seam. */
-const sampleHeight: HeightSampler = (gx, gy) => cornerHeight(hubWorld, gx, gy)
-
-/**
- * The chunk at (cx, cy), ready to draw. In play this is just a lookup: the
- * chunk either arrived or it did not, and an absent one is not drawn. The
- * editor's local world generates on touch instead, and seeds its wild
- * vegetation exactly once, the way the server's `loadChunk` does.
- */
-function ensureChunkContent(cx: number, cy: number): Chunk | undefined {
-  const chunk = hubWorld.getChunk(cx, cy)
-  if (!chunk || !props.editor) return chunk
-  const key = chunkKey(cx, cy)
-  if (seededChunks.has(key)) return chunk
-  seededChunks.add(key)
-  for (const placement of generateVegetation(hubWorld.seed, cx, cy)) applyPlace(hubWorld, placement)
-  return chunk
-}
-
-/** (Re)build the chunk's flagstones. Driven by the surface raster and the
- *  corner heights, so it belongs with the terrain refresh, not the props. */
-function buildChunkPaving(entry: MountedChunk, chunk: Chunk) {
-  if (entry.paving) {
-    entry.group.remove(entry.paving)
-    entry.paving.geometry.dispose()
-    entry.paving = null
-  }
-  entry.paving = pavingBank.patch(chunk, sampleHeight)
-  if (entry.paving) entry.group.add(entry.paving)
-}
-
-/** (Re)build the chunk's props and grass, or tear them down when it drops back
- *  to being distant terrain. */
-function buildChunkDetail(entry: MountedChunk, chunk: Chunk) {
-  if (entry.props) {
-    entry.group.remove(entry.props)
-    chunkProps.release(entry.props)
-    entry.props = null
-  }
-  if (entry.grass) {
-    entry.group.remove(entry.grass)
-    entry.grass.dispose()
-    entry.grass = null
-  }
-  if (!entry.detail) {
-    critters?.unmount(chunk.cx, chunk.cy)
-    return
-  }
-  critters?.mount(chunk.cx, chunk.cy)
-  entry.props = chunkProps.build(chunk)
-  tagShadows(entry.props)
-  entry.group.add(entry.props)
-  entry.grass = grassBank.patch(chunkGrassBlades(chunk, hubWorld.seed))
-  if (entry.grass) entry.group.add(entry.grass)
-}
-
-/**
- * Phase 3 calls these four on a `chunk` / `unchunk` / `terrain` / `place` or
- * `remove` frame; here they are driven by the player's own position over the
- * locally generated world. `mountChunk` is idempotent and upgrades a chunk that
- * is already mounted at a lower detail.
- */
-function mountChunk(cx: number, cy: number, detail = true): void {
-  const key = chunkKey(cx, cy)
-  const existing = mounted.get(key)
-  if (existing) {
-    if (existing.detail === detail) return
-    existing.detail = detail
-    refreshChunkProps(cx, cy)
-    return
-  }
-  const chunk = ensureChunkContent(cx, cy)
-  if (!chunk) return
-  const group = new Group()
-  group.name = `chunk ${key}`
-  const entry: MountedChunk = { group, terrain: createTerrainMesh(chunk, terrainMaterial, sampleHeight), props: null, grass: null, paving: null, detail }
-  group.add(entry.terrain)
-  mounted.set(key, entry)
-  buildChunkPaving(entry, chunk)
-  buildChunkDetail(entry, chunk)
-  floorGroup.add(group)
-  bumpSceneVersion()
-}
-
-function unmountChunk(cx: number, cy: number): void {
-  const key = chunkKey(cx, cy)
-  const entry = mounted.get(key)
-  if (!entry) return
-  mounted.delete(key)
-  critters?.unmount(cx, cy)
-  floorGroup.remove(entry.group)
-  if (entry.props) chunkProps.release(entry.props)
-  entry.grass?.dispose()
-  entry.paving?.geometry.dispose()
-  // Terrain geometry is this chunk's alone; its material is shared.
-  entry.terrain.geometry.dispose()
-  entry.group.clear()
-  bumpSceneVersion()
-}
-
-/** A `terrain` frame changed this chunk's corner heights or surface raster.
- *  Everything bedded on the ground goes with it: the flagstones a paint stroke
- *  just laid, and the grass and flowers that must not grow through them. */
-function refreshChunkTerrain(cx: number, cy: number): void {
-  const entry = mounted.get(chunkKey(cx, cy))
-  const chunk = entry && hubWorld.getChunk(cx, cy)
-  if (!entry || !chunk) return
-  updateTerrainMesh(entry.terrain, chunk, sampleHeight)
-  buildChunkPaving(entry, chunk)
-  buildChunkDetail(entry, chunk)
-  bumpSceneVersion()
-}
-
-/** A `place` or `remove` frame changed what stands on this chunk. */
-function refreshChunkProps(cx: number, cy: number): void {
-  const entry = mounted.get(chunkKey(cx, cy))
-  const chunk = entry && hubWorld.getChunk(cx, cy)
-  if (!entry || !chunk) return
-  buildChunkDetail(entry, chunk)
-  bumpSceneVersion()
-}
-
-/** Follow the player: mount what is in range, drop what is not. The work is
- *  budgeted per frame, so a border crossing spreads over a few frames. */
-function syncChunks(x: number, y: number) {
-  const cx0 = chunkCoord(x)
-  const cy0 = chunkCoord(y)
-  if (cx0 !== lastChunkCx || cy0 !== lastChunkCy) {
-    lastChunkCx = cx0
-    lastChunkCy = cy0
-    for (const [key, entry] of [...mounted]) {
-      const { cx, cy } = parseChunkKey(key)
-      const distance = Math.max(Math.abs(cx - cx0), Math.abs(cy - cy0))
-      if (distance > TERRAIN_DROP) unmountChunk(cx, cy)
-      else if (distance > detailDrop && entry.detail && !alwaysDetailed(cx, cy)) {
-        entry.detail = false
-        refreshChunkProps(cx, cy)
-      }
-    }
-    mountQueue.length = 0
-    for (let cy = cy0 - TERRAIN_RADIUS; cy <= cy0 + TERRAIN_RADIUS; cy++) {
-      for (let cx = cx0 - TERRAIN_RADIUS; cx <= cx0 + TERRAIN_RADIUS; cx++) {
-        const distance = Math.max(Math.abs(cx - cx0), Math.abs(cy - cy0))
-        const detail = detailFor(cx, cy)
-        const entry = mounted.get(chunkKey(cx, cy))
-        if (entry && entry.detail === detail) continue
-        mountQueue.push({ cx, cy, detail, distance })
-      }
-    }
-    mountQueue.sort((a, b) => a.distance - b.distance)
-  }
-  const deadline = chunksPrimed ? performance.now() + MOUNT_BUDGET_MS : Number.POSITIVE_INFINITY
-  while (mountQueue.length) {
-    const next = mountQueue.shift()!
-    mountChunk(next.cx, next.cy, next.detail)
-    if (performance.now() >= deadline) break
-  }
-  chunksPrimed = true
-}
-
-function clearChunks() {
-  for (const key of [...mounted.keys()]) {
-    const { cx, cy } = parseChunkKey(key)
-    unmountChunk(cx, cy)
-  }
-  mountQueue.length = 0
-  lastChunkCx = Number.NaN
-  lastChunkCy = Number.NaN
-  chunksPrimed = false
-}
-
-/** The templates behind every batch have been replaced (the GLBs landed), so
- *  every mounted chunk has to be rebuilt off the new ones. */
-function rebuildChunks() {
-  for (const entry of mounted.values()) {
-    if (!entry.props) continue
-    entry.group.remove(entry.props)
-    chunkProps.release(entry.props)
-    entry.props = null
-  }
-  chunkProps.reset()
-  for (const [key, entry] of mounted) {
-    const { cx, cy } = parseChunkKey(key)
-    const chunk = hubWorld.getChunk(cx, cy)
-    if (chunk) buildChunkDetail(entry, chunk)
-  }
-  bumpSceneVersion()
+function sceneChanged() {
+  if (sceneChangeQueued) return
+  sceneChangeQueued = true
+  void nextTick(() => {
+    sceneChangeQueued = false
+    if (sceneDisposed) return
+    bumpSceneVersion()
+  })
 }
 
 /* -------------------------------------------------------------------------- */
@@ -520,16 +202,8 @@ function townPlacements(): HubPropPlacement[] {
 }
 
 function clearFloor() {
-  if (oracleRig) {
-    floorGroup.remove(oracleRig.group)
-    oracleRig.dispose()
-    oracleRig = null
-  }
-  if (courtyard) {
-    floorGroup.remove(courtyard.group)
-    courtyard.dispose()
-    courtyard = null
-  }
+  courtyard.value?.dispose()
+  courtyard.value = null
 }
 
 /**
@@ -541,13 +215,10 @@ function clearFloor() {
 function buildFloor() {
   clearFloor()
 
-  courtyard = createCourtyardScene(ed?.placements.value ?? townPlacements(), propTemplates, townMaterials)
-  floorGroup.add(courtyard.group)
-  tagShadows(courtyard.group)
-  // Materials that miss the CSM injection read the three cascade lights as
-  // three separate suns until the periodic sweep catches them.
-  atmosphere.setupShadows()
-  bumpSceneVersion()
+  courtyard.value = createCourtyardScene(ed?.placements.value ?? townPlacements(), propTemplates, townMaterials, foliageTime)
+  tagSceneShadows(courtyard.value.group)
+  // Patch new materials once Tres has attached the replacement group.
+  sceneChanged()
   // Re-sync the editor's own selectable clones (templates may have just
   // finished loading, so this runs after each build phase).
   editorCtl?.rebuild()
@@ -556,24 +227,17 @@ function buildFloor() {
 /** The four hooks the `chunk` / `unchunk` / `terrain` / `place` and `remove`
  *  frames map onto, exposed for tests and for anything that wants to drive the
  *  scene without going through the socket. */
-defineExpose({ mountChunk, unmountChunk, refreshChunkTerrain, refreshChunkProps })
+defineExpose({
+  mountChunk: (cx: number, cy: number, detail = true) => worldChunks.value?.mountChunk(cx, cy, detail),
+  unmountChunk: (cx: number, cy: number) => worldChunks.value?.unmountChunk(cx, cy),
+  refreshChunkTerrain: (cx: number, cy: number) => worldChunks.value?.refreshChunkTerrain(cx, cy),
+  refreshChunkProps: (cx: number, cy: number) => worldChunks.value?.refreshChunkProps(cx, cy),
+})
 
 /* -------------------------------------------------------------------------- */
 /* The server's loaded set                                                    */
 /* -------------------------------------------------------------------------- */
 
-/**
- * In play the server decides what we hold: `useWorld` has already installed the
- * chunk by the time we hear about it, so these four only move geometry. The
- * range follower still runs alongside them and still chooses the detail level
- * by distance — it simply cannot mount a chunk that has not arrived, because
- * `getChunk` returns undefined for one and `mountChunk` bails.
- */
-const unsubscribe: (() => void)[] = []
-/** Protected chunks we have seen. The town's cosmetic scene is built from the
- *  placements they carry, so it is rebuilt as they land — once per burst, not
- *  once per chunk. */
-const townChunks = new Set<string>()
 let townRebuild: ReturnType<typeof setTimeout> | undefined
 
 function scheduleTownRebuild() {
@@ -584,74 +248,25 @@ function scheduleTownRebuild() {
   }, 300)
 }
 
-if (!props.editor) {
-  unsubscribe.push(
-    stream.onChunk((cx, cy) => {
-      // A chunk that was already mounted has been *replaced* (a resync), so its
-      // geometry has to be rebuilt; a fresh mount already built it.
-      const remount = mounted.has(chunkKey(cx, cy))
-      mountChunk(cx, cy, detailFor(cx, cy))
-      if (remount) {
-        refreshChunkTerrain(cx, cy)
-        refreshChunkProps(cx, cy)
-      }
-      // A long piece reaches into its neighbours' batches; they have just
-      // adopted it, so redraw them too.
-      for (let ny = cy - 1; ny <= cy + 1; ny++) {
-        for (let nx = cx - 1; nx <= cx + 1; nx++) if (nx !== cx || ny !== cy) refreshChunkProps(nx, ny)
-      }
-      const key = chunkKey(cx, cy)
-      if (isTownChunk(cx, cy) && !townChunks.has(key)) {
-        townChunks.add(key)
-        scheduleTownRebuild()
-      }
-    }),
-    stream.onUnchunk(unmountChunk),
-    stream.onTerrain(refreshChunkTerrain),
-    stream.onProps(refreshChunkProps),
-  )
-}
-
 /* -------------------------------------------------------------------------- */
 /* Blender-authored assets (see scripts/build_*.py and scripts/convert_*)     */
 /* -------------------------------------------------------------------------- */
 
 const gltfLoader = new GLTFLoader()
+// Only courtyard/nature/kit templates enter this pool. Critters use the other
+// loader and keep their existing per-species disposal ownership.
+const templateLoader = new GLTFLoader()
+const templateResources = createGltfResourcePool()
+templateResources.register(templateLoader)
 // The shipped GLBs are meshopt-compressed (scripts/convert_nature.sh,
 // scripts/convert_kit.sh); the decoder is a no-op for uncompressed ones, so
 // it's safe to always register.
 gltfLoader.setMeshoptDecoder(MeshoptDecoder)
+templateLoader.setMeshoptDecoder(MeshoptDecoder)
 
-/**
- * The universal rig is authored at human scale (~1.8 m); this brings characters
- * to ~1.3 units so they read at arena scale rather than towering over the
- * kit pieces. Each player picks a character during onboarding (see
- * CharacterGate); it rides the snapshot.
- */
-const CHARACTER_SCALE = 0.72
-
-/** Movement states map to clips in the shared universal animation library. */
-const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', sprint: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
-
-/** Every model load is counted here, so the entry overlay can wait for the art
- *  and not only for the socket. */
+/** Track world asset loads for the entry overlay. */
 const assets = useAssets()
 assets.reset()
-
-const characterAssets = new Map<string, CharacterAsset>()
-const characterLoading = new Set<string>()
-const characterRetryAt = new Map<string, number>()
-
-function ensureCharacter(name: string) {
-  if (characterAssets.has(name) || characterLoading.has(name) || Date.now() < (characterRetryAt.get(name) ?? 0)) return
-  characterLoading.add(name)
-  assets.track(loadCharacterAsset(name)).then((asset) => {
-    if (!sceneDisposed) characterAssets.set(name, asset)
-  }).catch((error) => {
-    characterRetryAt.set(name, Date.now() + 10000)
-    console.error(`Character ${name} could not load`, error)
-  }).finally(() => characterLoading.delete(name))
-}
 
 /** Drives the wind sway on every alpha-cut prop batch (see utils/foliage). */
 const foliageTime = { value: 0 }
@@ -660,12 +275,6 @@ const SHADER_CLOCK_WRAP = 3600
 
 const townMaterials = createTownMaterials()
 const propTemplates = createCourtyardAssets(townMaterials)
-/** Shared by every terrain chunk: one material, one program, one CSM patch. */
-const terrainMaterial = createTerrainMaterial(townMaterials)
-/** Shared blade geometry for every chunk's meadow and the town's garden beds. */
-const grassBank = createGrassBank(foliageTime)
-const pavingBank = createPavingBank(townMaterials)
-const chunkProps = createChunkProps({ templates: propTemplates, materials: townMaterials, seed: hubWorld.seed, foliageTime, editor: props.editor })
 /** Ambient wildlife: purely cosmetic, deterministic per chunk, never on the
  *  wire. Off in the editor, where every extra pickable body is in the way. */
 const critters = props.editor
@@ -676,10 +285,7 @@ const critters = props.editor
       world: hubWorld,
       seed: hubWorld.seed,
       // A new rig needs the CSM patch and a GTAO rescan, exactly as the Oracle's does.
-      onChange: () => {
-        atmosphere.setupShadows()
-        bumpSceneVersion()
-      },
+      onChange: sceneChanged,
     })
 const retiredTemplates: Group[] = []
 let sceneDisposed = false
@@ -698,8 +304,8 @@ function releaseTemplates(templates: Iterable<Group>) {
     })
   }
   for (const geometry of geometries) geometry.dispose()
-  for (const material of materials) material.dispose()
-  for (const texture of textures) texture.dispose()
+  for (const material of materials) if (!templateResources.ownsMaterial(material)) material.dispose()
+  for (const texture of textures) if (!templateResources.ownsTexture(texture)) texture.dispose()
 }
 
 // Load one dir's models into the shared template map. Resilient: a single
@@ -709,7 +315,7 @@ function releaseTemplates(templates: Iterable<Group>) {
 async function loadTemplates(dir: string, names: readonly string[]) {
   await Promise.all(names.map(async (name) => {
     try {
-      const gltf = await assets.track(gltfLoader.loadAsync(`/models/${dir}/${name}.glb`))
+      const gltf = await assets.track(templateLoader.loadAsync(`/models/${dir}/${name}.glb`))
       if (sceneDisposed) {
         releaseTemplates([gltf.scene])
         return
@@ -772,294 +378,9 @@ Promise.all([
       planter.add(flowers)
     }
   }
-  rebuildChunks()
+  worldChunks.value?.rebuild()
   buildFloor()
 })
-
-/* -------------------------------------------------------------------------- */
-/* Players                                                                    */
-/* -------------------------------------------------------------------------- */
-
-interface Rig {
-  dispose: () => void
-  group: Group
-  mixer: AnimationMixer
-  actions: Record<string, AnimationAction>
-  current: string
-  /** Last observed dash state, so stale remote snapshots never retrigger it. */
-  wasDashing: boolean
-  dashAnimUntil: number
-  bubble: HTMLDivElement
-  bubbleText: string
-  /** Height above the rig's origin that the bubble's tail points at. */
-  bubbleBaseY: number
-  /** Ground decal under the feet; fades out as the character leaves the floor. */
-  blob: Mesh<PlaneGeometry, MeshBasicMaterial>
-}
-
-const playerGroup = new Group()
-scene.value.add(playerGroup)
-const rigs = new Map<string, Rig>()
-
-/* Blob contact shadow. The sun's cascade is soft enough that feet can read as
- * hovering, especially under the trees where the cast shadow washes out. A tiny
- * ground-hugging gradient quad puts them back on the floor. Geometry and
- * texture are shared; only the material is per-rig, so each can fade on its own
- * as the character leaves the ground. */
-const BLOB_RADIUS = 0.34
-const BLOB_OPACITY = 0.35
-const blobGeometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
-let blobTexture: CanvasTexture | null = null
-
-function blobShadowTexture() {
-  if (blobTexture) return blobTexture
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = 128
-  const ctx = canvas.getContext('2d')!
-  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
-  gradient.addColorStop(0, 'rgba(0, 0, 0, 1)')
-  gradient.addColorStop(0.45, 'rgba(0, 0, 0, 0.72)')
-  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, 128, 128)
-  blobTexture = new CanvasTexture(canvas)
-  blobTexture.colorSpace = SRGBColorSpace
-  return blobTexture
-}
-
-function makeBlobShadow() {
-  const material = new MeshBasicMaterial({
-    map: blobShadowTexture(),
-    color: '#1b1a16',
-    transparent: true,
-    opacity: BLOB_OPACITY,
-    depthWrite: false,
-    toneMapped: false,
-    fog: true,
-  })
-  const mesh = new Mesh(blobGeometry, material)
-  mesh.scale.set(BLOB_RADIUS * 2, 1, BLOB_RADIUS * 2)
-  mesh.renderOrder = 1
-  // GTAO's normal override draws every mesh opaque. This decal has no surface
-  // of its own and would occlude as a solid disc, so the renderer skips it.
-  mesh.userData.gtaoExclude = true
-  return mesh
-}
-
-/** Nameplate sprite: a 4:1 canvas at 2× the old resolution, drawn into a world
- *  box ~30% smaller. Crispness comes from the texel density, not from the size. */
-const NAME_SPRITE = { width: 1024, height: 256, scaleX: 1.12, scaleY: 0.28 }
-/** Gap between the top of the head and the bottom of the nameplate. */
-const NAME_GAP = 0.06
-
-function makeTextSprite(
-  draw: (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void,
-  options: { width: number, height: number, scaleX: number, scaleY: number } = { width: 512, height: 128, scaleX: 1.6, scaleY: 0.4 },
-) {
-  const canvas = document.createElement('canvas')
-  canvas.width = options.width
-  canvas.height = options.height
-  const ctx = canvas.getContext('2d')!
-  draw(ctx, canvas)
-  const texture = new CanvasTexture(canvas)
-  // Text stays crisp without mipmap blur.
-  texture.minFilter = LinearFilter
-  // The canvas holds sRGB pixels. Left unmarked they are read as linear and
-  // re-encoded on output, which washes the colours out.
-  texture.colorSpace = SRGBColorSpace
-  // Names are UI, not lit geometry: keep them out of the tone
-  // curve and the fog so they read the same at noon and at midnight.
-  const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false, fog: false }))
-  sprite.scale.set(options.scaleX, options.scaleY, 1)
-  return { sprite, canvas, texture }
-}
-
-function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name: string, color: string) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  // Metrics ride the canvas height so the plate looks identical at any
-  // resolution. The stroke stays thin enough not to fatten the letterforms.
-  ctx.font = `600 ${Math.round(canvas.height * 0.34)}px Archivo, ui-sans-serif, sans-serif`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.lineWidth = Math.max(2, Math.round(canvas.height * 0.055))
-  ctx.lineJoin = 'round'
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.62)'
-  ctx.strokeText(name, canvas.width / 2, canvas.height / 2)
-  ctx.fillStyle = color
-  ctx.fillText(name, canvas.width / 2, canvas.height / 2)
-}
-
-/* Chat bubbles are DOM, not sprites: a canvas texture went through the post
- * pipeline and lost its glass, and three allocates texture storage once, so a
- * bubble whose canvas grew for a longer message kept showing the previous one.
- * Each bubble is a `.chat-bubble` element (main.css) in a layer over the canvas,
- * moved every frame to its speaker's projected position. */
-let bubbleLayer: HTMLDivElement | null = null
-const bubbleAnchor = new Vector3()
-/** Bubbles hold their size up close, shrink with distance and drop out here. */
-const BUBBLE_FULL_SIZE_DISTANCE = 9
-const BUBBLE_MIN_SCALE = 0.6
-const BUBBLE_MAX_DISTANCE = 56
-const BUBBLE_FADE_MS = 300
-
-function makeBubble(npc = false) {
-  const el = document.createElement('div')
-  el.className = 'chat-bubble'
-  if (npc) el.dataset.npc = ''
-  el.hidden = true
-  return el
-}
-
-/** Show `message` over a rig while it lasts, pinned above `bubbleBaseY`. */
-function updateBubble(rig: Pick<Rig, 'group' | 'bubble' | 'bubbleText' | 'bubbleBaseY'>, message: { text: string, until: number } | null | undefined, now: number) {
-  const el = rig.bubble
-  if (!message || message.until <= now) {
-    if (rig.bubbleText) {
-      rig.bubbleText = ''
-      el.hidden = true
-    }
-    return
-  }
-  const canvas = renderer.instance?.domElement
-  if (!canvas?.parentElement) return
-  if (!bubbleLayer) {
-    bubbleLayer = document.createElement('div')
-    bubbleLayer.className = 'chat-bubble-layer'
-    canvas.parentElement.append(bubbleLayer)
-  }
-  if (el.parentElement !== bubbleLayer) bubbleLayer.append(el)
-
-  bubbleAnchor.copy(rig.group.position)
-  bubbleAnchor.y += rig.bubbleBaseY
-  const distance = bubbleAnchor.distanceTo(camera.value.position)
-  camera.value.updateMatrixWorld()
-  bubbleAnchor.project(camera.value)
-  // NDC z leaves [-1, 1] behind the camera and past the far plane.
-  if (distance > BUBBLE_MAX_DISTANCE || Math.abs(bubbleAnchor.z) > 1) {
-    el.hidden = true
-    return
-  }
-
-  if (rig.bubbleText !== message.text) {
-    rig.bubbleText = message.text
-    el.textContent = message.text
-    // Restart the pop-in for a new line on a bubble that is already showing.
-    el.style.animation = 'none'
-    void el.offsetWidth
-    el.style.animation = ''
-  }
-  const x = (bubbleAnchor.x + 1) / 2 * canvas.clientWidth
-  const y = (1 - bubbleAnchor.y) / 2 * canvas.clientHeight
-  const scale = Math.max(BUBBLE_MIN_SCALE, Math.min(1, BUBBLE_FULL_SIZE_DISTANCE / distance))
-  el.hidden = false
-  el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${scale.toFixed(3)})`
-  el.style.opacity = String(Math.min(1, (message.until - now) / BUBBLE_FADE_MS))
-}
-
-function createRig(player: GamePlayer): Rig | null {
-  // The player's chosen character rides the server snapshot; fall back to a
-  // deterministic hash if it's somehow missing or unknown.
-  const characterName = isCharacter(player.character) ? player.character : characterFor(player.id)
-  const asset = characterAssets.get(characterName)
-  if (!asset) {
-    // The shared loader resolves only once the compatible model and clips land.
-    ensureCharacter(characterName)
-    return null
-  }
-
-  const group = new Group()
-
-  // SkeletonUtils.clone keeps the armature bindings intact across copies.
-  const model = SkeletonUtils.clone(asset.scene)
-  // The GLB faces +z; the rig's forward is +x (the group is rotated by -heading).
-  model.rotation.y = Math.PI / 2
-  model.scale.setScalar(CHARACTER_SCALE)
-  // Swap in the chosen outfit colorway (designed texture variant, not a dye).
-  // The accent color is a chat/nameplate identity only.
-  const outfitMaterials = applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
-  // The beard ships visible in the GLB, so every rig states its own answer.
-  applyBeard(model, player.beard === true)
-  // After the outfit swap: cloning a material drops its shader hooks, so the
-  // rim has to be installed on whatever materials the rig ends up with.
-  applyCharacterRim(model)
-  // Skinned meshes must keep rendering when bones move them outside their
-  // original bounds.
-  model.traverse((obj) => {
-    if (obj instanceof SkinnedMesh) obj.frustumCulled = false
-    if (obj instanceof Mesh) obj.castShadow = true
-  })
-  group.add(model)
-
-  // Float the labels just above whatever this character's scaled height is.
-  model.updateMatrixWorld(true)
-  const headHeight = new Box3().setFromObject(model).max.y
-
-  // Clip tracks bind only to the skeleton they were authored for.
-  const mixer = new AnimationMixer(model)
-  const actions: Record<string, AnimationAction> = {}
-  for (const clip of asset.clips) {
-    actions[clip.name] = mixer.clipAction(clip)
-  }
-  actions[CLIP.idle]?.play()
-
-  const name = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, player.name, player.color), NAME_SPRITE)
-  name.sprite.position.y = headHeight + NAME_GAP + NAME_SPRITE.scaleY / 2
-  group.add(name.sprite)
-
-  // The bubble's tail sits just clear of the top of the nameplate.
-  const bubbleBaseY = headHeight + NAME_GAP + NAME_SPRITE.scaleY + 0.04
-  const bubble = makeBubble()
-
-  const blob = makeBlobShadow()
-  group.add(blob)
-
-  playerGroup.add(group)
-  atmosphere.setupShadows()
-  bumpSceneVersion()
-  return {
-    dispose() {
-      mixer.stopAllAction()
-      mixer.uncacheRoot(model)
-      disposeCharacterSkeleton(model)
-      name.texture.dispose()
-      name.sprite.material.dispose()
-      bubble.remove()
-      blob.material.dispose()
-      // The outfit swap clones the cloth materials per rig; the shared texture
-      // and the template's own materials stay.
-      for (const material of outfitMaterials) material.dispose()
-    },
-    group,
-    mixer,
-    actions,
-    current: CLIP.idle,
-    wasDashing: false,
-    dashAnimUntil: 0,
-    bubble,
-    bubbleText: '',
-    bubbleBaseY,
-    blob,
-  }
-}
-
-/** Crossfade a rig to a clip (falls back to Idle if the clip is missing). */
-function setAnimation(rig: Rig, name: string, timeScale = 1) {
-  const target = rig.actions[name] ? name : CLIP.idle
-  const action = rig.actions[target]
-  if (!action) return
-  if (rig.current !== target) {
-    const previous = rig.actions[rig.current]
-    const blend = animationBlendDuration(rig.current, target)
-    previous?.fadeOut(blend)
-    const startTime = previous
-      ? locomotionTransitionTime(rig.current, target, previous.time, previous.getClip().duration, action.getClip().duration)
-      : 0
-    action.reset().fadeIn(blend).play()
-    action.time = startTime
-    rig.current = target
-  }
-  action.timeScale = timeScale
-}
 
 /** Shortest signed angular distance, so headings never spin the long way. */
 function angleDelta(to: number, from: number): number {
@@ -1102,7 +423,6 @@ watch(() => props.game.selfId.value, (id: string | null) => {
 })
 
 buildFloor()
-syncChunks(local.x, local.y)
 
 /** Longest the third-person boom extends behind the player, in tiles. */
 const MAX_BOOM = 3.6
@@ -1168,18 +488,6 @@ function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: n
   }
   return maxDist
 }
-
-// The active camera may register after setup, so configure it lazily.
-let cameraConfigured = false
-function configureCamera() {
-  if (cameraConfigured || !(camera.value instanceof PerspectiveCamera)) return
-  camera.value.fov = 62
-  camera.value.near = 0.05
-  camera.value.far = 260
-  camera.value.updateProjectionMatrix()
-  cameraConfigured = true
-}
-configureCamera()
 
 /* -------------------------------------------------------------------------- */
 /* Crosshair tools                                                            */
@@ -1280,102 +588,13 @@ let ambienceIn = 0
 const audioForward = new Vector3()
 const AUDIO_UP = new Vector3(0, 1, 0)
 
-/** Per-body sound state, keyed by player id. Kept beside the rigs rather than
- *  on them, because it is derived from the *rendered* body and a rig can be
- *  rebuilt under it. */
-interface BodySound {
-  foot: FootstepState
-  x: number
-  y: number
-  z: number
-  airborne: boolean
-  /** Fastest descent seen during this fall, for the landing's weight. */
-  fall: number
-  dashing: boolean
-  swimming: boolean
-  /** Distance since the last swimming stroke. */
-  stroke: number
-}
-const bodySounds = new Map<string, BodySound>()
-
-/** Proximity voice. The scene's only part in it is putting each peer's panner
- *  where that peer is drawn, once a frame. */
 const voice = useVoice()
-/** Roughly where a mouth is above the feet, so a voice does not come out of the
- *  ground. */
-const VOICE_MOUTH_HEIGHT = 1.6
-
-/** A fall this fast lands at full weight. Terminal velocity off a rampart. */
-const LAND_FORCE_SPEED = 9
-/** How far a swimmer travels between strokes, in tiles. */
-const STROKE_STRIDE = 1.3
-
-/**
- * Sound one rendered body: its footfalls, its jump and landing, its dash and
- * whatever it does in the water. Self plays flat so it sits in the middle of
- * the mix; everyone else is positioned at their rig and attenuated by the
- * panner, which is also what culls the far half of a busy town.
- */
-function soundBody(id: string, isSelf: boolean, x: number, y: number, z: number, dt: number, state: { airborne: boolean, dashing: boolean, sprinting: boolean, swimming: boolean }): void {
-  let body = bodySounds.get(id)
-  if (!body) {
-    body = { foot: createFootstepState(), x, y, z, airborne: state.airborne, fall: 0, dashing: state.dashing, swimming: state.swimming, stroke: 0 }
-    bodySounds.set(id, body)
-    return
-  }
-  const distance = Math.hypot(x - body.x, y - body.y)
-  const descent = dt > 0 ? (body.z - z) / dt : 0
-  const at = isSelf ? undefined : { x, y: z + 0.9, z: y }
-
-  if (state.airborne) body.fall = Math.max(body.fall, descent)
-  if (!body.airborne && state.airborne) play('jump', { gain: isSelf ? 0.7 : 0.55, position: at })
-  else if (body.airborne && !state.airborne) {
-    const force = Math.min(1, body.fall / LAND_FORCE_SPEED)
-    // A hop off a kerb is not a landing. Anything with real drop behind it is.
-    if (force > 0.12) play('land', { gain: isSelf ? 0.8 : 0.6, force, position: at })
-    body.fall = 0
-  }
-
-  if (!body.dashing && state.dashing) play('dash', { gain: isSelf ? 0.7 : 0.5, position: at })
-
-  if (!body.swimming && state.swimming) {
-    play('splash', { gain: isSelf ? 0.9 : 0.7, force: Math.min(1, 0.4 + body.fall / LAND_FORCE_SPEED), position: at })
-    body.stroke = 0
-  }
-  if (state.swimming) {
-    body.stroke += distance
-    if (body.stroke >= STROKE_STRIDE) {
-      body.stroke = 0
-      play('swim', { gain: isSelf ? 0.7 : 0.5, position: at })
-    }
-  }
-  else if (stepFootsteps(body.foot, { distance, dt, grounded: !state.airborne, swimming: false, sprinting: state.sprinting })) {
-    play('footstep', {
-      gain: isSelf ? 0.6 : 0.45,
-      surface: footSurfaceAt(hubWorld, x, y),
-      position: at,
-    })
-  }
-
-  body.x = x
-  body.y = y
-  body.z = z
-  body.airborne = state.airborne
-  body.dashing = state.dashing
-  body.swimming = state.swimming
-}
 
 // Arming a hotbar slot ticks once. The hotbar itself is `game-ui`'s, but the
 // sound belongs with the rest of the mix.
 if (!props.editor) {
   watch(() => build.active.value?.id, (id) => {
     if (id) play('arm')
-  })
-  // The Oracle's own voice: one soft chord as a line appears, not per word.
-  watch(() => oracle.speech.value?.until, (until) => {
-    if (!until) return
-    const at = oraclePos()
-    play('oracle', { gain: 0.8, position: { x: at.x, y: 2.2, z: at.y } })
   })
 }
 
@@ -1403,124 +622,10 @@ const RECONCILE_RATE = 8
  *  move via along-track catch-up; the server stays authoritative regardless. */
 const RECONCILE_IDLE_FREEZE = 0.4
 
-/* -------------------------------------------------------------------------- */
-/* Hub Oracle: the ancient seer by the arena wall. Unlike the player           */
-/* characters (shared universal skeleton + shared clips), this monster carries */
-/* its own rig and animation clips inside its GLB, so it gets its own mixer.   */
-/* -------------------------------------------------------------------------- */
-
-let oracleTemplate: Group | null = null
-let oracleClips: AnimationClip[] = []
-let oracleLoading = false
-let oracleRetryAt = 0
-
-function ensureOracle() {
-  if (oracleTemplate || oracleLoading || Date.now() < oracleRetryAt) return
-  oracleLoading = true
-  assets.track(gltfLoader.loadAsync('/models/monsters/MushroomKing.glb')).then((gltf) => {
-    // A load that lands after disposal has missed its scene, and `disposeScene`
-    // has already released what it knew about, so this one is ours to free.
-    if (sceneDisposed) {
-      releaseTemplates([gltf.scene])
-      return
-    }
-    oracleTemplate = gltf.scene
-    oracleClips = gltf.animations
-  }).catch((error) => {
-    // The render loop asks every frame until the template lands, so a failure
-    // has to back off rather than latch: without this the flag stayed raised
-    // and the Oracle was gone for the session, silently.
-    oracleRetryAt = Date.now() + 10000
-    console.error('Oracle model could not load', error)
-  }).finally(() => { oracleLoading = false })
-}
-
-/** Scaled height — taller than the ~1.3-unit players, so the Oracle looms. */
-const ORACLE_HEIGHT = 2.2
-
-function createOracleRig(): OracleRig | null {
-  if (!oracleTemplate) {
-    ensureOracle()
-    return null
-  }
-  const group = new Group()
-
-  const model = SkeletonUtils.clone(oracleTemplate)
-  // The source model isn't in game units; normalize it to a fixed height and
-  // sit its lowest point on the ground regardless of the pivot.
-  model.updateMatrixWorld(true)
-  const raw = new Box3().setFromObject(model)
-  const scale = ORACLE_HEIGHT / Math.max(0.001, raw.max.y - raw.min.y)
-  model.scale.setScalar(scale)
-  model.traverse((obj) => {
-    if (obj instanceof SkinnedMesh) obj.frustumCulled = false
-    if (obj instanceof Mesh) obj.castShadow = true
-  })
-  applyCharacterRim(model)
-  group.add(model)
-  const op = oraclePos()
-  group.position.set(op.x, -raw.min.y * scale, op.y)
-  group.rotation.y = op.rot
-
-  const mixer = new AnimationMixer(model)
-  const idle = oracleClips.find(clip => clip.name === 'Idle') ?? oracleClips[0]
-  if (idle) mixer.clipAction(idle).play()
-
-  // A floating name and a cool arcane glow so it reads as the Oracle.
-  const label = makeTextSprite((ctx, canvas) => drawName(ctx, canvas, 'The Oracle', '#bfe6ff'), NAME_SPRITE)
-  label.sprite.position.set(0, ORACLE_HEIGHT + NAME_GAP + NAME_SPRITE.scaleY / 2, 0)
-  group.add(label.sprite)
-  const glow = new PointLight('#7fd0ff', 5, 7, 1.6)
-  glow.position.set(0, ORACLE_HEIGHT * 0.6, 0)
-  group.add(glow)
-
-  // Speech bubble (hidden until the Oracle speaks in chat), like the players'.
-  const bubbleBaseY = ORACLE_HEIGHT + NAME_GAP + NAME_SPRITE.scaleY + 0.04
-  const bubble = makeBubble(true)
-
-  floorGroup.add(group)
-  atmosphere.setupShadows()
-  bumpSceneVersion()
-  return {
-    dispose() {
-      mixer.stopAllAction()
-      mixer.uncacheRoot(model)
-      // Geometry and materials belong to the shared template; only this clone's
-      // bone texture, its labels and its light are ours to release.
-      disposeCharacterSkeleton(model)
-      label.texture.dispose()
-      label.sprite.material.dispose()
-      bubble.remove()
-      glow.dispose()
-    },
-    group, mixer, bubble, bubbleText: '', bubbleBaseY,
-  }
-}
-
-/**
- * Take the local character out of the shot when the camera closes on it.
- *
- * Aiming at your own feet swings the boom in over your head, and your own back
- * is then the only thing under the crosshair. Hidden outright rather than faded:
- * `appearance.ts` clones only the *cloth* materials per rig, so the skin, hair
- * and boots are still the cached template's — turning those transparent would
- * fade every character wearing that model, the other players included.
- *
- * The ray never needed this. Players are not placements, so `propsNear` has
- * never returned one and the pick has always looked straight through them; this
- * is only so the tile is visible.
- */
-function hideSelfWhenClose(group: Object3D, distance: number) {
-  const visible = distance > SELF_FADE_DISTANCE
-  if (group.visible !== visible) group.visible = visible
-}
-
 onBeforeRender(({ delta }) => {
   if (sceneDisposed) return
-  configureCamera()
-  // Stream the world around the predicted self. Phase 3 replaces this with the
-  // server's loaded set; the hooks it calls are the same four.
-  syncChunks(local.x, local.y)
+  if (graphicsDirty) applyGraphics()
+  worldChunks.value?.sync(local.x, local.y)
   const dt = Math.min(delta, 0.1)
   const now = Date.now()
   const serverNow = props.game.serverNow()
@@ -1685,7 +790,7 @@ onBeforeRender(({ delta }) => {
       pivotY - 1.2 * sinP,
       headZ + Math.sin(yaw) * 1.2 * cosP + Math.cos(yaw) * lookSide,
     )
-    torchLight.position.set(headX, local.z + 1.7, headZ)
+    torchLight.value?.position.set(headX, local.z + 1.7, headZ)
   }
 
   // The ears go where the camera went, after it moved: a frame-old transform
@@ -1747,121 +852,11 @@ onBeforeRender(({ delta }) => {
     }
   }
 
-  // Reconcile player rigs with the roster.
-  for (const [id, rig] of rigs) {
-    if (!props.game.players.has(id)) {
-      playerGroup.remove(rig.group)
-      rig.dispose()
-      rigs.delete(id)
-      bodySounds.delete(id)
-      bumpSceneVersion()
-    }
-  }
-  for (const [id, player] of props.game.players) {
-    let rig = rigs.get(id)
-    if (!rig) {
-      const created = createRig(player)
-      if (!created) continue
-      rig = created
-      rigs.set(id, rig)
-    }
-
-    const isSelf = id === selfId
-    let moving = false
-    let airborne = false
-    let dashing = false
-    let sprinting = false
-    if (isSelf) {
-      // Your own rig follows the *predicted* body; it faces its travel
-      // direction, not the free-orbit camera (which mouse-look drives).
-      player.rx = local.x
-      player.ry = local.y
-      player.rz = local.z
-      player.ra = local.facing
-      moving = props.held.forward || props.held.back || props.held.left || props.held.right
-      airborne = !local.grounded
-      dashing = selfDashing
-      sprinting = props.held.sprint
-      hideSelfWhenClose(rig.group, Math.hypot(camX - local.x, camZ - local.y, camY - (local.z + PIVOT_HEIGHT)))
-    }
-    else {
-      // The lag vector (authoritative minus rendered) points where they're
-      // headed, so we face travel direction — matching self, and never
-      // snapping to a peer's free-orbit camera yaw.
-      const toX = player.x - player.rx
-      const toY = player.y - player.ry
-      const distance = Math.hypot(toX, toY)
-      if (distance > 5) {
-        player.rx = player.x
-        player.ry = player.y
-        player.rz = player.z
-        player.ra = player.angle
-      }
-      else {
-        const ease = 1 - Math.exp(-dt * 12)
-        player.rx += toX * ease
-        player.ry += toY * ease
-        player.rz += (player.z - player.rz) * Math.min(1, dt * 16)
-        // Hold the last heading while stationary (tiny corrections don't count).
-        if (distance > 0.04) player.ra += angleDelta(Math.atan2(toY, toX), player.ra) * ease
-      }
-      moving = distance > 0.05
-      // World elevation includes stairs and ramparts. Only height above the
-      // authoritative support surface means airborne; rendered height lags on steps.
-      airborne = player.z > bodySurfaceHeight(hubWorld, player.x, player.y, player.z) + 0.12
-      // The server can omit a stationary final snapshot. Once interpolation
-      // settles, release its dash edge so the next burst can start normally.
-      dashing = player.dashing === true && moving
-      sprinting = player.sprinting === true
-    }
-
-    rig.group.position.set(player.rx, player.rz, player.ry)
-    rig.group.rotation.y = -player.ra
-
-    // Contact shadow: pin the decal to the support surface under the rendered
-    // feet, then spread and fade it as the character rises off it.
-    const groundY = bodySurfaceHeight(hubWorld, player.rx, player.ry, player.rz)
-    const groundGap = Math.max(0, player.rz - groundY)
-    const blobFade = Math.max(0, 1 - groundGap / 1.6)
-    rig.blob.visible = blobFade > 0.02
-    if (rig.blob.visible) {
-      rig.blob.position.y = groundY - player.rz + 0.02
-      rig.blob.material.opacity = BLOB_OPACITY * blobFade
-      const spread = BLOB_RADIUS * 2 * (1 + groundGap * 0.3)
-      rig.blob.scale.set(spread, 1, spread)
-    }
-
-    // The sprint follows the actual burst, with a fast blend that becomes
-    // visible before movement ends. A stale remote dash flag cannot relatch it.
-    const dashAnimating = updateDashAnimation(rig, dashing, now)
-    const swimming = getSwimmingContact(hubWorld, isSelf ? local : { x: player.x, y: player.y, z: player.z })
-    if (swimming) setAnimation(rig, moving ? CLIP.swim : CLIP.tread)
-    else if (dashAnimating) setAnimation(rig, CLIP.dash)
-    else if (airborne) setAnimation(rig, CLIP.jump, 1.1)
-    else if (moving && sprinting) setAnimation(rig, CLIP.sprint)
-    else if (moving) setAnimation(rig, CLIP.run, 1.15)
-    else setAnimation(rig, CLIP.idle)
-    rig.mixer.update(dt)
-
-    // The same states the clips are picked from drive the sound, so a footfall
-    // and the leg that made it can never disagree.
-    if (ambience) {
-      soundBody(id, isSelf, player.rx, player.ry, player.rz, dt, {
-        airborne,
-        dashing: dashAnimating,
-        sprinting,
-        swimming: swimming != null,
-      })
-    }
-
-    // A voice comes out of a mouth, so the panner follows the *rendered* rig at
-    // head height rather than the authoritative position — the same body you can
-    // see is the one you hear. A player nobody is paired with has no sink and
-    // this is a map miss.
-    if (!isSelf) voice.positionPeer(id, { x: player.rx, y: player.rz + VOICE_MOUTH_HEIGHT, z: player.ry })
-
-    updateBubble(rig, player.bubble, now)
-  }
+  players.value?.update({
+    dt, now, selfId, local, held: props.held, selfDashing,
+    selfVisible: Math.hypot(camX - local.x, camZ - local.y, camY - (local.z + PIVOT_HEIGHT)) > SELF_FADE_DISTANCE,
+    audioEnabled: ambience !== null,
+  })
 
   waterActors.length = props.game.players.size
   let waterActorIndex = 0
@@ -1880,7 +875,10 @@ onBeforeRender(({ delta }) => {
   critters?.update(dt, now, waterActors, camera.value?.position, rimSky.dayness)
   // Distant patches draw only the tufts that can still be standing there.
   const eye = camera.value?.position
-  if (eye) for (const entry of mounted.values()) if (entry.grass) updateGrassLod(entry.grass, eye.x, eye.z)
+  if (eye) {
+    worldChunks.value?.updateGrass(eye.x, eye.z)
+    courtyard.value?.updateGrass(eye.x, eye.z)
+  }
   // Shader clocks are `uniform float`: at epoch scale (~1.79e9) a float32's ULP
   // is 128 s, so wind and ripples would sit perfectly still. Wrap what reaches
   // a uniform; the fountain keeps absolute seconds because its particle sim
@@ -1888,35 +886,7 @@ onBeforeRender(({ delta }) => {
   const worldSeconds = serverNow / 1000
   const shaderSeconds = worldSeconds % SHADER_CLOCK_WRAP
   foliageTime.value = shaderSeconds
-  courtyard?.update(worldSeconds, shaderSeconds, waterActors)
-
-  // Hub Oracle: spawn it once its model lands, run its idle animation, float a
-  // bubble when it speaks in chat, and track proximity (drives the HUD hint).
-  oracleRig ??= createOracleRig()
-  const op = oraclePos()
-  if (oracleRig) {
-    oracleRig.mixer.update(dt)
-    // Follow the authored pose (live while dragging/rotating in the editor;
-    // constant in play).
-    oracleRig.group.position.x = op.x
-    oracleRig.group.position.z = op.y
-    const speech = oracle.speech.value
-    // Turn to face whoever it is answering while the line is up, then ease back
-    // to the authored pose. The editor keeps the pose exact so rotating is live.
-    let yaw = op.rot
-    if (speech?.to && speech.until > now && !props.editor) {
-      // Out of `state` range there is nobody to look at: hold the authored pose.
-      const other = speech.to === selfId ? undefined : props.game.players.get(speech.to)
-      const tx = (other ? other.rx : local.x) - op.x
-      const ty = (other ? other.ry : local.y) - op.y
-      if ((other || speech.to === selfId) && Math.hypot(tx, ty) > 0.5) yaw = Math.atan2(tx, ty)
-    }
-    oracleRig.group.rotation.y = props.editor
-      ? yaw
-      : oracleRig.group.rotation.y + angleDelta(yaw, oracleRig.group.rotation.y) * Math.min(1, dt * ORACLE_TURN_RATE)
-    updateBubble(oracleRig, speech, now)
-  }
-  oracle.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < ORACLE_NEAR : false
+  courtyard.value?.update(worldSeconds, shaderSeconds, waterActors)
 })
 
 // Remove everything we added to the shared scene (also keeps HMR honest —
@@ -1937,7 +907,7 @@ if (import.meta.dev) {
       canvas,
       getTemplate: kind => propTemplates.get(kind),
       // The rig is (re)built lazily by the render loop, so hand over a getter.
-      getOracle: () => oracleRig?.group,
+      getOracle: () => oracleCharacter.value?.getGroup(),
       editor: ed,
       getSize: () => ed!.current.value.size,
     })
@@ -1956,40 +926,27 @@ if (import.meta.dev) {
 function disposeScene() {
   if (sceneDisposed) return
   sceneDisposed = true
-  resetFps()
-  pipeline?.dispose()
-  for (const rig of rigs.values()) rig.dispose()
-  rigs.clear()
+  postProcessing.value?.dispose()
+  players.value?.dispose()
   clearFloor()
-  clearChunks()
-  for (const off of unsubscribe) off()
-  unsubscribe.length = 0
+  worldChunks.value?.dispose()
+  oracleCharacter.value?.dispose()
   if (townRebuild) clearTimeout(townRebuild)
   buildTools?.dispose()
   critters?.dispose()
-  chunkProps.dispose()
-  grassBank.dispose()
-  pavingBank.dispose()
-  terrainMaterial.dispose()
   editorCtl?.dispose()
   editorCtl = null
-  blobGeometry.dispose()
-  blobTexture?.dispose()
-  blobTexture = null
-  releaseTemplates([...propTemplates.values(), ...retiredTemplates, ...(oracleTemplate ? [oracleTemplate] : [])])
-  oracleTemplate = null
+  releaseTemplates([...propTemplates.values(), ...retiredTemplates])
+  templateResources.dispose()
   propTemplates.clear()
   townMaterials.dispose()
   retiredTemplates.length = 0
   atmosphere.dispose()
   ambience?.dispose()
-  bodySounds.clear()
   // Leaving the arena takes the context with it. The next entry unlocks a fresh
   // one on its own first gesture.
   closeAudio()
-  bubbleLayer?.remove()
-  bubbleLayer = null
-  scene.value.remove(torchLight, floorGroup, playerGroup)
+  floorGroup.clear()
 }
 onMounted(() => emit('ready', disposeScene))
 onBeforeUnmount(disposeScene)
@@ -2007,5 +964,57 @@ if (import.meta.dev) {
 </script>
 
 <template>
-  <TresGroup />
+  <PostProcessing
+    ref="postProcessing"
+    :quality="graphics.profile.value"
+  />
+  <TresPerspectiveCamera
+    :fov="62"
+    :near="0.05"
+    :far="260"
+  />
+  <TresPointLight
+    ref="torchLight"
+    name="Player_Torch"
+    color="#ffc98a"
+    :intensity="0.6"
+    :distance="7"
+    :decay="1.7"
+  />
+  <WorldChunks
+    ref="worldChunks"
+    :world="hubWorld"
+    :templates="propTemplates"
+    :materials="townMaterials"
+    :foliage-time="foliageTime"
+    :quality="graphics.profile.value"
+    :critters="critters"
+    :editor="editor"
+    @change="sceneChanged"
+    @town-change="scheduleTownRebuild"
+  />
+  <primitive
+    :object="floorGroup"
+    :dispose="null"
+  />
+  <primitive
+    v-if="courtyard"
+    :object="courtyard.group"
+    :dispose="null"
+  />
+  <Players
+    ref="players"
+    :game="game"
+    :world="hubWorld"
+    @change="sceneChanged"
+  />
+  <OracleCharacter
+    ref="oracleCharacter"
+    :game="game"
+    :local="local"
+    :editor="editor"
+    :get-pose="oraclePos"
+    @ready="sceneChanged"
+    @removed="sceneChanged"
+  />
 </template>

@@ -1,12 +1,17 @@
 import { Mesh, MeshStandardMaterial } from 'three'
 import type { Object3D } from 'three'
 import { createMaterialTextures } from './materialTextures'
+import { applyFoliage } from './foliage'
 
 type Surface = 'stone' | 'plaster' | 'timber' | 'terracotta' | 'earth'
 
 /** One texture bank per mounted world. World projection also covers GLBs without UVs. */
 export function createTownMaterials() {
   const textures = createMaterialTextures()
+  // One owner for variants borrowed by chunks and authored gardens. A foliage
+  // clock is part of the identity: independent worlds must not animate each other.
+  const batches = new Map<MeshStandardMaterial, Map<object, MeshStandardMaterial>>()
+  let disposed = false
   function apply(material: MeshStandardMaterial, family: Surface, scale = 0.8, strength = 0.4, paving = false) {
     // The marker is both the idempotence guard and the recipe: `Material.clone`
     // copies `userData` but drops the hooks, so a clone can be re-decorated
@@ -95,6 +100,28 @@ export function createTownMaterials() {
     delete material.userData.townMaterial
     return apply(material, spec.family, spec.scale, spec.strength, spec.paving)
   }
+  function batch(source: MeshStandardMaterial, time: { value: number }): MeshStandardMaterial {
+    if (disposed) throw new Error('Cannot acquire batch materials from a disposed world')
+    const clock = source.alphaTest > 0 ? time : textures
+    let variants = batches.get(source)
+    const existing = variants?.get(clock)
+    if (existing) return existing
+    const material = source.clone()
+    // clone() copies markers/defines, but not the shader hooks they describe.
+    // CSM hooks capture the original material, so reinstall ours on the clone.
+    delete material.userData.foliageShader
+    delete material.userData.characterRim
+    if (material.defines) {
+      delete material.defines.USE_CSM
+      delete material.defines.CSM_CASCADES
+      delete material.defines.CSM_FADE
+    }
+    reapply(material)
+    if (material.alphaTest > 0) applyFoliage(material, time)
+    if (!variants) batches.set(source, variants = new Map())
+    variants.set(clock, material)
+    return material
+  }
   function decorate(root: Object3D) {
     const visited = new Set<MeshStandardMaterial>()
     root.traverse((object) => {
@@ -114,8 +141,12 @@ export function createTownMaterials() {
     })
   }
   return {
-    apply, reapply, decorate,
+    apply, reapply, decorate, batch,
     dispose() {
+      if (disposed) return
+      disposed = true
+      for (const variants of batches.values()) for (const material of variants.values()) material.dispose()
+      batches.clear()
       for (const maps of Object.values(textures)) {
         maps.map.dispose()
         maps.normalMap.dispose()

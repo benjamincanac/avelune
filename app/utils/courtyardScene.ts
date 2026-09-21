@@ -10,14 +10,14 @@ import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } fro
 import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/props'
 import type { TownMaterials } from './townMaterials'
-import { createGrassBank } from './courtyardLandscape'
+import { createGrassBank, updateGrassLod } from './courtyardLandscape'
 import type { GrassBlade } from './courtyardLandscape'
-import { applyFoliage } from './foliage'
 import { createFountainWater } from './fountainWater'
 import { createCityMoat } from './cityMoat'
 import { createFortifiedGate } from './fortifications'
 import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
+import { createPavingGeometry } from './pavingGeometry'
 
 /**
  * The pale flagstone the gate is paved with. Exported because the
@@ -33,7 +33,7 @@ export function createPaleStone(materials: TownMaterials, map: Texture): MeshSta
 
 /** Ground and distant scenery. All walkable elevations stay at ground level;
  * buildings, furniture and tree trunks are authored props in the shared plan. */
-export function createCourtyardScene(placements: readonly HubPropPlacement[], templates: ReadonlyMap<string, Group>, materials: TownMaterials) {
+export function createCourtyardScene(placements: readonly HubPropPlacement[], templates: ReadonlyMap<string, Group>, materials: TownMaterials, foliageClock = { value: 0 }) {
   const group = new Group()
   const rng = createRng(1709)
   const dummy = new Object3D()
@@ -42,6 +42,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   group.add(moat.group)
   const plazaMap = makePlazaSurface()
   const stone = new MeshStandardMaterial({ color: '#b8c4c7', map: stoneMap, roughness: 0.95 })
+  stone.name = 'Courtyard stone'
   const paleStone = createPaleStone(materials, stoneMap)
   materials.apply(stone, 'stone', 1.2, 0.55)
   group.add(createFortifiedGate(stone, paleStone))
@@ -96,7 +97,8 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       stones.push({ x, z, shade: rng(), road, edge })
     }
   }
-  const paving = new InstancedMesh(new RoundedBoxGeometry(0.983, 0.045, 0.983, 2, 0.014), stone, stones.length)
+  const paving = new InstancedMesh(createPavingGeometry(), stone, stones.length)
+  paving.name = 'Courtyard paving stones'
   stones.forEach((s, i) => {
     dummy.position.set(s.x, -0.015, s.z)
     dummy.rotation.set(0, (rng() - 0.5) * 0.008, 0)
@@ -174,14 +176,12 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   // world generator will not seed is the town's own beds, because the protected
   // chunks carry no generated vegetation. They are dressed here, with the same
   // grass bank the chunks use.
-  const foliageClock = { value: 0 }
   const grassBank = createGrassBank(foliageClock)
   // Borrowed geometry and materials (the bank's blades, the kit's leaf cards)
   // live in their own group: the generic dispose below walks `group` and frees
   // everything it finds, which must never reach a shared template.
   const planting = new Group()
   group.add(planting)
-  const ownedMaterials: MeshStandardMaterial[] = []
   const blades: GrassBlade[] = []
   const planted = new Map<string, { x: number, z: number, y: number, size: number, angle: number }[]>()
   const plant = (name: string, x: number, z: number, y: number, size: number) => {
@@ -219,17 +219,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     plantSource.makeTranslation(-(bounds.min.x + bounds.max.x) / 2, -bounds.min.y, -(bounds.min.z + bounds.max.z) / 2)
     template.traverse((child) => {
       if (!(child instanceof Mesh) || Array.isArray(child.material)) return
-      let material = child.material as MeshStandardMaterial
-      if (material.alphaTest > 0) {
-        material = material.clone()
-        // Cloning copies `userData` but not the hooks it marks, so the guards
-        // would report shaders this clone does not carry.
-        delete material.userData.foliageShader
-        delete material.userData.characterRim
-        materials.reapply(material)
-        applyFoliage(material, foliageClock)
-        ownedMaterials.push(material)
-      }
+      const material = materials.batch(child.material as MeshStandardMaterial, foliageClock)
       const batch = new InstancedMesh(child.geometry, material, list.length)
       const source = new Matrix4().multiplyMatrices(plantSource, child.matrixWorld)
       list.forEach((p, i) => {
@@ -376,8 +366,12 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     // Scaling time with height keeps gravity constant in world units.
     return { effect, timeScale: 1 / Math.sqrt(verticalScale), actors: [] as FountainInteractor[] }
   })
+  let disposed = false
   return {
     group,
+    updateGrass(cameraX: number, cameraZ: number) {
+      if (gardenGrass) updateGrassLod(gardenGrass, cameraX, cameraZ)
+    },
     /**
      * `time` is absolute server seconds, `shaderTime` the same clock wrapped to
      * stay inside float32's useful range. Anything that reaches a `uniform
@@ -407,6 +401,11 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       }
     },
     dispose() {
+      if (disposed) return
+      disposed = true
+      // Vue detaches/replaces the root on its next patch. Retire it immediately
+      // so that no render can reuse its disposed resources in the meantime.
+      group.visible = false
       for (const { effect } of fountains) {
         group.remove(effect.group)
         effect.dispose()
@@ -419,7 +418,6 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       })
       planting.clear()
       grassBank.dispose()
-      for (const material of ownedMaterials) material.dispose()
       stoneMap.dispose()
       plazaMap.dispose()
       const geometries = new Set<BufferGeometry>()
@@ -432,6 +430,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       })
       for (const geometry of geometries) geometry.dispose()
       for (const material of materials) material.dispose()
+      group.clear()
     },
   }
 }
