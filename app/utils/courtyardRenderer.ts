@@ -7,7 +7,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { measureRanged, withinReach } from './ranged'
+import { RANGE_SLACK, measureRanged, withinReach } from './ranged'
 import type { Ranged } from './ranged'
 
 /** A soft corner falloff, applied after tone mapping so it darkens the graded
@@ -102,7 +102,7 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
     // the kind of per-frame work this pipeline cannot afford.
     const excluded: Object3D[] = []
     // Leaf meshes only, so hiding one never takes a subtree with it.
-    const ranged: Ranged[] = []
+    const ranged: (Ranged & { out: boolean })[] = []
     const eye = new Vector3()
     let excludedVersion = -1
     const isExcluded = (object: Object3D) => object instanceof Sprite
@@ -119,7 +119,7 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
           if (isExcluded(object)) excluded.push(object)
           else if ((object as Mesh).isMesh && object.children.length === 0) {
             const entry = measureRanged(object)
-            if (entry) ranged.push(entry)
+            if (entry) ranged.push({ ...entry, out: false })
           }
         })
       }
@@ -128,9 +128,15 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
         hiddenObjects.push(object)
         object.visible = false
       }
-      eye.setFromMatrixPosition(occlusion.camera.matrixWorld)
+      // Ranged from the player, which `courtyardSky` publishes, so orbiting the
+      // boom round a player who is standing still changes nothing. The lens is
+      // only the fallback for a scene with no sky.
+      const focus = scene.userData.rangeFocus instanceof Vector3
+        ? scene.userData.rangeFocus
+        : eye.setFromMatrixPosition(occlusion.camera.matrixWorld)
       for (const entry of ranged) {
-        if (!entry.object.visible || withinReach(entry, eye, OCCLUSION_SPANS, OCCLUSION_FLOOR)) continue
+        entry.out = !withinReach(entry, focus, OCCLUSION_SPANS, OCCLUSION_FLOOR, entry.out ? 1 : RANGE_SLACK)
+        if (!entry.out || !entry.object.visible) continue
         hiddenObjects.push(entry.object)
         entry.object.visible = false
       }

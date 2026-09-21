@@ -306,7 +306,10 @@ export function createCourtyardSky(scene: Scene) {
   // caster is worth depends on how far the eye is from it, and the far cascade
   // covers the whole town.
   const casterRange = createCasterRange(scene)
-  const eye = new Vector3()
+  // Published for the occlusion pass, which ranges its meshes from the same
+  // point: `courtyardRenderer` has no other view of where the player is.
+  const focus = new Vector3()
+  scene.userData.rangeFocus = focus
   // Warm pools on the plaza lamps, so night is lit rather than merely blue.
   const lanterns = PLAZA_LANTERNS.map(([x, z]) => {
     const light = new PointLight('#ffbe72', 0, 13, 1.9)
@@ -472,7 +475,9 @@ export function createCourtyardSky(scene: Scene) {
         : 0.62
       sunColor.set(state.sunHeight < 0 ? '#93b0ff' : daylight < 0.3 ? '#ffb877' : '#fff0cb')
       if (camera instanceof PerspectiveCamera) {
-        casterRange.update(eye.setFromMatrixPosition(camera.matrixWorld))
+        // The player, at the lens's height: good to a couple of units, which is
+        // nothing against a twenty unit floor.
+        casterRange.update(focus.set(x, camera.position.y, z))
         shadows.update(camera, lightDirection, sunColor, intensity, delta)
       }
       hemi.intensity = 0.2 + state.dayness * 0.4 + glow * 0.9
@@ -514,6 +519,7 @@ export function createCourtyardSky(scene: Scene) {
     dispose() {
       scene.remove(dome, ambient, hemi, rain, ...lanterns)
       casterRange.dispose()
+      delete scene.userData.rangeFocus
       shadows.dispose()
       geometry.dispose()
       material.dispose()

@@ -1,7 +1,7 @@
 import { MeshStandardMaterial, Vector3 } from 'three'
 import type { Color, Material, Object3D, PerspectiveCamera, Scene } from 'three'
 import { CSM } from 'three/addons/csm/CSM.js'
-import { measureRanged, withinReach } from './ranged'
+import { RANGE_SLACK, measureRanged, withinReach } from './ranged'
 import type { Ranged } from './ranged'
 
 /** Two splits retain a sharp near field and a shadowed horizon while avoiding
@@ -249,15 +249,16 @@ export function createCasterRange(scene: Scene) {
   }
 
   return {
-    /** Call once a frame, before the shadow maps are drawn. */
-    update(eye: Vector3) {
+    /** Call once a frame, before the shadow maps are drawn. `focus` is the
+     *  player rather than the lens, see `withinReach`. */
+    update(focus: Vector3) {
       const current = typeof scene.userData.version === 'number' ? scene.userData.version : 0
       if (current !== version) {
         version = current
         rescan()
       }
       for (const caster of casters) {
-        const within = withinReach(caster, eye, CASTER_SPANS, CASTER_FLOOR)
+        const within = withinReach(caster, focus, CASTER_SPANS, CASTER_FLOOR, caster.culled ? 1 : RANGE_SLACK)
         if (within === !caster.culled) continue
         // Out of range but already off: someone else's doing, and not ours to
         // undo when it comes back into range.

@@ -166,8 +166,15 @@ test('a caster stops casting out of range and only undoes its own work', () => {
   assert.equal(keep.castShadow, true)
   assert.equal(silent.castShadow, false)
 
-  range.update(eye.set(0, 0, 5))
+  // Coming back, it stays off until it is properly inside; going out again, it
+  // stays on a little past the line, so pacing on the boundary flicks nothing.
+  range.update(eye.set(0, 0, 21))
+  assert.equal(crate.castShadow, false)
+  range.update(eye.set(0, 0, 19))
   assert.equal(crate.castShadow, true)
+  range.update(eye.set(0, 0, 21))
+  assert.equal(crate.castShadow, true)
+  range.update(eye.set(0, 0, 5))
   // Never cast, so it is never given a shadow.
   assert.equal(silent.castShadow, false)
 

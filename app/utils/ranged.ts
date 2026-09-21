@@ -37,13 +37,23 @@ export function measureRanged(object: Object3D): Ranged | null {
   return { object, radius: sphere.radius * scale, cx: sphere.center.x, cy: sphere.center.y, cz: sphere.center.z }
 }
 
-/** Whether the eye is within `spans` times the object's radius of it, with a
- *  floor under that so nothing near the player is ever out of reach. */
-export function withinReach(entry: Ranged, eye: Vector3, spans: number, floor: number): boolean {
+/**
+ * Whether `focus` is within `spans` times the object's radius of it, with a
+ * floor under that so nothing near the player is ever out of reach.
+ *
+ * `focus` is the player, not the camera. The boom orbits a player who is
+ * standing still, and measured from the lens every mesh near the edge of its
+ * range would come and go as the view swung round. `RANGE_SLACK` is for the
+ * caller to pass once something is in range, so that a player pacing on the
+ * boundary does not flick it either.
+ */
+export const RANGE_SLACK = 1.15
+
+export function withinReach(entry: Ranged, focus: Vector3, spans: number, floor: number, slack = 1): boolean {
   const e = entry.object.matrixWorld.elements
-  const x = e[0]! * entry.cx + e[4]! * entry.cy + e[8]! * entry.cz + e[12]! - eye.x
-  const y = e[1]! * entry.cx + e[5]! * entry.cy + e[9]! * entry.cz + e[13]! - eye.y
-  const z = e[2]! * entry.cx + e[6]! * entry.cy + e[10]! * entry.cz + e[14]! - eye.z
-  const reach = Math.max(floor, entry.radius * spans)
+  const x = e[0]! * entry.cx + e[4]! * entry.cy + e[8]! * entry.cz + e[12]! - focus.x
+  const y = e[1]! * entry.cx + e[5]! * entry.cy + e[9]! * entry.cz + e[13]! - focus.y
+  const z = e[2]! * entry.cx + e[6]! * entry.cy + e[10]! * entry.cz + e[14]! - focus.z
+  const reach = Math.max(floor, entry.radius * spans) * slack
   return x * x + y * y + z * z <= reach * reach
 }
