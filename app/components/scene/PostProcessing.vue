@@ -30,7 +30,11 @@ render((notify) => {
   const gl = renderer.instance
   const active = camera.activeCamera.value
   if (!(gl instanceof WebGLRenderer) || !active) return
-  pipeline ??= createCourtyardRenderer(gl, scene.value, active, props.quality)
+  if (!pipeline) {
+    pipeline = createCourtyardRenderer(gl, scene.value, active, props.quality)
+    // Read by the run-mmo driver: a resolution or shadow change must not move it.
+    if (import.meta.dev) scene.value.userData.pipelineBuilds = (scene.value.userData.pipelineBuilds ?? 0) + 1
+  }
   pipeline.render(active)
   diagnostics?.end()
   tickFps()

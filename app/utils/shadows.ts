@@ -212,7 +212,7 @@ export type CascadedShadows = ReturnType<typeof createCascadedShadows>
  * town whole, so every crate and rail in it is drawn for a smudge.
  *
  * Nothing is ever *given* a shadow here. The list is built from what
- * `tagShadows` already turned on, so the batches that deliberately cast nothing
+ * `tagSceneShadows` already turned on, so the batches that deliberately cast nothing
  * (the distant treeline, the meadow grass) stay off.
  */
 const CASTER_SPANS = 30
@@ -225,18 +225,26 @@ const CASTER_FLOOR = 20
  * exclusion list uses — because that is when chunks mount their props and rigs
  * come and go. Casters this has switched off are switched back on before a
  * rescan, or the rebuild would read them as having never cast.
+ *
+ * It only ever undoes its own work: a caster is switched back on because this
+ * switched it off, never because it is in range. Anything else that clears
+ * `castShadow` on a listed mesh keeps the last word.
  */
 export function createCasterRange(scene: Scene) {
-  let casters: Ranged[] = []
+  let casters: (Ranged & { culled: boolean })[] = []
   let version = Number.NaN
 
-  function rescan() {
-    for (const caster of casters) caster.object.castShadow = true
+  function restore() {
+    for (const caster of casters) if (caster.culled) caster.object.castShadow = true
     casters = []
+  }
+
+  function rescan() {
+    restore()
     scene.traverse((object) => {
       if (!object.castShadow) return
       const entry = measureRanged(object)
-      if (entry) casters.push(entry)
+      if (entry) casters.push({ ...entry, culled: false })
     })
   }
 
@@ -248,11 +256,16 @@ export function createCasterRange(scene: Scene) {
         version = current
         rescan()
       }
-      for (const caster of casters) caster.object.castShadow = withinReach(caster, eye, CASTER_SPANS, CASTER_FLOOR)
+      for (const caster of casters) {
+        const within = withinReach(caster, eye, CASTER_SPANS, CASTER_FLOOR)
+        if (within === !caster.culled) continue
+        // Out of range but already off: someone else's doing, and not ours to
+        // undo when it comes back into range.
+        if (!within && !caster.object.castShadow) continue
+        caster.object.castShadow = within
+        caster.culled = !within
+      }
     },
-    dispose() {
-      for (const caster of casters) caster.object.castShadow = true
-      casters = []
-    },
+    dispose: restore,
   }
 }

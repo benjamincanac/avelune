@@ -258,7 +258,7 @@ world from the seed and the committed layout JSON, because it authors them.
   `castShadow`, per object and never as an off switch: a caster stops casting
   past thirty times its own radius (floored at 20 units), which is where its
   shadow is a couple of texels on a cascade covering the whole town. It only ever
-  switches off what `tagShadows` already switched on, so the batches that
+  switches off what `tagSceneShadows` already switched on, so the batches that
   deliberately cast nothing stay off, and it rebuilds its list on
   `scene.userData.version`. That counter is load bearing for two things now:
   anything that adds or drops a caster has to bump it, or the new mesh is never
@@ -366,7 +366,7 @@ world from the seed and the committed layout JSON, because it authors them.
   ellipsoid that shares its instance matrices, writes neither colour nor depth,
   and casts through the plain depth material. It is `gtaoExclude` because the
   occlusion pass overrides materials and would draw it solid. Any new alpha-cut
-  batch has to set `castShadow = false` with `shadowTagged`, or `tagShadows`
+  batch has to set `castShadow = false` with `shadowTagged`, or `tagSceneShadows`
   puts the cards back in every cascade.
 - GTAO's normal pass is ranged like the shadow casters: a leaf mesh further than
   thirty times its own radius (floored at 20 units) is hidden for that pass

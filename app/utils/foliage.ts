@@ -101,6 +101,15 @@ export function createCanopyShadow(batch: InstancedMesh): InstancedMesh | null {
     shape.scale(canopySize.x / 2 * CANOPY_FILL, canopySize.y / 2 * CANOPY_FILL, canopySize.z / 2 * CANOPY_FILL)
     shape.translate(canopyCentre.x, canopyCentre.y, canopyCentre.z)
     canopyShapes.set(source, shape)
+    // The shape lives as long as the leaves it was fitted to: a template reload
+    // disposes those, and the cache is weak, so nothing else would free it.
+    const fitted = shape
+    const release = () => {
+      source.removeEventListener('dispose', release)
+      canopyShapes.delete(source)
+      fitted.dispose()
+    }
+    source.addEventListener('dispose', release)
   }
   const canopy = new InstancedMesh(shape, canopyMaterial, batch.count)
   canopy.instanceMatrix = batch.instanceMatrix

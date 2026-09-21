@@ -109,7 +109,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   })
   paving.receiveShadow = true
   // A slab 45mm tall casts nothing anyone can see, and as one batch spanning the
-  // town it is never culled: left to `tagShadows` it was drawn whole into every
+  // town it is never culled: left to `tagSceneShadows` it was drawn whole into every
   // cascade, more than half of everything the shadow pass rasterised.
   paving.userData.shadowTagged = true
   group.add(paving)

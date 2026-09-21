@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test, vi } from 'vitest'
 import { CSM } from 'three/addons/csm/CSM.js'
 import { BoxGeometry, Color, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3 } from 'three'
-import { SHADOW_CASCADES, createCascadedShadows } from '../app/utils/shadows'
+import { SHADOW_CASCADES, createCascadedShadows, createCasterRange } from '../app/utils/shadows'
 import { applyCharacterRim } from '../app/utils/characterRim'
 import { applyFoliage } from '../app/utils/foliage'
 
@@ -146,4 +146,47 @@ test('disposed materials leave the CSM registry and can be registered again', ()
     geometry.dispose()
     setup.mockRestore()
   }
+})
+
+test('a caster stops casting out of range and only undoes its own work', () => {
+  const scene = new Scene()
+  // Half a unit across: out of reach past the 20 unit floor.
+  const crate = new Mesh(new BoxGeometry(0.5, 0.5, 0.5), new MeshStandardMaterial())
+  const keep = new Mesh(new BoxGeometry(40, 40, 40), new MeshStandardMaterial())
+  const silent = new Mesh(new BoxGeometry(0.5, 0.5, 0.5), new MeshStandardMaterial())
+  crate.castShadow = keep.castShadow = true
+  silent.castShadow = false
+  scene.add(crate, keep, silent)
+  scene.updateMatrixWorld(true)
+  const range = createCasterRange(scene)
+  const eye = new Vector3(0, 0, 100)
+
+  range.update(eye)
+  assert.equal(crate.castShadow, false)
+  assert.equal(keep.castShadow, true)
+  assert.equal(silent.castShadow, false)
+
+  range.update(eye.set(0, 0, 5))
+  assert.equal(crate.castShadow, true)
+  // Never cast, so it is never given a shadow.
+  assert.equal(silent.castShadow, false)
+
+  // Switched off by someone else while in range: coming back changes nothing.
+  crate.castShadow = false
+  range.update(eye.set(0, 0, 100))
+  range.update(eye.set(0, 0, 5))
+  assert.equal(crate.castShadow, false)
+
+  // A rescan puts back what this switched off before it rebuilds its list.
+  crate.castShadow = true
+  scene.userData.version = 1
+  range.update(eye.set(0, 0, 100))
+  assert.equal(crate.castShadow, false)
+  scene.userData.version = 2
+  range.update(eye.set(0, 0, 5))
+  assert.equal(crate.castShadow, true)
+
+  range.update(eye.set(0, 0, 100))
+  range.dispose()
+  assert.equal(crate.castShadow, true)
 })
