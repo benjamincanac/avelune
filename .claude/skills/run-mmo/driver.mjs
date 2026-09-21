@@ -36,7 +36,13 @@
 //   MMO_TP_X/Y   where `target` teleports to                   (default 90 150)
 //   MMO_HUT_X/Y  where `target` rings a cell with four panels  (default 110 150)
 //   MMO_HUT_BACK tiles it stands off to shoot that hut         (default 7)
-//   MMO_STATS    non-empty: also report fps / mesh / triangle counts
+//   MMO_STATS    non-empty: fps, draw calls and triangles per frame, one row per
+//                render pass (see perf.mjs). Works in every mode, `still` included,
+//                which is the one with a camera you can put back where it was
+//   MMO_DUMP     non-empty: triangles by scene group and what casts (dev server)
+//   MMO_DPR      device pixel ratio for the page (default 1; 2 is a retina Mac)
+//   MMO_GFX      graphics settings as the JSON the Escape menu stores, e.g.
+//                '{"scale":1,"detail":"high","shadows":true,"occlusion":true,"bloom":true}'
 //   MMO_CAM      "x,y,z,yaw,pitch" for `still`: editor tiles and degrees
 //   MMO_SIZE     "WxH" viewport for `still`                   (default 2560x1440)
 //   MMO_HUD      "0": hide every 2D overlay before the shot (clean scenery stills)
@@ -49,6 +55,7 @@
 // Playwright is NOT a project dependency here — it's installed globally and is CJS,
 // so we require() it by absolute path rather than `import { chromium }`.
 import { createRequire } from 'node:module'
+import { dumpTriangles, installGpuCounters, measure, printDump, printStats } from './perf.mjs'
 
 const require = createRequire(import.meta.url)
 const PW = process.env.MMO_PW || '/opt/homebrew/lib/node_modules/playwright'
@@ -91,7 +98,20 @@ const errors = []
 // cannot survive. MMO_HEADED=0 forces headless anyway.
 const HEADED = process.env.MMO_HEADED === '1' || (mode === 'target' && process.env.MMO_HEADED !== '0')
 const browser = await chromium.launch({ headless: !HEADED, args: HEADED ? [] : GL_ARGS })
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: Number(process.env.MMO_DPR || 1) })
+if (process.env.MMO_GFX) {
+  await page.addInitScript((settings) => {
+    try {
+      localStorage.setItem('avelune:graphics', settings)
+    }
+    catch {}
+  }, process.env.MMO_GFX)
+}
+if (process.env.MMO_STATS) await installGpuCounters(page)
+async function report() {
+  if (process.env.MMO_STATS) printStats(await measure(page))
+  if (process.env.MMO_DUMP) printDump(await dumpTriangles(page))
+}
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text())
 })
@@ -173,6 +193,7 @@ if (mode === 'still') {
   // The sky eases to a new sun angle rather than jumping.
   await page.waitForTimeout(6000)
   await page.screenshot({ path: OUT, timeout: 300000, animations: 'disabled' })
+  await report()
   console.log('SHOT  ', OUT)
   console.log('ERRORS', errors.length)
   for (const e of [...new Set(errors)].slice(0, 20)) console.log('  -', e)
@@ -703,31 +724,7 @@ if (process.env.MMO_HUD === '0') {
   await page.waitForTimeout(500)
 }
 await page.screenshot({ path: OUT, timeout: 300000, animations: 'disabled' })
-if (process.env.MMO_STATS) {
-  const stats = await page.evaluate(() => new Promise((resolve) => {
-    let frames = 0
-    const start = performance.now()
-    const tick = () => {
-      frames++
-      if (performance.now() - start < 3000) requestAnimationFrame(tick)
-      else {
-        let meshes = 0
-        let instanced = 0
-        let tris = 0
-        // eslint-disable-next-line no-undef
-        const root = window.__maze?.camera?.value?.parent
-        const scene = root && root.type === 'Scene' ? root : null
-        scene?.traverse((o) => {
-          if (o.isInstancedMesh) { instanced++; tris += (o.geometry?.index?.count ?? 0) / 3 * o.count }
-          else if (o.isMesh) { meshes++; tris += (o.geometry?.index?.count ?? o.geometry?.attributes?.position?.count ?? 0) / 3 }
-        })
-        resolve({ fps: Math.round(frames / ((performance.now() - start) / 1000)), meshes, instanced, tris: Math.round(tris) })
-      }
-    }
-    requestAnimationFrame(tick)
-  }))
-  console.log('STATS ', JSON.stringify(stats))
-}
+await report()
 console.log('SCENE ', JSON.stringify(scene))
 console.log('SHOT  ', OUT)
 console.log('ERRORS', errors.length)

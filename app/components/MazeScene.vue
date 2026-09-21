@@ -959,7 +959,7 @@ if (import.meta.dev) {
   // `voice.setTalking(true)` stands in for holding the key, which is unreliable
   // to synthesise.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters, audio: { ...useAudio(), play }, voice }
+  ;(window as any).__maze = { local, camera, scene, game: props.game, held: props.held, view: props.view, critters, audio: { ...useAudio(), play }, voice }
 }
 </script>
 
