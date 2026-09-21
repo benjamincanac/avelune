@@ -40,7 +40,7 @@ world from the seed and the committed layout JSON, because it authors them.
   per-chunk instanced batches built from each chunk's `placements`, the Oracle
   rig, and the sky/day-night + weather clock. It also owns the third-person
   camera (the polar boom, `clipBoom`, the shoulder offset), local prediction and
-  reconciliation, and other-player interpolation. It forwards the four chunk
+  reconciliation. It forwards the four chunk
   hooks (see **Chunk rendering**), and it is what
   aims and sends the hotbar's verbs (see **Crosshair targeting**).
 - `app/components/scene/` owns rendering lifecycles: `WorldChunks` manages chunk
@@ -50,6 +50,15 @@ world from the seed and the committed layout JSON, because it authors them.
   attach cameras, lights, rigs and batch roots; frame callbacks mutate transforms
   directly. Borrowed primitives use `:dispose="null"` and explicit owner cleanup.
   Signal topology changes after `nextTick` so shadow/GTAO scans see attached nodes.
+- `scene/Players.vue` reconciles the plain network roster into keyed `Player.vue`
+  components and owns their shared blob geometry/texture and outfit material pool
+  (`app/utils/playerResources.ts`). Each `Player` owns its cloned skeleton, mixer,
+  outfit lease, nameplate, contact-shadow material, chat bubble and body audio.
+  `MazeScene` calls `Players.update(PlayerFrame)` after prediction/camera placement
+  and before water/grass consume rendered coordinates; `Player` interpolates peers
+  and updates transforms directly, without reactive per-frame state. Replacement
+  roster objects and appearance changes remount a player. Dispose children before
+  the shared pool and renderer; ignore asynchronous loads after unmount.
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
   stars, Milky Way and moon, outdoor lights, fog, rain, lightning and sky
   environment. All animation follows the server clock, lightning included
@@ -250,8 +259,8 @@ world from the seed and the committed layout JSON, because it authors them.
   players' speech, with its own level so a person can be heard over the wind. The
   voice graph itself (`app/utils/audio/voice.ts`), `app/utils/voice/` (the Opus
   codec, the jitter buffer, the clip recorder) and the rest of proximity voice
-  belong to `game-ui`; what this slice owns is the one line in `MazeScene`'s render
-  loop that puts each talker's panner at their rendered rig, at mouth height. It
+  belong to `game-ui`; this slice's `scene/Player.vue` frame update puts each
+  talker's panner at their rendered rig, at mouth height. It
   follows the *rendered* body, not the authoritative one, for the same reason the
   footsteps do: the body you can see has to be the body you hear.
 - `app/composables/useAssets.ts` is `game-ui`'s, because the loading gate is what
@@ -320,7 +329,7 @@ world from the seed and the committed layout JSON, because it authors them.
   rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
   dome too, since it has no world surface for the normal pass. Text sprites also disable depth writes
   while retaining depth testing against the world.
-- **Chat bubbles are DOM, not sprites.** `MazeScene.vue` projects each speaker's
+- **Chat bubbles are DOM, not sprites.** `scene/Player.vue` projects each speaker's
   head anchor in the frame loop and moves a `.chat-bubble` element (styled in
   `main.css`) inside a layer appended next to the canvas. Do not put them back on
   a `CanvasTexture`: three allocates texture storage once, so a canvas resized for
