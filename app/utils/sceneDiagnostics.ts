@@ -1,9 +1,9 @@
-import type { WebGLRenderer } from 'three'
+import type { Material, Scene, WebGLRenderer } from 'three'
 
 /** Development-only, whole-frame counters including shadows and nested renders.
  * Exposed on the canvas so browser tools can read a sample without instrumenting
  * WebGL or keeping the scene alive. Call begin before simulation, end after post. */
-export function createSceneDiagnostics() {
+export function createSceneDiagnostics(scene: Scene) {
   let renderer: WebGLRenderer | undefined
   let previousAutoReset = true
   let started = 0
@@ -36,7 +36,23 @@ export function createSceneDiagnostics() {
       calls.push(renderer.info.render.calls)
       triangles.push(renderer.info.render.triangles)
       if (now - published < 2000 || frameTimes.length < 10) return
+      const materials = new Set<Material>()
+      scene.traverse((object) => {
+        const value = (object as { material?: Material | Material[] }).material
+        if (value) for (const material of Array.isArray(value) ? value : [value]) materials.add(material)
+      })
+      const elapsed = frameTimes.reduce((sum, time) => sum + time, 0)
       renderer.domElement.dataset.sceneStats = JSON.stringify({
+        fps: Math.round(frameTimes.length * 10000 / elapsed) / 10,
+        sampleMs: Math.round(elapsed),
+        viewport: {
+          width: renderer.domElement.clientWidth,
+          height: renderer.domElement.clientHeight,
+          bufferWidth: renderer.domElement.width,
+          bufferHeight: renderer.domElement.height,
+        },
+        materials: materials.size,
+        programs: renderer.info.programs?.length ?? null,
         frames: frameTimes.length,
         frameMs: percentile(frameTimes, 0.5),
         frameP95Ms: percentile(frameTimes, 0.95),

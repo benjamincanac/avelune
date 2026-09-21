@@ -18,6 +18,7 @@ import type { AnimationAction, BufferGeometry, Object3D,
   MeshStandardMaterial,
   PointLight } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { createGltfResourcePool } from '~/utils/gltfResources'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
 import { useLoop, useTresContext } from '@tresjs/core'
@@ -56,7 +57,7 @@ import type { HubEditor } from '~/utils/hubEditor'
 import { createBuildTools } from '~/utils/buildTools'
 import { PITCH_MAX, PITCH_MAX_TOOL } from '~/composables/useBuild'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
-import { applyBeard, applyOutfitColor } from '~/utils/appearance'
+import { applyBeard, createOutfitMaterialPool } from '~/utils/appearance'
 import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
 import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
 import type { CharacterAsset } from '~/utils/characterModels'
@@ -231,7 +232,7 @@ function clearFloor() {
 function buildFloor() {
   clearFloor()
 
-  courtyard.value = createCourtyardScene(ed?.placements.value ?? townPlacements(), propTemplates, townMaterials)
+  courtyard.value = createCourtyardScene(ed?.placements.value ?? townPlacements(), propTemplates, townMaterials, foliageTime)
   tagSceneShadows(courtyard.value.group)
   // Patch new materials once Tres has attached the replacement group.
   sceneChanged()
@@ -269,10 +270,16 @@ function scheduleTownRebuild() {
 /* -------------------------------------------------------------------------- */
 
 const gltfLoader = new GLTFLoader()
+// Only courtyard/nature/kit templates enter this pool. Critters use the other
+// loader and keep their existing per-species disposal ownership.
+const templateLoader = new GLTFLoader()
+const templateResources = createGltfResourcePool()
+templateResources.register(templateLoader)
 // The shipped GLBs are meshopt-compressed (scripts/convert_nature.sh,
 // scripts/convert_kit.sh); the decoder is a no-op for uncompressed ones, so
 // it's safe to always register.
 gltfLoader.setMeshoptDecoder(MeshoptDecoder)
+templateLoader.setMeshoptDecoder(MeshoptDecoder)
 
 /**
  * The universal rig is authored at human scale (~1.8 m); this brings characters
@@ -341,8 +348,8 @@ function releaseTemplates(templates: Iterable<Group>) {
     })
   }
   for (const geometry of geometries) geometry.dispose()
-  for (const material of materials) material.dispose()
-  for (const texture of textures) texture.dispose()
+  for (const material of materials) if (!templateResources.ownsMaterial(material)) material.dispose()
+  for (const texture of textures) if (!templateResources.ownsTexture(texture)) texture.dispose()
 }
 
 // Load one dir's models into the shared template map. Resilient: a single
@@ -352,7 +359,7 @@ function releaseTemplates(templates: Iterable<Group>) {
 async function loadTemplates(dir: string, names: readonly string[]) {
   await Promise.all(names.map(async (name) => {
     try {
-      const gltf = await assets.track(gltfLoader.loadAsync(`/models/${dir}/${name}.glb`))
+      const gltf = await assets.track(templateLoader.loadAsync(`/models/${dir}/${name}.glb`))
       if (sceneDisposed) {
         releaseTemplates([gltf.scene])
         return
@@ -444,6 +451,7 @@ interface Rig {
 }
 
 const rigs = shallowReactive(new Map<string, Rig>())
+const outfitMaterialPool = createOutfitMaterialPool()
 const nameplates = new Map<string, InstanceType<typeof CharacterNameplate>>()
 function setNameplate(id: string, instance: unknown) {
   if (instance) nameplates.set(id, instance as InstanceType<typeof CharacterNameplate>)
@@ -582,7 +590,7 @@ function createRig(player: GamePlayer): Rig | null {
   model.scale.setScalar(CHARACTER_SCALE)
   // Swap in the chosen outfit colorway (designed texture variant, not a dye).
   // The accent color is a chat/nameplate identity only.
-  const outfitMaterials = applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
+  const outfitMaterials = outfitMaterialPool.apply(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
   // The beard ships visible in the GLB, so every rig states its own answer.
   applyBeard(model, player.beard === true)
   // After the outfit swap: cloning a material drops its shader hooks, so the
@@ -620,9 +628,8 @@ function createRig(player: GamePlayer): Rig | null {
       nameplates.get(player.id)?.dispose()
       bubble.remove()
       blob.material.dispose()
-      // The outfit swap clones the cloth materials per rig; the shared texture
-      // and the template's own materials stay.
-      for (const material of outfitMaterials) material.dispose()
+      // Other rigs wearing this variant keep their shared material alive.
+      outfitMaterials.release()
     },
     group,
     model,
@@ -987,9 +994,8 @@ const RECONCILE_IDLE_FREEZE = 0.4
  *
  * Aiming at your own feet swings the boom in over your head, and your own back
  * is then the only thing under the crosshair. Hidden outright rather than faded:
- * `appearance.ts` clones only the *cloth* materials per rig, so the skin, hair
- * and boots are still the cached template's — turning those transparent would
- * fade every character wearing that model, the other players included.
+ * materials are shared by characters with the same appearance, so changing
+ * their opacity would fade other players too. Visibility belongs to the rig.
  *
  * The ray never needed this. Players are not placements, so `propsNear` has
  * never returned one and the pick has always looked straight through them; this
@@ -1414,6 +1420,7 @@ function disposeScene() {
   postProcessing.value?.dispose()
   for (const rig of rigs.values()) rig.dispose()
   rigs.clear()
+  outfitMaterialPool.dispose()
   nameplates.clear()
   clearFloor()
   worldChunks.value?.dispose()
@@ -1427,6 +1434,7 @@ function disposeScene() {
   blobTexture?.dispose()
   blobTexture = null
   releaseTemplates([...propTemplates.values(), ...retiredTemplates])
+  templateResources.dispose()
   propTemplates.clear()
   townMaterials.dispose()
   retiredTemplates.length = 0

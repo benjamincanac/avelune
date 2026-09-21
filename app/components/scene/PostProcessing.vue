@@ -8,7 +8,7 @@ import { createSceneDiagnostics } from '~/utils/sceneDiagnostics'
 const props = defineProps<{ quality: RenderQuality }>()
 const { renderer, scene, camera } = useTresContext()
 const { onBeforeRender, render } = useLoop()
-const diagnostics = import.meta.dev ? createSceneDiagnostics() : null
+const diagnostics = import.meta.dev ? createSceneDiagnostics(scene.value) : null
 let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
 let disposed = false
 

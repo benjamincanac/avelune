@@ -6,7 +6,6 @@ import { smoothstep } from '#shared/utils/terrain'
 import { biomeAt } from '#shared/utils/biome'
 import type { Biome } from '#shared/utils/biome'
 import type { HubPropPlacement, WorldPlacement } from '#shared/utils/props'
-import { applyFoliage } from './foliage'
 import { isGrassTile, meadowCover } from './terrainChunk'
 import type { HeightSampler } from './terrainChunk'
 import { makeCourtyardSurface } from './courtyardTextures'
@@ -23,10 +22,8 @@ import type { TownMaterials } from './townMaterials'
  * batch for the world but is the price of being able to rebuild a chunk without
  * touching its neighbours.
  *
- * Materials are the exception: they are cached across chunks by source
- * material, because a clone per chunk would be a shader program registration
- * and a CSM cascade patch per chunk. The cache is dropped whenever the template
- * map changes under it (`reset`), which happens once, when the GLBs land.
+ * Materials are borrowed from the world's TownMaterials bank. Chunks and
+ * authored gardens using the same source and wind clock share one variant.
  */
 
 const placementDummy = new Object3D()
@@ -65,33 +62,7 @@ export interface ChunkPropsOptions {
 
 export function createChunkProps(options: ChunkPropsOptions) {
   const { templates, materials, foliageTime } = options
-  /** Batch material by source material, shared across every chunk. */
-  const cache = new Map<string, MeshStandardMaterial>()
   const tint = new Color()
-
-  function batchMaterial(source: MeshStandardMaterial): MeshStandardMaterial {
-    const existing = cache.get(source.uuid)
-    if (existing) return existing
-    const material = source.clone()
-    // Three copies `userData` and `defines` when cloning but not the shader
-    // hooks they stand for. Copying the source's hooks instead is worse than
-    // useless: a CSM-patched hook re-registers this clone's shader under the
-    // *source* material in `csm.shaders`, so the source stops getting cascade
-    // uniform updates. Re-install the town's own hooks and let the CSM sweep
-    // patch the clone as a material of its own.
-    delete material.userData.foliageShader
-    delete material.userData.characterRim
-    if (material.defines) {
-      delete material.defines.USE_CSM
-      delete material.defines.CSM_CASCADES
-      delete material.defines.CSM_FADE
-    }
-    materials.reapply(material)
-    // Alpha-cut cards (kit leaves, flowers, bark) sway and catch backlight.
-    if (material.alphaTest > 0) applyFoliage(material, foliageTime)
-    cache.set(source.uuid, material)
-    return material
-  }
 
   /**
    * Instance a GLB module at many placements: one InstancedMesh per mesh part,
@@ -107,7 +78,7 @@ export function createChunkProps(options: ChunkPropsOptions) {
     const shaded = SHADED.test(name)
     template.traverse((obj) => {
       if (!(obj instanceof Mesh)) return
-      const material = batchMaterial(obj.material as MeshStandardMaterial)
+      const material = materials.batch(obj.material as MeshStandardMaterial, foliageTime)
       const instanced = new InstancedMesh(obj.geometry, material, placements.length)
       placements.forEach((placement, index) => {
         composed.multiplyMatrices(placement, obj.matrixWorld)
@@ -164,24 +135,14 @@ export function createChunkProps(options: ChunkPropsOptions) {
       return group
     },
     /** Release one chunk's instance buffers. Geometry belongs to the template
-     *  and materials to the cache, so neither is touched. */
+     *  and materials to the world bank, so neither is touched. */
     release(group: Group) {
       group.traverse((object) => {
         if (object instanceof InstancedMesh) object.dispose()
       })
       group.clear()
     },
-    /** Drop the material cache — the templates behind it have been replaced.
-     *  Every mounted chunk has to be rebuilt after this. */
-    reset() {
-      for (const material of cache.values()) material.dispose()
-      cache.clear()
-    },
-    // Same teardown as `reset`, under the name callers reach for when they mean
-    // "done with this for good" rather than "the templates changed".
-    dispose() {
-      this.reset()
-    },
+
   }
 }
 

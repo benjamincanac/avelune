@@ -51,6 +51,7 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
     key: Hookable['customProgramCacheKey']
     characterRim: unknown
     foliageShader: unknown
+    release: () => void
   }>()
   const cacheSuffix = `|csm${csm.cascades}${csm.fade ? 'f' : ''}`
 
@@ -64,6 +65,7 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
       key,
       characterRim: material.userData.characterRim,
       foliageShader: material.userData.foliageShader,
+      release: () => releaseMaterial(material),
     })
     csm.setupMaterial(material)
     const inject = material.onBeforeCompile
@@ -74,6 +76,38 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
     material.customProgramCacheKey = function () {
       return key.call(this) + cacheSuffix
     }
+    material.addEventListener('dispose', originals.get(material)!.release)
+    material.needsUpdate = true
+  }
+
+  // CSM's registry is strong: disposed chunk/outfit materials would otherwise
+  // keep shaders and uniforms alive until the entire world is torn down.
+  function releaseMaterial(material: Hookable) {
+    const hooks = originals.get(material)
+    if (!hooks) return
+    material.removeEventListener('dispose', hooks.release)
+    // @types/three calls these strings, but CSM stores compile parameters.
+    const shader = csm.shaders.get(material) as unknown as Parameters<Hookable['onBeforeCompile']>[0] | null | undefined
+    if (shader) {
+      delete shader.uniforms.CSM_cascades
+      delete shader.uniforms.cameraNear
+      delete shader.uniforms.shadowFar
+    }
+    csm.shaders.delete(material)
+    if (material.defines) {
+      delete material.defines.USE_CSM
+      delete material.defines.CSM_CASCADES
+      delete material.defines.CSM_FADE
+    }
+    material.onBeforeCompile = hooks.compile
+    material.customProgramCacheKey = hooks.key
+    // Restore the guards with their hooks so a later mount injects each once.
+    if (hooks.characterRim === undefined) delete material.userData.characterRim
+    else material.userData.characterRim = hooks.characterRim
+    if (hooks.foliageShader === undefined) delete material.userData.foliageShader
+    else material.userData.foliageShader = hooks.foliageShader
+    originals.delete(material)
+    patched.delete(material)
     material.needsUpdate = true
   }
 
@@ -157,26 +191,9 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
       }
     },
     dispose() {
-      // CSM.dispose deletes `onBeforeCompile` outright, taking the town's own
-      // shader hooks with it — put them back afterwards. Its own material list
-      // is cleared by that call, so snapshot it first.
-      const materials = [...csm.shaders.keys()] as Hookable[]
+      for (const material of [...csm.shaders.keys()]) releaseMaterial(material as Hookable)
       csm.dispose()
       csm.remove()
-      for (const material of materials) {
-        const hooks = originals.get(material)
-        if (!hooks) continue
-        material.onBeforeCompile = hooks.compile
-        material.customProgramCacheKey = hooks.key
-        // Hooks installed after CSM chained onto its wrapper and disappeared
-        // when the saved callback was restored. Hooks that were already there
-        // are still in that callback, so their guards must survive too.
-        if (hooks.characterRim === undefined) delete material.userData.characterRim
-        else material.userData.characterRim = hooks.characterRim
-        if (hooks.foliageShader === undefined) delete material.userData.foliageShader
-        else material.userData.foliageShader = hooks.foliageShader
-        material.needsUpdate = true
-      }
       for (const light of csm.lights) light.shadow.dispose()
     },
   }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test, vi } from 'vitest'
+import { CSM } from 'three/addons/csm/CSM.js'
 import { BoxGeometry, Color, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, Vector3 } from 'three'
 import { SHADOW_CASCADES, createCascadedShadows } from '../app/utils/shadows'
 import { applyCharacterRim } from '../app/utils/characterRim'
@@ -113,5 +114,36 @@ test('CSM teardown keeps older foliage hooks and clears newer ones for reinstall
     older.dispose()
     newer.dispose()
     geometry.dispose()
+  }
+})
+
+test('disposed materials leave the CSM registry and can be registered again', () => {
+  const setup = vi.spyOn(CSM.prototype, 'setupMaterial')
+  const scene = new Scene()
+  const material = new MeshStandardMaterial()
+  const geometry = new BoxGeometry()
+  const mesh = new Mesh(geometry, material)
+  scene.add(mesh)
+  applyCharacterRim(mesh)
+  const original = material.onBeforeCompile
+  const shadows = createCascadedShadows(scene, new PerspectiveCamera())
+  const csm = setup.mock.contexts[0] as CSM
+  try {
+    assert.equal(csm.shaders.has(material), true)
+    scene.remove(mesh)
+    material.dispose()
+    assert.equal(csm.shaders.has(material), false, 'a retired material must not retain its shader/uniforms')
+    assert.equal(material.onBeforeCompile, original)
+    assert.equal(material.defines?.USE_CSM, undefined)
+    scene.add(mesh)
+    shadows.setupScene(scene)
+    assert.equal(csm.shaders.has(material), true)
+    assert.equal(material.defines?.CSM_CASCADES, SHADOW_CASCADES)
+  }
+  finally {
+    shadows.dispose()
+    material.dispose()
+    geometry.dispose()
+    setup.mockRestore()
   }
 })

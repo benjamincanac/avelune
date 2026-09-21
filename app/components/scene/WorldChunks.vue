@@ -274,7 +274,6 @@ function rebuildChunks() {
     chunkProps.release(entry.props)
     entry.props = null
   }
-  chunkProps.reset()
   for (const [key, entry] of mounted) {
     const { cx, cy } = parseChunkKey(key)
     const chunk = hubWorld.getChunk(cx, cy)
@@ -327,7 +326,6 @@ function dispose() {
   disposed = true
   for (const off of unsubscribe) off()
   clearChunks()
-  chunkProps.dispose()
   grassBank.dispose()
   pavingBank.dispose()
   terrainMaterial.dispose()

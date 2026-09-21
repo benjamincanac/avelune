@@ -179,6 +179,14 @@ world from the seed and the committed layout JSON, because it authors them.
   the scene at y = 0 (`floorTexture()` in `CharacterPreviewModel`), not CSS in
   the gate: only a disc in perspective wraps both boots, a flat rule across the
   stage cut through whichever foot stood nearer the camera.
+- `app/utils/gltfResources.ts` pools embedded GLB textures by image bytes plus
+  sampler, transform and color-space state. The world template loader also pools
+  equivalent raw materials before shader decoration. Character assets pool textures
+  only, for the lifetime of their module cache. World template pools are scene-owned:
+  `releaseTemplates` skips pooled materials/textures, and the pool disposes each once.
+  Keep critter and Oracle loaders separate unless their cleanup adopts this ownership.
+  Late loads after teardown retain caller ownership. Shader hooks, names used for
+  decoration, and differing texture settings must stay distinct.
 - `app/utils/characterModels.ts` owns the serialized GLB loader and shared
   scene/clip cache for both onboarding and the live game. `CharacterAsset`
   carries a scene template and the universal animation library's clips.
@@ -196,7 +204,9 @@ world from the seed and the committed layout JSON, because it authors them.
 - `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
   `material.map` on the cloth materials only (`MI_(Peasant|Ranger|Knight|Noble|
   Wizard)`, matched on the prefix so the importer's `.001` suffix still hits),
-  with materials cloned per rig so a swap never leaks into the shared template.
+  with scene-owned, reference-counted variants keyed by source material and
+  outfit URL. Rigs release leases; the last user disposes the variant while the
+  texture cache keeps its map. Onboarding previews still own isolated clones.
   It also clears the clone's `userData.characterRim` guard, so the rim hook
   reinstalls on the clone.
 - `app/utils/characterAnimation.ts` — the clip blend timings: `animationBlendDuration`
@@ -301,8 +311,9 @@ world from the seed and the committed layout JSON, because it authors them.
 ## Known rendering gotchas (from ROADMAP)
 - CSM uses two cascades. Material scans follow `scene.userData.version`, updated
   after attachments, instead of a periodic scene traversal. Quality changes update
-  both light map sizes and `csm.shadowMapSize` (used for texel snapping). On teardown,
-  restore shader hooks and their original rim/foliage guards together: retaining a
+  both light map sizes and `csm.shadowMapSize` (used for texel snapping).
+  Disposed materials unregister from CSM's strong shader map immediately. On
+  teardown, restore shader hooks and their original rim/foliage guards together: retaining a
   hook while deleting its guard injects duplicate uniforms on the next mount.
 - GTAO's normal override ignores sprite alpha maps. Hide sprites only during
   the occlusion pass and restore their visibility afterward, or nameplates cast
@@ -415,7 +426,7 @@ Shader clocks are `uniform float`: epoch seconds quantise to 128 s steps, so
 `MazeScene` wraps the server clock before it reaches a uniform (grass, foliage,
 moat) and passes absolute seconds only to the fountain's particle simulation.
 
-`MazeScene.tagShadows` skips `userData.shadowTagged`, which terrain and grass set
+`tagSceneShadows` skips `userData.shadowTagged`, which terrain and grass set
 wherever their own cast/receive flags are deliberate. `scene.userData.version` is
 bumped on every floor rebuild, chunk mount or unmount, and rig change;
 `courtyardRenderer` caches its GTAO exclusion list against it instead of
@@ -529,10 +540,11 @@ flowers off it.
 `app/utils/chunkProps.ts` owns `instantiateModule` and builds one
 `InstancedMesh` per kind *per chunk*, which costs more draw calls than one batch
 for the world and is the price of rebuilding a chunk without touching its
-neighbours. Batch materials are cached across chunks by source material, since a
-clone per chunk would be a program and a CSM patch per chunk; `reset()` drops the
-cache when the GLB templates replace the placeholders, and every mounted chunk is
-rebuilt after it. Every placement carries its own `z` — render-only elevation
+neighbours. `TownMaterials.batch` owns variants shared by chunks and authored
+gardens, keyed by source material and foliage clock. `MazeScene` passes the same
+clock to both. A chunk release or garden rebuild frees instance buffers only;
+the world bank disposes variants at scene teardown. Replacing GLB templates
+rebuilds mounted batches against the new source identities. Every placement carries its own `z` — render-only elevation
 for the authored town, the terrain it grew on for wild vegetation, the support
 height the server resolved for a kit piece — so nothing is bedded or offset here.
 
@@ -659,9 +671,9 @@ raises the ceiling from `PITCH_MAX` (0.55 rad, ~32°) to `PITCH_MAX_TOOL`
 when the tool is put away. Steep pitch also shortens the boom by `STEEP_CLOSE`,
 or the camera would hang four tiles overhead and the tile under the crosshair
 would be a postage stamp; that is also what brings the camera inside
-`SELF_FADE_DISTANCE`, where `hideSelfWhenClose` dissolves the local character so you can
-see your own tile. Fading rather than hiding, because the rig's materials are
-per-clone (`appearance.ts`) and nothing else shares them. The ray itself never
+`SELF_FADE_DISTANCE`, where `hideSelfWhenClose` hides the local rig so you can
+see your own tile. Use object visibility: materials are shared with other
+characters, so changing opacity would fade those characters too. The ray itself never
 needed the character excluded — players are not placements, so `propsNear` has
 never returned one.
 
