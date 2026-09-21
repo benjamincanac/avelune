@@ -332,8 +332,8 @@ world from the seed and the committed layout JSON, because it authors them.
    templates before `buildFloor()` so editor selection and instancing agree.
 7. `courtyardRenderer.ts` builds the render loop's EffectComposer with contact
    occlusion, restrained bloom and one OutputPass. It takes a `RenderQuality` at
-   build time. `PostProcessing.vue` rebuilds it when samples, occlusion or bloom
-   change; resolution and shadow changes preserve the composer and its targets.
+   build time. `PostProcessing.vue` rebuilds it when occlusion or bloom change
+   (there is no MSAA on the target, SMAA ends the chain); resolution and shadow changes preserve the composer and its targets.
    Call Tres's render notification
    after rendering. Tres tears down its separate Vue tree after disposing the
    renderer, so `MazeScene` emits its idempotent cleanup callback to `GameScene`.

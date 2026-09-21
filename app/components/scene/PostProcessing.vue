@@ -13,8 +13,10 @@ let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
 let disposed = false
 
 // Resolution and shadow changes do not change the postprocessing chain. The
-// composer follows renderer size itself; rebuild only when a pass or MSAA changes.
-watch(() => [props.quality.samples, props.quality.occlusion, props.quality.bloom], () => {
+// composer follows renderer size itself; rebuild only when a pass changes. The
+// source is a string because `quality` is a fresh object on every graphics
+// change: an array of its fields would be a new array each time and fire anyway.
+watch(() => `${props.quality.occlusion}|${props.quality.bloom}`, () => {
   pipeline?.dispose()
   pipeline = null
 })
