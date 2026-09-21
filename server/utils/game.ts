@@ -459,9 +459,32 @@ function announceEdit(session: Session, chunk: Chunk, frame: Extract<ServerMessa
  */
 const livePairs = new Set<string>()
 
-/** Talker ids are handed out in order and never reused inside a process. Small,
- *  because they ride every audio frame, and 16 bits is 65k arrivals. */
+/** Talker ids are handed out in order. Small, because they ride every audio
+ *  frame, and 16 bits is 65k arrivals before the counter comes back around. */
 let nextTalker = 1
+
+/**
+ * The next talker id nobody is using.
+ *
+ * The counter wraps, and a wrap that handed out an id a live session already
+ * holds would put one player's voice in another player's mouth: the listener
+ * routes by talker id, so the audio would be attributed to the wrong person and
+ * panned at the wrong rig. Skipping the ids in use costs a walk of the roster
+ * once per connection. Zero is never handed out, so an unmapped id on a client
+ * is always nobody.
+ */
+function takeTalker(): number {
+  const live = new Set<number>()
+  for (const session of sessions.values()) live.add(session.talker)
+  for (let tries = 0; tries < 0xffff; tries++) {
+    const id = nextTalker
+    nextTalker = nextTalker >= 0xffff ? 1 : nextTalker + 1
+    if (!live.has(id)) return id
+  }
+  // 65535 sessions at once on one instance. Not reachable, and a duplicate id is
+  // better than refusing the connection.
+  return nextTalker
+}
 
 /**
  * Recompute the mesh and tell whoever's set changed.
@@ -1161,7 +1184,7 @@ export function registerConnection(
     editTokens: EDITS_PER_SECOND,
     editAt: Date.now(),
     voice: false,
-    talker: nextTalker++ & 0xffff,
+    talker: takeTalker(),
     voicePeers: [],
     voiceBucket: createBucket(VOICE_FRAME_BURST),
     chatBucket: createBucket(CHAT_BURST),

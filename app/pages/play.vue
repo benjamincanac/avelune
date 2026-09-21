@@ -146,6 +146,19 @@ function respawn() {
   resume()
 }
 
+/**
+ * Back to the title screen with the character intact. Nothing is cleared, so
+ * the next visit to `/play` drops straight back into the arena — this is the
+ * way out for a player who is done for now, not the way to forget them.
+ */
+async function leave() {
+  game.disconnect()
+  showMenu.value = false
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+  keyboard.value?.unlock()
+  await navigateTo('/')
+}
+
 /** Leave the arena and clear the saved identity before showing the gate again. */
 async function logout() {
   try {
@@ -284,6 +297,10 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
     ref="gameRoot"
     class="relative h-screen overflow-hidden bg-stage"
   >
+    <!-- A touch device gets this far and then cannot move. Over every view, so
+         it is said before a character is made rather than after. -->
+    <DesktopNotice />
+
     <!-- Character creation, for a visitor with no character cookie yet. -->
     <CharacterGate
       v-if="view === 'creating'"
@@ -319,13 +336,19 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
         <SandboxNotice v-if="world.persistent.value === false" />
       </header>
 
-      <!-- Top right: the minimap, then the feed below it on the edge wash. -->
-      <aside class="pointer-events-none absolute right-7 top-6 z-10 flex flex-col items-end">
+      <!-- Top right: the minimap, then the feed below it on the edge wash. Under
+           `md` the status bar needs the whole top row, so the map drops beneath
+           it (and beneath the sandbox chip when there is one) and the feed,
+           which is wider than a phone, is left out. -->
+      <aside
+        class="pointer-events-none absolute right-7 z-10 flex flex-col items-end md:top-6"
+        :class="world.persistent.value === false ? 'top-30' : 'top-19'"
+      >
         <MiniMap :game="game" />
       </aside>
       <WorldFeed
         :events="feed.events.value"
-        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97"
+        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97 max-md:hidden"
       />
 
       <!-- Centre: the crosshair the build ray is cast through. Only while a
@@ -438,6 +461,7 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
             @map="openMap"
             @respawn="respawn"
             @edit="edit"
+            @leave="leave"
             @logout="logout"
           />
         </div>
