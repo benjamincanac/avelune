@@ -371,7 +371,12 @@ world from the seed and the committed layout JSON, because it authors them.
 - GTAO's normal pass is ranged like the shadow casters: a leaf mesh further than
   thirty times its own radius (floored at 20 units) is hidden for that pass
   only, through the same hide and restore as the exclusion list. `ranged.ts`
-  holds the measuring both passes share. A hidden mesh also drops out of the
+  holds the measuring both passes share. Both are ranged from the player, which
+  `courtyardSky` publishes as `scene.userData.rangeFocus`, never from the lens:
+  the boom orbits a player who is standing still, and measured from the camera
+  every mesh near its boundary came and went as the view swung round.
+  `RANGE_SLACK` keeps a mesh that is in range a little past the line for the
+  same reason. A hidden mesh also drops out of the
   pass's depth, so keep the rule to things whose contact shading is a pixel or
   two at that range, and check a change to the numbers with a frame diff.
 - **Chat bubbles are DOM, not sprites.** `scene/Player.vue` projects each speaker's
@@ -404,6 +409,28 @@ world from the seed and the committed layout JSON, because it authors them.
   option rather than ignoring it, and a rejection there is not a refusal.
 - Camera boom samples the wall grid and shared solid prop heights along its
   width. It uses conservative clearance for the head-to-camera path.
+- The camera's pivot does not sit on the feet. `stepBody` snaps a grounded body
+  onto each tread, so a grounded change in height no taller than `STEP_MAX` is
+  taken out of the pivot (`stepTrail` in `MazeScene`) and paid back over a few
+  frames. Jumps, falls and teleports are followed exactly, so do not smooth
+  `local.z` wholesale to fix a jolt: a jump stops reading as one.
+- `clipBoom` tests each sample at the height the sight line has there, from the
+  pivot up to the seat. One flat height for the whole run jammed the camera on
+  stairs: going down, the treads behind pass a flat line within a tread or two.
+  A steep tile is not a wall to the boom the way `isWalkable` has it, only
+  ground to clear; the world's edge and an unloaded chunk still stop it. The
+  boom is kept as a share of the seat's reach (`boomClear`), because the reach
+  shortens as pitch steepens and a shorter boom is not a blocked one, and it
+  holds for `BOOM_HOLD` before easing out so a run of treads does not pump it.
+- When bare terrain blocks the boom the camera rises instead of closing in
+  (`pitchFloor`): at the bottom of a dug pit every seat behind the player is
+  inside the pit's wall. It is a floor under the player's pitch, never an amount
+  added to it: added, the two stacked, and a player tilting down into a pit was
+  carried on up to the overhead seat, which closes the boom in on purpose.
+  Ground only. The label comes from the blocked sample,
+  flanks included, and only ever on a block `surfaceHeight` found: the moat is
+  carved out of terrain that still reads as level, so `terrainHeight` alone
+  would wall the channel off. Walls and roofs still pull the boom in.
 - `.client.vue` suffix / `<ClientOnly>` matters: three.js is browser-only, never
   let scene code run during SSR.
 - **Character GLBs carry `EXT_texture_webp` textures** — the top-level

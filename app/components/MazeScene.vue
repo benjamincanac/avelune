@@ -23,9 +23,11 @@ import {
   DASH_DURATION,
   JUMP_VELOCITY,
   PLAYER_SPEED,
+  STEP_MAX,
   speedMultiplier,
-  isWalkable,
+  isWalkableAt,
   surfaceHeight,
+  terrainHeight,
   isPieceCameraBlocked,
   isRampartCameraBlocked,
   slideBody,
@@ -428,8 +430,42 @@ buildFloor()
 const MAX_BOOM = 3.6
 /** Camera's collision half-width, so the boom samples its footprint, not a hairline. */
 const CAM_RADIUS = 0.32
-/** Smoothed boom distance: snaps in past walls, eases back out (see the render loop). */
-let boomDist = MAX_BOOM
+/** Smoothed share of the boom that is in use: snaps in past walls, eases back
+ *  out (see the render loop). */
+let boomClear = 1
+/** Seconds the boom stays in after it was last pushed, before it eases out
+ *  again. Along a run of pillars or treads the block comes and goes several
+ *  times a second, and easing out between each is what read as the zoom pumping. */
+const BOOM_HOLD = 0.3
+let boomHeld = 0
+/**
+ * The lowest pitch the camera will sit at while the ground is in the way. At the
+ * bottom of a dug pit the sight line to a seat behind the player runs straight
+ * into the pit's wall, and closing in leaves the lens on the back of their
+ * head. Ground is the one obstacle with nothing above it, so the seat swings up
+ * until the line clears and looks down into the pit instead. Walls and roofs
+ * still pull the boom in: rising over a house would put the camera on its roof
+ * every time a player backed up to one.
+ */
+const LIFT_STEP = 0.14
+const LIFT_PITCH_MAX = 1.25
+/** Share of the boom that has to be clear before a seat counts as usable. */
+const LIFT_CLEAR = 0.85
+/** How fast the floor sinks once the ground is out of the way, radians a second. */
+const LIFT_FALL = 0.9
+let pitchFloor = Number.NEGATIVE_INFINITY
+/**
+ * How far the camera's pivot trails the feet, in world units. `stepBody` snaps
+ * a grounded body onto each tread, which is right for the body and a jolt a
+ * tread for a camera bolted to it. So a grounded change in height no taller
+ * than a step is taken out of the pivot and paid back over a few frames.
+ * Anything else is followed exactly: a jump has to read as a jump, and a fall
+ * or a teleport is not a staircase.
+ */
+const STEP_EASE_RATE = 14
+let stepTrail = 0
+let trailZ = Number.NaN
+let trailGrounded = false
 
 /**
  * The over-the-shoulder offset a tool is aimed from.
@@ -463,29 +499,51 @@ let camY = 0
 let camZ = 0
 
 /**
- * How far the camera can sit behind the player before a wall blocks it. Marches
- * from the head toward the ideal camera spot, sampling the camera's *width*
- * (centre plus both flanks) at each step so it can't slip through a wall corner
- * and briefly expose the void behind it. Returns the last clear distance.
+ * How far the camera can sit behind the player before something blocks it.
+ * Marches from the head toward the ideal camera spot, sampling the camera's
+ * *width* (centre plus both flanks) at each step so it can't slip through a wall
+ * corner and briefly expose the void behind it. Returns the last clear distance.
+ *
+ * Each sample is tested at the height the sight line has *there*, rising from
+ * the pivot to the seat. Testing the whole run at one low height is what jammed
+ * the camera on stairs and in a dug hole: going down, the treads behind climb
+ * past a flat line within a tread or two, though the real line clears them, and
+ * every tread then moved the block point. For the same reason a steep tile is
+ * not a wall here at every height the way `isWalkable` has it, only ground to
+ * be cleared like any other: the rim of a pit is far below a camera above it.
+ * The world's edge and an unloaded chunk still stop the boom outright.
  */
-function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: number, height: number): number {
+let boomHitGround = false
+function clipBoom(hx: number, hy: number, dirX: number, dirZ: number, maxDist: number, fromHeight: number, toHeight: number): number {
   const px = -dirZ // unit perpendicular to the boom, for width sampling
   const pz = dirX
-  const blocked = (x: number, z: number) => !isWalkable(hubWorld, Math.floor(x), Math.floor(z))
-    || surfaceHeight(hubWorld, x, z, height - CAM_RADIUS) > height - CAM_RADIUS
-    || isRampartCameraBlocked(hubWorld, x, z, height, CAM_RADIUS)
-    // Raised kit pieces block the boom the same way a gallery does: their
-    // collision band starts at `base`, so a ground-height test misses them.
-    || isPieceCameraBlocked(hubWorld, x, z, height, CAM_RADIUS)
+  const blocked = (x: number, z: number, height: number) => {
+    // Bare terrain, as against a wall or a roof: the one kind of block the
+    // camera can answer by rising instead of closing in. Asked of the sample
+    // that was blocked, which on a slope is as often a flank as the centre.
+    // Only ever a label on a block `surfaceHeight` found: the moat is carved
+    // out of terrain that still reads as level ground, so on its own this would
+    // wall the channel off.
+    const surface = surfaceHeight(hubWorld, x, z, height - CAM_RADIUS) > height - CAM_RADIUS
+    boomHitGround = surface && terrainHeight(hubWorld, x, z) > height - CAM_RADIUS
+    return surface
+      || !isWalkableAt(hubWorld, Math.floor(x), Math.floor(z), Number.POSITIVE_INFINITY)
+      || isRampartCameraBlocked(hubWorld, x, z, height, CAM_RADIUS)
+      // Raised kit pieces block the boom the same way a gallery does: their
+      // collision band starts at `base`, so a ground-height test misses them.
+      || isPieceCameraBlocked(hubWorld, x, z, height, CAM_RADIUS)
+  }
   for (let d = 0.3; d < maxDist; d += 0.08) {
     const sx = hx + dirX * d
     const sz = hy + dirZ * d
-    if (blocked(sx, sz)
-      || blocked(sx + px * CAM_RADIUS, sz + pz * CAM_RADIUS)
-      || blocked(sx - px * CAM_RADIUS, sz - pz * CAM_RADIUS)) {
+    const height = fromHeight + (toHeight - fromHeight) * (d / maxDist)
+    if (blocked(sx, sz, height)
+      || blocked(sx + px * CAM_RADIUS, sz + pz * CAM_RADIUS, height)
+      || blocked(sx - px * CAM_RADIUS, sz - pz * CAM_RADIUS, height)) {
       return Math.max(0.4, d - 0.3)
     }
   }
+  boomHitGround = false
   return maxDist
 }
 
@@ -734,49 +792,101 @@ onBeforeRender(({ delta }) => {
       // eslint-disable-next-line vue/no-mutating-props
       props.view.pitch += (ceiling - props.view.pitch) * (1 - Math.exp(-dt * 6))
     }
-    const pitch = props.view.pitch
     const headX = local.x
     const headZ = local.y
     shoulderMix += ((build.active.value ? 1 : 0) - shoulderMix) * (1 - Math.exp(-dt * SHOULDER_RATE))
     const lift = SHOULDER_LIFT * shoulderMix
-    // The boom is a true polar orbit around a pivot at eye height, so `pitch`
+    const climbed = local.z - trailZ
+    if (local.grounded && trailGrounded && Math.abs(climbed) <= STEP_MAX + 0.05) stepTrail -= climbed
+    stepTrail *= Math.exp(-dt * STEP_EASE_RATE)
+    stepTrail = Math.max(-2 * STEP_MAX, Math.min(2 * STEP_MAX, stepTrail))
+    trailZ = local.z
+    trailGrounded = local.grounded
+    const pivotY = local.z + stepTrail + PIVOT_HEIGHT + lift
+    // The boom is a true polar orbit around a pivot at eye height, so the pitch
     // is the angle the crosshair actually looks down at. The old ad-hoc
     // camera-up / target-down pair only reached about 28° at full extension,
     // which is why the tiles around your own feet were unaimable.
-    const pivotY = local.z + PIVOT_HEIGHT + lift
-    const cosP = Math.cos(pitch)
-    const sinP = Math.sin(pitch)
-    // The ideal seat: back along the view axis, out along the camera's own
-    // right (`cross(forward, up)` for a forward of `(cos yaw, 0, sin yaw)`),
-    // and up by however far the pitch has swung it over the player.
-    // Steep pitch pulls the boom in as well as up: left at full extension the
-    // camera would sit four tiles over your head, and the tile under the
-    // crosshair would be a postage stamp. In close it is a proper overhead
-    // view — and close enough for the fade below to take the character out of
-    // the shot.
-    const steep = Math.max(0, Math.min(1, (pitch - PITCH_MAX) / (PITCH_MAX_TOOL - PITCH_MAX)))
-    const back = (MAX_BOOM - SHOULDER_CLOSE * shoulderMix) * (1 - STEEP_CLOSE * steep)
-    // The shoulder fades out as the view tips down: looking at your own boots
-    // there is no character left to see past, and an off-centre overhead camera
-    // puts the crosshair a tile to the side of the one you are standing on.
-    const side = SHOULDER_SIDE * build.shoulder.value * shoulderMix * (1 - steep)
-    const offX = -Math.cos(yaw) * back * cosP - Math.sin(yaw) * side
-    const offZ = -Math.sin(yaw) * back * cosP + Math.cos(yaw) * side
-    const offY = back * sinP
-    const reach = Math.hypot(offX, offZ)
-    // Boom collision: snap IN immediately when a wall intrudes (so the camera
-    // never lags behind it and flashes the void), but ease back OUT smoothly so
-    // it zooms rather than popping once the wall is clear. The offset seat is
-    // what gets clipped, not the centred one, so a shoulder pressed to a wall
-    // still comes in. Looking near-straight down the horizontal run collapses
-    // to nothing and there is no wall to clip against, so the test is skipped.
-    const targetBoom = reach > 0.05
-      ? clipBoom(headX, headZ, offX / reach, offZ / reach, reach, Math.min(pivotY + offY, local.z + 1))
-      : reach
-    boomDist = targetBoom < boomDist
-      ? targetBoom
-      : boomDist + (targetBoom - boomDist) * (1 - Math.exp(-dt * 9))
-    const scale = reach > 0.05 ? Math.min(1, boomDist / reach) : 1
+    let offX = 0
+    let offZ = 0
+    let offY = 0
+    let reach = 0
+    let side = 0
+    let cosP = 1
+    let sinP = 0
+    /** The ideal seat for a pitch, and how far along the boom it is clear. */
+    const seat = (angle: number) => {
+      cosP = Math.cos(angle)
+      sinP = Math.sin(angle)
+      // Back along the view axis, out along the camera's own right
+      // (`cross(forward, up)` for a forward of `(cos yaw, 0, sin yaw)`), and up
+      // by however far the pitch has swung it over the player. Steep pitch pulls
+      // the boom in as well as up: left at full extension the camera would sit
+      // four tiles over your head, and the tile under the crosshair would be a
+      // postage stamp. In close it is a proper overhead view, and close enough
+      // for the fade below to take the character out of the shot.
+      const steep = Math.max(0, Math.min(1, (angle - PITCH_MAX) / (PITCH_MAX_TOOL - PITCH_MAX)))
+      const back = (MAX_BOOM - SHOULDER_CLOSE * shoulderMix) * (1 - STEEP_CLOSE * steep)
+      // The shoulder fades out as the view tips down: looking at your own boots
+      // there is no character left to see past, and an off-centre overhead
+      // camera puts the crosshair a tile to the side of the one you stand on.
+      side = SHOULDER_SIDE * build.shoulder.value * shoulderMix * (1 - steep)
+      offX = -Math.cos(yaw) * back * cosP - Math.sin(yaw) * side
+      offZ = -Math.sin(yaw) * back * cosP + Math.cos(yaw) * side
+      offY = back * sinP
+      reach = Math.hypot(offX, offZ)
+      // Boom collision. The offset seat is what gets clipped, not the centred
+      // one, so a shoulder pressed to a wall still comes in. Looking
+      // near-straight down the horizontal run collapses to nothing and there is
+      // no wall to clip against, so the test is skipped.
+      return reach > 0.05
+        ? clipBoom(headX, headZ, offX / reach, offZ / reach, reach, pivotY, pivotY + offY)
+        : reach
+    }
+    // Ground in the way: find the lowest pitch that clears it. It is a floor
+    // under the player's own pitch and not an amount added to it, so tilting
+    // down towards it changes nothing until the mouse passes it. Added on top,
+    // the two stacked: a player looking down into a pit was carried on up to the
+    // overhead seat, which is the one that closes the boom in on purpose.
+    let floor = Number.NEGATIVE_INFINITY
+    if (seat(props.view.pitch) < reach * LIFT_CLEAR && boomHitGround) {
+      let low = props.view.pitch
+      let high = low
+      while (high < LIFT_PITCH_MAX) {
+        high = Math.min(LIFT_PITCH_MAX, high + LIFT_STEP)
+        if (seat(high) >= reach * LIFT_CLEAR || !boomHitGround) break
+        low = high
+      }
+      // Halved a few times so the floor moves with the player in small steps
+      // instead of a `LIFT_STEP` at a time.
+      for (let i = 0; i < 4; i++) {
+        const mid = (low + high) / 2
+        if (seat(mid) >= reach * LIFT_CLEAR || !boomHitGround) high = mid
+        else low = mid
+      }
+      floor = high
+    }
+    // Up at once: an eased rise spends its first frames with the line still
+    // blocked, which snaps the boom in, and the two then chase each other. Back
+    // down gently, so climbing out of a pit does not swing the view.
+    pitchFloor = floor > pitchFloor
+      ? floor
+      : Math.max(floor, pitchFloor - dt * LIFT_FALL)
+    const targetBoom = seat(Math.max(props.view.pitch, pitchFloor))
+    // Snap IN immediately when something intrudes (so the camera never lags
+    // behind it and flashes the void), hold, then ease back OUT smoothly so it
+    // zooms rather than popping once the way is clear.
+    // Kept as a share of the seat's reach, not a distance: the reach itself
+    // shortens as the pitch steepens, and a shorter boom is not a blocked one.
+    const clear = reach > 0.05 ? Math.min(1, targetBoom / reach) : 1
+    if (clear < boomClear) {
+      boomClear = clear
+      boomHeld = BOOM_HOLD
+    }
+    else if ((boomHeld -= dt) <= 0) {
+      boomClear += (clear - boomClear) * (1 - Math.exp(-dt * 9))
+    }
+    const scale = boomClear
     camX = headX + offX * scale
     camY = pivotY + offY * scale
     camZ = headZ + offZ * scale

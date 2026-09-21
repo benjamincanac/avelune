@@ -5,7 +5,7 @@
 // decides whether a body walks under a piece, into it, or onto it.
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { PLAYER_SPEED, hitsRaisedPiece, stepBody, surfaceHeight, terrainHeight } from '../shared/utils/maze'
+import { PLAYER_SPEED, hitsRaisedPiece, isPieceCameraBlocked, isRampartCameraBlocked, stepBody, surfaceHeight, terrainHeight } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
 import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, isEdgeKind, overlappingPiece, plotBounds, plotOwner, refusalText, resolveBuild, snapGridFor, snapPlacement, supportHeight } from '../shared/utils/building'
 import { propFromPlacement } from '../shared/utils/props'
@@ -171,6 +171,24 @@ test('kit stairs carry a walking body up to the floor above', () => {
   // Halfway up, the body is on a tread rather than on the ground or the top.
   const midway = walk(world, bodyAt(gx, gy - 2), 0, 1, 8)
   assert.ok(midway.z > 0 && midway.z < rise, `midway height was ${midway.z}`)
+})
+
+test('kit stairs block the camera as a wedge, not as a box', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 8, 10)
+  const rise = KIT_ASSETS.Kit_Stairs.height
+  // A flight rising along +y: low treads at gy - 1, the top step at gy + 1.
+  put(world, 'stairs', 'Kit_Stairs', gx, gy, 0, 0)
+  const blocked = (y: number, elevation: number) => isRampartCameraBlocked(world, gx, y, elevation, 0.25) || isPieceCameraBlocked(world, gx, y, elevation, 0.25)
+
+  // Someone near the top has their camera trailing over the low treads, at
+  // about the height of their own head. That is well clear of the flight there.
+  assert.equal(blocked(gy - 0.7, rise * 0.8), false, 'the low treads blocked a camera far above them')
+  // Inside the flight it is still solid: under the top step, and down in a tread.
+  assert.equal(blocked(gy + 0.7, rise * 0.3), true, 'the camera passed under the top step')
+  assert.equal(blocked(gy - 0.7, 0.05), true, 'the camera passed through the bottom tread')
+  // And clear above the whole thing.
+  assert.equal(blocked(gy + 0.7, rise + 1), false)
 })
 
 test('the build rules refuse a piece in the same band and allow one on top', () => {

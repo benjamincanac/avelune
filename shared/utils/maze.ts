@@ -622,7 +622,9 @@ export function isRampartCameraBlocked(world: World, x: number, z: number, eleva
  */
 export function isPieceCameraBlocked(world: World, x: number, z: number, elevation: number, radius: number): boolean {
   for (const prop of propsNear(world, x, z, radius)) {
-    if (prop.base == null || prop.height <= 0 || prop.kind === 'Courtyard_Fountain') continue
+    // Stairs keep a full-height box for the build rules, but what the camera
+    // meets is the ramp in `ramparts.ts`, which `isRampartCameraBlocked` tests.
+    if (prop.base == null || prop.height <= 0 || prop.kind === 'Courtyard_Fountain' || isHeightAwareKind(prop.kind)) continue
     if (elevation + radius < prop.base || elevation - radius > prop.top) continue
     for (const dx of [-radius, 0, radius]) {
       for (const dz of [-radius, 0, radius]) {
