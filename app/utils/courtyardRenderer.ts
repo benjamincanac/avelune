@@ -39,8 +39,6 @@ const BLOOM_NIGHT = { threshold: 0.52, strength: 0.42 }
  *  time: a pass cannot be added to a composer after the fact, so `MazeScene`
  *  rebuilds the pipeline rather than mutating it. */
 export interface RenderQuality {
-  /** MSAA samples on the target every pass reads from. */
-  samples: number
   /** Ground-truth ambient occlusion. A whole extra scene pass, and the first
    *  thing to go on a machine that cannot hold the frame. */
   occlusion: boolean
@@ -68,7 +66,7 @@ const OCCLUSION_FLOOR = 20
  */
 const OCCLUSION_SCALE = 0.5
 
-const FULL_QUALITY: RenderQuality = { samples: 4, occlusion: true, bloom: true }
+const FULL_QUALITY: RenderQuality = { occlusion: true, bloom: true }
 
 /** A linear-light render pipeline. Contact shading grounds the detailed assets;
  * bloom is reserved for highlights, and tone mapping happens exactly once. */
@@ -80,7 +78,10 @@ export function createCourtyardRenderer(renderer: WebGLRenderer, scene: Scene, c
   // exactly once per frame, at the top of the pipeline.
   const previousAutoUpdate = renderer.shadowMap.autoUpdate
   renderer.shadowMap.autoUpdate = false
-  const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: quality.samples })
+  // No MSAA on the target. SMAA already runs at the end of the chain, so the
+  // image was being anti-aliased twice, and four samples of a half-float target
+  // at a retina pixel count was worth seven frames a second on its own.
+  const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType })
   const composer = new EffectComposer(renderer, target)
   const color = new RenderPass(scene, camera)
   // GTAO replaces materials with an opaque normal material. Sprite alpha maps

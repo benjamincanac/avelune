@@ -17,8 +17,6 @@ export type GraphicsDetail = 'low' | 'medium' | 'high'
 export interface GraphicsProfile {
   /** Device pixels per CSS pixel. The single biggest cost on an old GPU. */
   pixelRatio: number
-  /** MSAA samples on the post pipeline's target. */
-  samples: number
   /** Ground-truth ambient occlusion. Expensive: a whole extra scene pass. */
   occlusion: boolean
   bloom: boolean
@@ -42,9 +40,9 @@ export interface GraphicsProfile {
  *  meadow's fade inside `detailRadius` chunks; `scripts/graphics-test.ts` holds
  *  that. */
 export const GRAPHICS_DETAIL: Record<GraphicsDetail, Omit<GraphicsProfile, 'pixelRatio' | 'occlusion' | 'bloom' | 'shadows'>> = {
-  low: { samples: 0, shadowMapSize: 1024, shadowDistance: 70, detailRadius: 1, detailDrop: 2, grassDensity: 0.3, grassRange: 0.5, rain: 0.35 },
-  medium: { samples: 2, shadowMapSize: 1024, shadowDistance: 100, detailRadius: 2, detailDrop: 3, grassDensity: 0.65, grassRange: 0.8, rain: 0.7 },
-  high: { samples: 4, shadowMapSize: 2048, shadowDistance: 120, detailRadius: 2, detailDrop: 3, grassDensity: 1, grassRange: 1, rain: 1 },
+  low: { shadowMapSize: 1024, shadowDistance: 70, detailRadius: 1, detailDrop: 2, grassDensity: 0.3, grassRange: 0.5, rain: 0.35 },
+  medium: { shadowMapSize: 1024, shadowDistance: 100, detailRadius: 2, detailDrop: 3, grassDensity: 0.65, grassRange: 0.8, rain: 0.7 },
+  high: { shadowMapSize: 2048, shadowDistance: 120, detailRadius: 2, detailDrop: 3, grassDensity: 1, grassRange: 1, rain: 1 },
 }
 
 /** The controls the Escape menu shows, and all that is ever stored. */
