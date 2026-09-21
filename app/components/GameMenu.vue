@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
             <p class="text-[13px]/[1.55] text-muted text-pretty">
               Voice only reaches players standing near you in the world, and it stops when they walk away.
               Audio goes to the server and straight back out to them, and nothing is stored.
-              While Post what I say to chat is on, each thing you say while holding T is also written into the chat.
+              While Post what I say to chat is on, each thing you say while holding T is also sent to a speech to text provider to be written into the chat.
             </p>
             <UButton
               color="neutral"

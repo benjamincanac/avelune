@@ -3,7 +3,7 @@ import { VOICE_FRAME_KIND } from '#shared/utils/voice'
 import type { Connection } from '../utils/game'
 import { registerConnection } from '../utils/game'
 import { loadPosition } from '../utils/positions'
-import { verifyCookieHeader } from '../utils/session'
+import { sameOriginUpgrade, verifyCookieHeader } from '../utils/session'
 
 /**
  * The `/api/ws` endpoint.
@@ -25,6 +25,11 @@ const opening = new Set<string>()
 
 export default defineWebSocketHandler({
   async open(peer) {
+    // A cross-site handshake is refused before the cookie is even read.
+    if (!sameOriginUpgrade(peer.request?.headers)) {
+      peer.close()
+      return
+    }
     // Identity rides the signed cookie on the same-origin WS upgrade. No valid
     // cookie means the client skipped onboarding — close the socket.
     const identity = verifyCookieHeader(peer.request?.headers?.get('cookie'))

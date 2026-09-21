@@ -92,6 +92,36 @@ export function verifyCookieHeader(header: string | null | undefined): Identity 
   return null
 }
 
+/**
+ * Whether a WebSocket upgrade came from this deployment's own pages.
+ *
+ * The second half of the gate on `/api/ws`, beside the cookie. The identity
+ * cookie is `SameSite=Lax`, so a browser will not hand it to a handshake started
+ * from another site — this says the same thing again rather than leaving it to
+ * cookie policy alone, because a socket opened on somebody else's behalf is not
+ * just their character. It is a live feed of every microphone standing near it.
+ *
+ * A handshake with no `Origin` did not come from a page, so it cannot be
+ * carrying a victim's cookie without their knowing: that is `ws-test.mjs` and
+ * the bots, and they are let through.
+ */
+export function sameOriginUpgrade(headers: Headers | undefined): boolean {
+  const origin = headers?.get('origin')
+  if (!origin) return true
+  // Behind a proxy the socket's own `host` is the internal one, so the forwarded
+  // name is what the page actually typed. It is a list when more than one proxy
+  // has been through it, and the first entry is the client's.
+  const host = (headers?.get('x-forwarded-host') ?? headers?.get('host') ?? '').split(',')[0]!.trim()
+  if (!host) return false
+  try {
+    return new URL(origin).host === host
+  }
+  catch {
+    // Not a url. The literal `null` a sandboxed frame sends lands here too.
+    return false
+  }
+}
+
 export function newUserId(): string {
   return randomUUID()
 }

@@ -12,9 +12,12 @@ import { transcribeClip, transcriptionConfigured } from '../../utils/transcribe'
  * the client records twice rather than making the server mux. The body is the
  * container bytes and nothing else.
  *
- * Nothing is stored. The audio is held for the length of one model call and then
- * dropped, and the transcript is never logged. It goes in the chat, which is the
- * only place a player's words belong.
+ * Nothing is stored here. The audio is held for the length of one model call and
+ * then dropped, and the transcript is never logged. It goes in the chat, which is
+ * the only place a player's words belong. The clip does leave the deployment for
+ * that call, to a model that has no zero data retention on the Gateway (see
+ * `../../utils/transcribe.ts`), which is why the menu's notice says so before
+ * anybody speaks rather than promising the audio never goes anywhere.
  *
  * Every call costs money on a public demo, so the gates are tight: the signed
  * cookie, a live session with voice on, a byte cap, and a per-identity allowance
@@ -43,7 +46,24 @@ interface Usage {
  *  and not worth a store round trip on a voice clip. */
 const usage = new Map<string, Usage>()
 
+/**
+ * Forget identities whose windows have run out.
+ *
+ * A map keyed by identity that is only ever added to is a slow leak on an
+ * instance that stays warm for days, and a player who spoke once an hour ago is
+ * indistinguishable from one who never has. Swept from `allow`, which is the
+ * only thing that writes here and runs at most a handful of times a minute.
+ */
+function sweep(now: number): void {
+  for (const [id, seen] of usage) {
+    if (seen.clips.some(at => now - at < CLIP_WINDOW)) continue
+    if (seen.bytes.some(([at]) => now - at < LONG_WINDOW)) continue
+    usage.delete(id)
+  }
+}
+
 function allow(id: string, size: number, now: number): boolean {
+  sweep(now)
   const seen = usage.get(id) ?? { clips: [], bytes: [] }
   usage.set(id, seen)
   seen.clips = seen.clips.filter(at => now - at < CLIP_WINDOW)
@@ -54,6 +74,45 @@ function allow(id: string, size: number, now: number): boolean {
   seen.clips.push(now)
   seen.bytes.push([now, size])
   return true
+}
+
+/**
+ * Read the body, or give up the moment it goes past the cap.
+ *
+ * `arrayBuffer()` buffers whatever was sent and hands it over whole, so a size
+ * check after it has already held the bytes in memory. A clip is a quarter of a
+ * megabyte; this stops at that and cancels the stream, so an unbounded upload
+ * costs the instance one chunk rather than all of them.
+ */
+async function readCapped(req: Request, cap: number): Promise<Uint8Array | null> {
+  const stream = req.body
+  // No stream to read: nothing was sent, which the caller reads as an empty clip.
+  if (!stream) return new Uint8Array()
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.length
+      if (total > cap) {
+        void reader.cancel().catch(() => {})
+        return null
+      }
+      chunks.push(value)
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+  const body = new Uint8Array(total)
+  let at = 0
+  for (const chunk of chunks) {
+    body.set(chunk, at)
+    at += chunk.length
+  }
+  return body
 }
 
 export default defineEventHandler(async (event) => {
@@ -79,16 +138,24 @@ export default defineEventHandler(async (event) => {
     return { ok: false as const, reason: 'unsupported audio' }
   }
 
-  // The web request body rather than `readRawBody`: h3 2 deprecates that helper
-  // and this is bytes, never text.
-  const body = new Uint8Array(await event.req.arrayBuffer())
+  // The declared length first, so an obviously oversized body is refused without
+  // reading a byte of it.
+  const declared = Number(getHeader(event, 'content-length'))
+  if (Number.isFinite(declared) && declared > MAX_CLIP_BYTES) {
+    setResponseStatus(event, 413)
+    return { ok: false as const, reason: 'clip too long' }
+  }
+
+  const body = await readCapped(event.req, MAX_CLIP_BYTES)
+  // Past the cap with nothing declared, which is what a chunked upload looks
+  // like. The read stopped there rather than buffering the rest.
+  if (!body) {
+    setResponseStatus(event, 413)
+    return { ok: false as const, reason: 'clip too long' }
+  }
   if (!body.length) {
     setResponseStatus(event, 400)
     return { ok: false as const, reason: 'empty clip' }
-  }
-  if (body.length > MAX_CLIP_BYTES) {
-    setResponseStatus(event, 413)
-    return { ok: false as const, reason: 'clip too long' }
   }
   if (!allow(identity.id, body.length, Date.now())) {
     setResponseStatus(event, 429)

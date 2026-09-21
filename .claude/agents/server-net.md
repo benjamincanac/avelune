@@ -90,7 +90,9 @@ bytes between it and clients.
   transcribed through the Gateway on the boot-captured `nativeFetch` for the same
   reason the Oracle is. The route is gated on the signed cookie *and* on a live
   session with voice on (`hasLiveVoice`), capped by bytes and rate limited per
-  identity, because every call costs money on a public demo. The transcript goes
+  identity, because every call costs money on a public demo. The body is read
+  through a capped reader rather than `arrayBuffer()`, so an oversized upload is
+  abandoned mid-stream instead of being buffered whole and measured afterwards. The transcript goes
   in through `speakForIdentity`, the exported wrapper around the same `sayChat` a
   typed line uses, which is why the Oracle's classifier reads speech with no
   change at all. The transcript is never logged and the clip is dropped after the
@@ -144,7 +146,14 @@ bytes between it and clients.
    with client prediction. If you need new physics, ask the `world-sim` agent to
    add it to the shared module and consume it — don't fork it server-side.
 3. **Identity rides the signed cookie on the same-origin WS upgrade.** No valid
-   cookie ⇒ close the socket (they skipped onboarding).
+   cookie ⇒ close the socket (they skipped onboarding). The upgrade is gated on
+   the origin too (`sameOriginUpgrade`, beside the cookie in `session.ts`): a
+   handshake whose `Origin` is not this deployment's host is closed before the
+   cookie is read. The cookie is `SameSite=Lax` and a browser would not send it
+   cross-site anyway, so this is the second lock, and it is worth having because
+   a socket opened on somebody's behalf carries the microphones around them.
+   A handshake with **no** `Origin` passes: that is not a page, so it cannot be
+   holding a victim's cookie, and it is how `ws-test.mjs` and the bots connect.
    **One live session per identity.** `sessions` is keyed by identity id, so a
    second connection (another tab, or a refresh that raced its own close) would
    overwrite the first. `registerConnection` makes the newest win: it installs
