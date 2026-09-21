@@ -2,11 +2,9 @@ import { MeshStandardMaterial, Vector3 } from 'three'
 import type { Color, Material, Object3D, PerspectiveCamera, Scene } from 'three'
 import { CSM } from 'three/addons/csm/CSM.js'
 
-/** How often the scene is re-scanned for materials that still need the CSM
- *  shader injection. Templates finish loading and character rigs appear long
- *  after the world is first built, and a material that misses the injection
- *  reads all three cascade lights as separate suns. */
-const SETUP_INTERVAL = 0.5
+/** Two splits retain a sharp near field and a shadowed horizon while avoiding
+ * a third scene render on every frame. Keep this explicit for visual A/Bs. */
+export const SHADOW_CASCADES = 2
 
 type Hookable = Material & {
   onBeforeCompile: NonNullable<Material['onBeforeCompile']>
@@ -16,9 +14,9 @@ type Hookable = Material & {
 /**
  * Cascaded shadow maps for the town's sun.
  *
- * The three cascade lights *are* the sun: the CSM shader patch rewrites the
+ * The cascade lights *are* the sun: the CSM shader patch rewrites the
  * directional-light loop so exactly one cascade lights each fragment, and it
- * assumes every directional light in the scene is one of its cascades. A fourth
+ * assumes every directional light in the scene is one of its cascades. Another
  * DirectionalLight would fall outside `NUM_DIR_LIGHT_SHADOWS` and contribute no
  * direct light at all, so the caller must not keep a separate sun.
  *
@@ -31,7 +29,7 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
   const csm = new CSM({
     parent: scene,
     camera,
-    cascades: 3,
+    cascades: SHADOW_CASCADES,
     maxFar: 120,
     mode: 'practical',
     shadowMapSize: 2048,
@@ -48,7 +46,12 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
   const patched = new WeakSet<Material>()
   // Weak: a material that the scene has dropped must not be kept alive by the
   // restore bookkeeping. `csm.shaders` is the enumerable list of what to restore.
-  const originals = new WeakMap<Material, { compile: Hookable['onBeforeCompile'], key: Hookable['customProgramCacheKey'] }>()
+  const originals = new WeakMap<Material, {
+    compile: Hookable['onBeforeCompile']
+    key: Hookable['customProgramCacheKey']
+    characterRim: unknown
+    foliageShader: unknown
+  }>()
   const cacheSuffix = `|csm${csm.cascades}${csm.fade ? 'f' : ''}`
 
   function setupMaterial(material: Hookable) {
@@ -56,7 +59,12 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
     patched.add(material)
     const compile = material.onBeforeCompile
     const key = material.customProgramCacheKey
-    originals.set(material, { compile, key })
+    originals.set(material, {
+      compile,
+      key,
+      characterRim: material.userData.characterRim,
+      foliageShader: material.userData.foliageShader,
+    })
     csm.setupMaterial(material)
     const inject = material.onBeforeCompile
     material.onBeforeCompile = function (shader, renderer) {
@@ -81,11 +89,11 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
     })
   }
   setupScene(scene)
+  // MazeScene bumps this when a chunk, floor, or rig changes. An explicit
+  // setupScene call still covers a newly added rig before the next render.
+  let scannedVersion = typeof scene.userData.version === 'number' ? scene.userData.version : 0
 
   const direction = new Vector3()
-  // Starts expired so the very first update patches everything the world built
-  // during setup, before the renderer has compiled any of it.
-  let scanTimer = 0
   let frustumCamera: PerspectiveCamera | null = camera
   let frustumKey = ''
 
@@ -107,6 +115,10 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
         csm.maxFar = maxFar
         csm.updateFrustums()
       }
+      // CSM uses this field to snap cascade centres to shadow-map texels.
+      // Updating the lights alone would leave Medium's 1024px maps snapped
+      // on the old 2048px grid and make their shadows shimmer in motion.
+      csm.shadowMapSize = mapSize
       for (const light of csm.lights) {
         if (light.shadow.mapSize.x === mapSize) continue
         light.shadow.mapSize.setScalar(mapSize)
@@ -118,7 +130,7 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
      * `sunDirection` points from the town toward the sun (the sky module's
      * convention); CSM wants the direction light travels.
      */
-    update(activeCamera: PerspectiveCamera, sunDirection: Vector3, color: Color, intensity: number, delta: number) {
+    update(activeCamera: PerspectiveCamera, sunDirection: Vector3, color: Color, intensity: number, _delta: number) {
       const key = `${activeCamera.fov}|${activeCamera.aspect}|${activeCamera.near}|${activeCamera.far}`
       if (frustumCamera !== activeCamera || frustumKey !== key) {
         frustumCamera = activeCamera
@@ -138,9 +150,9 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
         light.intensity = intensity
       }
       csm.update()
-      scanTimer -= delta
-      if (scanTimer <= 0) {
-        scanTimer = SETUP_INTERVAL
+      const version = typeof scene.userData.version === 'number' ? scene.userData.version : 0
+      if (version !== scannedVersion) {
+        scannedVersion = version
         setupScene(scene)
       }
     },
@@ -156,11 +168,13 @@ export function createCascadedShadows(scene: Scene, camera: PerspectiveCamera) {
         if (!hooks) continue
         material.onBeforeCompile = hooks.compile
         material.customProgramCacheKey = hooks.key
-        // Hooks installed *after* the CSM patch (the character rim, the foliage
-        // wind) chained onto it and went with it. Their `userData` guards would
-        // otherwise report them as still installed and block a reinstall.
-        delete material.userData.characterRim
-        delete material.userData.foliageShader
+        // Hooks installed after CSM chained onto its wrapper and disappeared
+        // when the saved callback was restored. Hooks that were already there
+        // are still in that callback, so their guards must survive too.
+        if (hooks.characterRim === undefined) delete material.userData.characterRim
+        else material.userData.characterRim = hooks.characterRim
+        if (hooks.foliageShader === undefined) delete material.userData.foliageShader
+        else material.userData.foliageShader = hooks.foliageShader
         material.needsUpdate = true
       }
       for (const light of csm.lights) light.shadow.dispose()

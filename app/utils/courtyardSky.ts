@@ -418,9 +418,8 @@ export function createCourtyardSky(scene: Scene) {
   let previousWeather: WeatherMode = 'auto'
   let previousTimeOfDay: TimeOfDayMode = 'auto'
   return {
-    /** Patch freshly built or freshly loaded materials for cascaded shadows.
-     *  The per-frame update rescans on its own, so calling this after a floor
-     *  rebuild is an optimisation, not a requirement. */
+    /** Explicitly patch newly attached materials. Normal scene updates bump
+     *  scene.userData.version after attachment, and the next frame scans once. */
     setupShadows() {
       shadows.setupScene(scene)
     },

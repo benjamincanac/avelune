@@ -40,9 +40,16 @@ world from the seed and the committed layout JSON, because it authors them.
   per-chunk instanced batches built from each chunk's `placements`, the Oracle
   rig, and the sky/day-night + weather clock. It also owns the third-person
   camera (the polar boom, `clipBoom`, the shoulder offset), local prediction and
-  reconciliation, and other-player interpolation. It holds the chunk groups and the
-  four hooks the streaming layer drives (see **Chunk rendering**), and it is what
+  reconciliation, and other-player interpolation. It forwards the four chunk
+  hooks (see **Chunk rendering**), and it is what
   aims and sends the hotbar's verbs (see **Crosshair targeting**).
+- `app/components/scene/` owns rendering lifecycles: `WorldChunks` manages chunk
+  batches and streaming subscriptions, `OracleCharacter` loads and animates the
+  Oracle, `CharacterNameplate` owns its canvas texture, and `PostProcessing`
+  owns the composer. Use shallow refs/collections for Three objects. Tres templates
+  attach cameras, lights, rigs and batch roots; frame callbacks mutate transforms
+  directly. Borrowed primitives use `:dispose="null"` and explicit owner cleanup.
+  Signal topology changes after `nextTick` so shadow/GTAO scans see attached nodes.
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
   stars, Milky Way and moon, outdoor lights, fog, rain, lightning and sky
   environment. All animation follows the server clock, lightning included
@@ -72,7 +79,10 @@ world from the seed and the committed layout JSON, because it authors them.
   from GTAO overrides, hide other pools and sprites during reflection, and guard
   against recursive reflection renders. Its Reflector target is 512 for a bowl
   wider than a unit radius and 256 for the rest, and is disposed with the pool.
-  Keep normals correct under nonuniform scale.
+  Keep normals correct under nonuniform scale. `fountainCapture.ts` limits captures
+  of an unchanged view to 30 Hz nearby / 10 Hz beyond 12 units. Camera identity,
+  transform, projection or pool transform changes force an immediate capture;
+  screen-space refraction and Reflector's texture matrix must describe the same view.
   Shared player collision uses the stepped basin and central pedestal from
   `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
   remote feet through each fountain inverse transform for cosmetic wakes; water
@@ -274,11 +284,11 @@ world from the seed and the committed layout JSON, because it authors them.
    models in both play and editor. The palette and save allow-list contain only
    courtyard kinds; legacy environment kits and thumbnails are not shipped. Register completed custom
    templates before `buildFloor()` so editor selection and instancing agree.
-7. `courtyardRenderer.ts` owns the render loop's EffectComposer with contact
+7. `courtyardRenderer.ts` builds the render loop's EffectComposer with contact
    occlusion, restrained bloom and one OutputPass. It takes a `RenderQuality` at
-   build time and is **rebuilt, never mutated**, when that changes: a composer's
-   passes are fixed once it is built, so `MazeScene` disposes the pipeline and
-   drops it for the next frame to recreate. Call Tres's render notification
+   build time. `PostProcessing.vue` rebuilds it when samples, occlusion or bloom
+   change; resolution and shadow changes preserve the composer and its targets.
+   Call Tres's render notification
    after rendering. Tres tears down its separate Vue tree after disposing the
    renderer, so `MazeScene` emits its idempotent cleanup callback to `GameScene`.
    The host calls it in `onBeforeUnmount`, while GPU resource tables still exist.
@@ -289,6 +299,11 @@ world from the seed and the committed layout JSON, because it authors them.
    those borrowed resources.
 
 ## Known rendering gotchas (from ROADMAP)
+- CSM uses two cascades. Material scans follow `scene.userData.version`, updated
+  after attachments, instead of a periodic scene traversal. Quality changes update
+  both light map sizes and `csm.shadowMapSize` (used for texel snapping). On teardown,
+  restore shader hooks and their original rim/foliage guards together: retaining a
+  hook while deleting its guard injects duplicate uniforms on the next mount.
 - GTAO's normal override ignores sprite alpha maps. Hide sprites only during
   the occlusion pass and restore their visibility afterward, or nameplates cast
   rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
@@ -391,7 +406,7 @@ an instance tint clone: a CSM-patched hook re-registers the clone's shader under
 the source material in `csm.shaders` and the source stops getting cascade
 updates. Re-install instead — `townMaterials.reapply` reads the
 `userData.townMaterial` recipe `apply` leaves behind, `applyFoliage` re-runs, and
-the CSM sweep (`atmosphere.setupShadows()`, called after every build and rig) patches
+the CSM scan (triggered by the scene version after each build and rig attachment) patches
 the clone as a material of its own. Clear the `userData.foliageShader` /
 `userData.characterRim` guards on any clone, or the hooks they mark never
 reinstall. Every town material hook chains the previous one.
@@ -421,10 +436,12 @@ supporting leg abruptly.
 
 ## Chunk rendering
 
-The world is drawn chunk by chunk, not as one floor. `MazeScene` keeps a
-`Map<chunkKey, MountedChunk>` of `{ group, terrain, props, grass, paving, detail }` and
-exposes the four hooks the `chunk` / `unchunk` / `terrain` / `place` and
-`remove` frames map onto, via `defineExpose`:
+The world is drawn chunk by chunk. `WorldChunks.vue` keeps a shallow reactive
+`Map<chunkKey, MountedChunk>` of `{ group, terrain, props, grass, paving, detail }`;
+its template attaches each chunk root. Internal procedural batches remain raw.
+It owns the streaming subscriptions and exposes the four hooks the `chunk` /
+`unchunk` / `terrain` / `place` and `remove` frames map onto. `MazeScene` forwards
+these hooks via `defineExpose`:
 
 ```ts
 mountChunk(cx, cy, detail = true)   // idempotent; upgrades a mounted chunk's detail

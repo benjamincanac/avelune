@@ -3,6 +3,7 @@ import type { Object3D, Scene } from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { FOUNTAIN } from '../../shared/utils/courtyard'
 import type { createFountainSimulation } from './fountainSimulation'
+import { createFountainCaptureSchedule } from './fountainCapture'
 
 const reflecting = new WeakSet<Scene>()
 
@@ -274,12 +275,22 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
   const caustics = sim.radius > 1 ? createCaustics(geometry, normalTexture, sim.radius, sim.pedestalRadius, height - FOUNTAIN.floorHeight) : undefined
   const reflect = mesh.onBeforeRender.bind(mesh)
   const hidden: Object3D[] = []
+  const capture = createFountainCaptureSchedule()
+  const surfacePosition = new Vector3()
   let disposed = false
   mesh.onBeforeRender = (renderer, scene, camera, ...args) => {
     // GTAO's normal override and mirrored/shadow cameras must never trigger a
     // nested world render. Other pools are hidden to avoid feedback recursion.
     if (disposed || scene.overrideMaterial || reflecting.has(scene) || camera.userData.fountainReflection) return
     material.uniforms.eye!.value.setFromMatrixPosition(camera.matrixWorld)
+    const now = performance.now()
+    surfacePosition.setFromMatrixPosition(mesh.matrixWorld)
+    const distanceSquared = surfacePosition.distanceToSquared(material.uniforms.eye!.value)
+    // The ordinary render-list visibility test already excludes offscreen
+    // pools. Visible, stationary views capture at 30 Hz nearby / 10 Hz farther
+    // away. Moving the camera refreshes immediately to preserve screen-space
+    // refraction and Reflector's matching texture projection.
+    if (!capture.needsCapture(now, distanceSquared, camera, mesh.matrixWorld)) return
     const mirrorCamera = mesh.getReflectionCamera(camera)
     mirrorCamera.userData.fountainReflection = true
     scene.traverse((object) => {
@@ -306,6 +317,7 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
         mesh.visible = true
       }
       reflect(renderer, scene, camera, ...args)
+      capture.captured(now, camera, mesh.matrixWorld)
     }
     finally {
       reflecting.delete(scene)
