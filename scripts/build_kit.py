@@ -1,6 +1,6 @@
-"""Player build kit: twelve modular pieces on a 2 unit grid.
+"""Player build kit: thirteen modular pieces on a 2 unit grid.
 Run Blender --background --python scripts/build_kit.py.
-Use -- --sheet <path> to also render a twelve-up contact sheet.
+Use -- --sheet <path> to also render a contact sheet of every piece.
 
 Conventions, matching the authored town in build_courtyard_architecture.py:
   * Blender Z up, exported +Y up (export_yup): glTF X = Blender X,
@@ -174,7 +174,7 @@ def height_slab(name, hfunc, thickness, material, nx=4, ny=4, x0=-1, x1=1, y0=-1
     return mesh(name, top + bottom, faces, material)
 
 
-# --- the twelve pieces -------------------------------------------------------
+# --- the thirteen pieces -----------------------------------------------------
 # Declared as width (X) x depth (Y, exported Z) x height (Z, exported Y).
 
 WALL_W, WALL_D, WALL_H = 2.0, .30, 2.5

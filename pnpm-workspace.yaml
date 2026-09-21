@@ -21,5 +21,13 @@ allowBuilds:
 #   `node_modules/vue` unless it is listed, the externalization check fails, the
 #   ssr environment inlines `vue/index.mjs` and its CJS `index.js`, and every
 #   render 500s with `module is not defined`.
+minimumReleaseAgeExclude:
+  - '@nuxt/kit-nightly@5.0.0-29833065.3475e78e'
+  - '@nuxt/nitro-server-nightly@5.0.0-29833065.3475e78e'
+  - '@nuxt/schema-nightly@5.0.0-29833065.3475e78e'
+  - '@nuxt/vite-builder-nightly@5.0.0-29833065.3475e78e'
+  - '@nuxt/vite-server-nightly@5.0.0-29833065.3475e78e'
+  - nuxt-nightly@5.0.0-29833065.3475e78e
+
 overrides:
   nitro: 3.0.260903-beta

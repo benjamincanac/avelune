@@ -7,11 +7,11 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { PLAYER_SPEED, hitsRaisedPiece, stepBody, surfaceHeight, terrainHeight } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
-import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, overlappingPiece, plotBounds, plotOwner, refusalText, resolveBuild, snapGridFor, supportHeight } from '../shared/utils/building'
+import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, isEdgeKind, overlappingPiece, plotBounds, plotOwner, refusalText, resolveBuild, snapGridFor, snapPlacement, supportHeight } from '../shared/utils/building'
 import { propFromPlacement } from '../shared/utils/props'
 import { KIT_ASSETS } from '../shared/utils/kit'
-import { generateVegetation } from '../shared/utils/vegetation'
-import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
+import { generateVegetation, isWildTree } from '../shared/utils/vegetation'
+import { CHUNK_SIZE, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { worldTerrainHeight } from '../shared/utils/terrain'
 import { FORTIFICATIONS } from '../shared/utils/courtyard'
@@ -55,7 +55,7 @@ test('a tree generated on a hill collides at the hill height', () => {
   let found: { cx: number, cy: number, tree: { x: number, y: number, z?: number } } | undefined
   for (let cy = 5; cy <= 9 && !found; cy++) {
     for (let cx = 5; cx <= 9 && !found; cx++) {
-      const tree = generateVegetation(bare.seed, cx, cy).find(p => p.kind.startsWith('tree') && (p.z ?? 0) > 3)
+      const tree = generateVegetation(bare.seed, cx, cy).find(p => isWildTree(p.kind) && (p.z ?? 0) > 3)
       if (tree) found = { cx, cy, tree }
     }
   }
@@ -209,6 +209,229 @@ test('the build rules refuse a piece in the same band and allow one on top', () 
 })
 
 /* -------------------------------------------------------------------------- */
+/* Aim height                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** A one-cell room with a deck over it: ground slab, a wall on its south edge,
+ *  and a second slab at the top of that wall. */
+function twoStoreys(world: World, gx: number, gy: number) {
+  const floorH = KIT_ASSETS.Kit_Floor.height
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  put(world, 'ground-slab', 'Kit_Floor', gx, gy, 0, 0)
+  put(world, 'ground-wall', 'Kit_Wall', gx, gy - 1, 0, floorH)
+  put(world, 'deck', 'Kit_Floor', gx, gy, 0, floorH + wallH)
+  // Rounded the way `supportHeight` rounds, so 0.2 + 2.5 + 0.2 compares equal.
+  return { floorH, wallH, deckTop: Math.round((floorH + wallH + floorH) * 100) / 100 }
+}
+
+test('the aim height chooses which storey a piece lands on', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 10, 10)
+  const actor = { x: gx, y: gy }
+  const { floorH, deckTop } = twoStoreys(world, gx, gy)
+
+  // Aimed at the ground floor, a crate stays on the ground floor even though
+  // there is a deck over its head.
+  const downstairs = resolveBuild(world, { kind: 'Kit_Crate', x: gx, y: gy, rot: 0, h: floorH }, actor, { owner: 'builder', id: 'c1', pieces: 0 })
+  assert.ok(downstairs.ok, `downstairs refused: ${downstairs.ok === false && downstairs.reason}`)
+  assert.equal(downstairs.placement.z, floorH)
+
+  // Aimed at the deck, the same pose puts it upstairs.
+  const upstairs = resolveBuild(world, { kind: 'Kit_Crate', x: gx, y: gy, rot: 0, h: deckTop }, actor, { owner: 'builder', id: 'c2', pieces: 0 })
+  assert.ok(upstairs.ok, `upstairs refused: ${upstairs.ok === false && upstairs.reason}`)
+  assert.equal(upstairs.placement.z, deckTop)
+
+  // No aim height at all is the old rule: the tallest surface under the
+  // footprint wins, which is what sent everything to the roof.
+  const blind = resolveBuild(world, { kind: 'Kit_Crate', x: gx, y: gy, rot: 0 }, actor, { owner: 'builder', id: 'c3', pieces: 0 })
+  assert.ok(blind.ok)
+  assert.equal(blind.placement.z, deckTop)
+})
+
+test('a ground-floor wall pulled out can be put back in its slot', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 11, 10)
+  const actor = { x: gx, y: gy }
+  const { floorH, deckTop } = twoStoreys(world, gx, gy)
+  applyRemove(world, 'ground-wall')
+
+  // The slot is empty, but the deck still hangs over the far end of the panel.
+  const blind = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0 }, actor, { owner: 'builder', id: 'w-blind', pieces: 0 })
+  assert.ok(blind.ok)
+  assert.equal(blind.placement.z, deckTop, 'without an aim height the wall climbs onto the deck')
+
+  const back = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: floorH }, actor, { owner: 'builder', id: 'w-back', pieces: 0 })
+  assert.ok(back.ok, `rebuild refused: ${back.ok === false && back.reason}`)
+  assert.equal(back.placement.z, floorH)
+  // And it fits exactly: the wall's top meets the deck's underside.
+  assert.equal(back.placement.z + KIT_ASSETS.Kit_Wall.height, floorH + KIT_ASSETS.Kit_Wall.height)
+})
+
+test('a piece that will not fit under what is above it is refused', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 12, 10)
+  const actor = { x: gx, y: gy }
+  // A slab hung low over the cell — lower than a wall is tall.
+  put(world, 'low-deck', 'Kit_Floor', gx, gy, 0, 1.5)
+
+  const squeezed = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: 0 }, actor, { owner: 'builder', id: 'w1', pieces: 0 })
+  assert.equal(squeezed.ok, false)
+  assert.equal(squeezed.ok === false && squeezed.reason, 'no room there')
+
+  // A crate is short enough to fit under the same slab.
+  const crate = resolveBuild(world, { kind: 'Kit_Crate', x: gx, y: gy, rot: 0, h: 0 }, actor, { owner: 'builder', id: 'c1', pieces: 0 })
+  assert.ok(crate.ok, `crate refused: ${crate.ok === false && crate.reason}`)
+  assert.equal(crate.placement.z, 0)
+
+  // And a wall exactly as tall as the gap still fits: touching is clearance.
+  const world2 = createWorld()
+  const spot = levelChunk(world2, 13, 10)
+  put(world2, 'deck', 'Kit_Floor', spot.x, spot.y, 0, KIT_ASSETS.Kit_Wall.height)
+  const snug = resolveBuild(world2, { kind: 'Kit_Wall', x: spot.x, y: spot.y - 0.9, rot: 0, h: 0 }, spot, { owner: 'builder', id: 'w2', pieces: 0 })
+  assert.ok(snug.ok, `snug wall refused: ${snug.ok === false && snug.reason}`)
+  assert.equal(snug.placement.z, 0)
+})
+
+test('a nonsense aim height is ignored or clamped, never trusted', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 14, 10)
+  const actor = { x: gx, y: gy }
+  const { deckTop } = twoStoreys(world, gx, gy)
+
+  for (const h of [Number.NaN, Number.POSITIVE_INFINITY, 1e9]) {
+    const verdict = resolveBuild(world, { kind: 'Kit_Crate', x: gx, y: gy, rot: 0, h }, actor, { owner: 'builder', id: 'c1', pieces: 0 })
+    assert.ok(verdict.ok, `h=${h} refused: ${verdict.ok === false && verdict.reason}`)
+    assert.equal(verdict.placement.z, deckTop, `h=${h} should read as no hint at all`)
+  }
+
+  // Clamped downward it selects nothing above the terrain, which is a verdict
+  // rather than a crash: the ground slab is then in the way.
+  const sunk = resolveBuild(world, { kind: 'Kit_Crate', x: gx, y: gy, rot: 0, h: -1e9 }, actor, { owner: 'builder', id: 'c2', pieces: 0 })
+  assert.ok(!sunk.ok || sunk.placement.z <= 0, `h=-1e9 placed at ${sunk.ok && sunk.placement.z}`)
+})
+
+/* -------------------------------------------------------------------------- */
+/* Edge snapping                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** Rotations come back rounded to two decimals, so compare the same way. */
+const rot2 = (n: number) => Math.round(n * 100) / 100
+
+test('a panel snaps to the nearest cell edge and takes its heading from it', () => {
+  // Cell (0, 0) of the 2-tile grid spans [-1, 1] on both axes: its four edges
+  // are the midpoints of its sides. One aim per quadrant, each closer to one
+  // side than to the other.
+  assert.equal(isEdgeKind('Kit_Wall'), true)
+  assert.equal(isEdgeKind('Kit_Floor'), false)
+
+  const cases = [
+    { x: 0.6, y: -0.9, edge: { x: 0, y: -1 }, rot: 0 },
+    { x: -0.6, y: 0.9, edge: { x: 0, y: 1 }, rot: 0 },
+    { x: 0.9, y: 0.6, edge: { x: 1, y: 0 }, rot: Math.PI / 2 },
+    { x: -0.9, y: -0.6, edge: { x: -1, y: 0 }, rot: Math.PI / 2 },
+  ]
+  for (const c of cases) {
+    const pose = snapPlacement('Kit_Wall', c.x, c.y, 0)
+    assert.deepEqual({ x: pose.x, y: pose.y }, c.edge, `aim ${c.x},${c.y}`)
+    assert.equal(pose.rot, rot2(c.rot), `heading for ${c.x},${c.y}`)
+    // `R` no longer picks the heading — the edge does — so a quarter turn is a
+    // flip of the same panel, not a different edge.
+    const flipped = snapPlacement('Kit_Wall', c.x, c.y, Math.PI / 2)
+    assert.deepEqual({ x: flipped.x, y: flipped.y }, c.edge)
+    assert.equal(flipped.rot, rot2((c.rot + Math.PI) % (Math.PI * 2)))
+  }
+
+  // Cell pieces are unchanged: they still land on the centre of the cell.
+  const slab = snapPlacement('Kit_Floor', 0.6, -0.9, 0)
+  assert.deepEqual({ x: slab.x, y: slab.y }, { x: 0, y: 0 })
+})
+
+test('four panels around a floor cell are accepted, and they enclose it', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 11, 11)
+  const actor = { x: gx, y: gy }
+  let pieces = 0
+  const place = (kind: string, x: number, y: number) => {
+    const verdict = resolveBuild(world, { kind, x, y, rot: 0 }, actor, { owner: 'builder', id: `p${pieces}`, pieces })
+    assert.ok(verdict.ok, `${kind} at ${x},${y} refused: ${verdict.ok === false && verdict.reason}`)
+    applyPlace(world, verdict.placement)
+    pieces++
+    return verdict.placement
+  }
+
+  // The slab goes down first: the walls then read its top as their support, the
+  // way they do for a player who floors a room before closing it.
+  const slab = place('Kit_Floor', gx, gy)
+  assert.equal(slab.z, 0)
+  const deck = KIT_ASSETS.Kit_Floor.height
+
+  // One panel per side, aimed from just inside the cell. The corners are where
+  // the old rules refused: perpendicular panels share exactly half a wall's
+  // depth there, which the overlap test now treats as a join.
+  const south = place('Kit_Wall', gx, gy - 0.9)
+  const north = place('Kit_Wall', gx, gy + 0.9)
+  const west = place('Kit_Wall', gx - 0.9, gy)
+  const east = place('Kit_Wall', gx + 0.9, gy)
+  assert.deepEqual([south.x, south.y], [gx, gy - 1])
+  assert.deepEqual([north.x, north.y], [gx, gy + 1])
+  assert.deepEqual([west.x, west.y], [gx - 1, gy])
+  assert.deepEqual([east.x, east.y], [gx + 1, gy])
+  for (const wall of [south, north, west, east]) assert.equal(wall.z, deck, 'a panel rests on the slab it closes')
+
+  // Sealed: a body standing on the slab cannot leave in any direction, corners
+  // included. The overlap inset gave up a strip at each end of every panel, and
+  // its perpendicular neighbour covers exactly that strip.
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]] as const) {
+    const penned = walk(world, bodyAt(gx, gy, deck), dx, dy, 90)
+    assert.ok(Math.abs(penned.x - gx) < 1 && Math.abs(penned.y - gy) < 1, `escaped toward ${dx},${dy} to ${penned.x},${penned.y}`)
+  }
+
+  // A second storey on the same four edges: each panel reads the one below it.
+  const upperDeck = place('Kit_Floor', gx, gy)
+  assert.equal(upperDeck.z, deck + KIT_ASSETS.Kit_Wall.height)
+  for (const [ax, ay] of [[gx, gy - 0.9], [gx, gy + 0.9], [gx - 0.9, gy], [gx + 0.9, gy]] as const) {
+    const upper = place('Kit_Wall', ax, ay)
+    assert.ok(Math.abs(upper.z! - (upperDeck.z! + KIT_ASSETS.Kit_Floor.height)) < 1e-6, `second storey landed at ${upper.z}`)
+  }
+
+  // Swap the south panel for a doorway and the room has a way out. The door is
+  // not a solid prop, so it neither blocks nor holds anything up.
+  applyRemove(world, south.id!)
+  const door = resolveBuild(world, { kind: 'Kit_WallDoor', x: gx, y: gy - 0.9, rot: 0 }, actor, { owner: 'builder', id: 'door', pieces })
+  assert.ok(door.ok, `doorway refused: ${door.ok === false && door.reason}`)
+  assert.deepEqual([door.placement.x, door.placement.y], [gx, gy - 1])
+  applyPlace(world, door.placement)
+  const out = walk(world, bodyAt(gx, gy, deck), 0, -1, 90)
+  assert.ok(out.y < gy - 1.5, `the doorway did not let the body out; stopped at ${out.y}`)
+})
+
+test('a second panel in the same band on the same edge is an overlap', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 12, 12)
+  const actor = { x: gx, y: gy }
+
+  const first = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0 }, actor, { owner: 'builder', id: 'w1', pieces: 0 })
+  assert.ok(first.ok)
+  applyPlace(world, first.placement)
+
+  // Aimed at the same edge from the ground, a panel stacks — walls are
+  // stackable, and that is how a second storey is built. It is the same edge in
+  // the same BAND that has nowhere to go.
+  const again = resolveBuild(world, { kind: 'Kit_Wall', x: gx + 0.2, y: gy - 0.95, rot: 0 }, actor, { owner: 'builder', id: 'w2', pieces: 1 })
+  assert.ok(again.ok)
+  assert.deepEqual([again.placement.x, again.placement.y], [gx, gy - 1])
+  assert.equal(again.placement.z, KIT_ASSETS.Kit_Wall.height)
+  assert.equal(overlappingPiece(world, propFromPlacement({ ...again.placement, z: 0 }))?.id, 'w1')
+
+  // ...while the next edge along the same line is clear, because the inset only
+  // gives up a corner and two panels end to end never reach into each other.
+  const next = resolveBuild(world, { kind: 'Kit_Wall', x: gx + 2, y: gy - 0.9, rot: 0 }, { x: gx + 2, y: gy }, { owner: 'builder', id: 'w3', pieces: 2 })
+  assert.ok(next.ok, `the next panel along was refused: ${next.ok === false && next.reason}`)
+  assert.deepEqual([next.placement.x, next.placement.y], [gx + 2, gy - 1])
+  assert.equal(next.placement.z, 0)
+})
+
+/* -------------------------------------------------------------------------- */
 /* Snap grid                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -255,18 +478,18 @@ test('small pieces snap to their own grid so two crates sit side by side', () =>
 /* Protected footprint                                                        */
 /* -------------------------------------------------------------------------- */
 
-test('building stops at the end of the gate road, not a chunk later', () => {
+test('building stops at the end of the gate bridge, not a chunk later', () => {
   const world = createWorld()
   const f = FORTIFICATIONS
-  const onRoad = { x: f.gateX, y: f.exteriorMax - 2 }
-  const past = { x: f.gateX, y: f.exteriorMax + 2 }
+  const onRoad = { x: f.gateX, y: f.bridgeEnd - 1 }
+  const past = { x: f.gateX, y: f.bridgeEnd + 3 }
 
   const refused = resolveBuild(world, { kind: 'Kit_Crate', ...onRoad, rot: 0 }, onRoad, { owner: 'builder', id: 'r1', pieces: 0 })
   assert.equal(refused.ok, false)
   assert.equal(refused.ok === false && refused.reason, 'the town is protected')
 
   const allowed = resolveBuild(world, { kind: 'Kit_Crate', ...past, rot: 0 }, past, { owner: 'builder', id: 'r2', pieces: 0 })
-  assert.ok(allowed.ok, `a build past the road was refused: ${allowed.ok === false && allowed.reason}`)
+  assert.ok(allowed.ok, `a build past the bridge was refused: ${allowed.ok === false && allowed.reason}`)
 
   // Well inside the old protected chunk band, but clear of the footprint.
   const beside = { x: 30, y: 150 }
@@ -276,10 +499,24 @@ test('building stops at the end of the gate road, not a chunk later', () => {
   // Terraform follows the same footprint, and the moat bank stair is inside it.
   assert.equal(checkTerraform(world, { x: MOAT_STAIRS.x, y: MOAT_STAIRS.zStart + 2, mode: 'raise', size: 1 }, { x: MOAT_STAIRS.x, y: MOAT_STAIRS.zStart + 2 }).ok, false)
   assert.equal(checkTerraform(world, { x: beside.x, y: beside.y, mode: 'raise', size: 1 }, beside).ok, true)
-  // A brush straddling the edge of the road is refused for the corner inside it.
-  const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.exteriorMax - 2 }
+  // A brush straddling the edge of the landing is refused for the corner inside it.
+  const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.bridgeEnd - 1 }
   assert.equal(checkTerraform(world, { x: edge.x, y: edge.y, mode: 'raise', size: 1 }, edge).ok, true)
   assert.equal(checkTerraform(world, { x: edge.x - 1, y: edge.y, mode: 'raise', size: 3 }, edge).ok, false)
+})
+
+test('a flatten needs a brush wider than the corner it levels to', () => {
+  const world = createWorld()
+  const at = { x: 30, y: 150 }
+  // Size 1 is the crosshair corner alone, levelled to itself: `applyTerrain`
+  // would move nothing and the click would vanish without a word.
+  const refused = checkTerraform(world, { ...at, mode: 'flatten', size: 1 }, at)
+  assert.equal(refused.ok, false)
+  assert.equal(refused.ok === false && refused.reason, 'widen the brush to level ground')
+  assert.deepEqual(applyTerrain(world, { ...at, mode: 'flatten', size: 1, maxStep: TERRAFORM_STEP }), [])
+  assert.equal(checkTerraform(world, { ...at, mode: 'flatten', size: 2 }, at).ok, true)
+  // The narrowest allowed brush does move ground, which is what makes it the floor.
+  assert.ok(applyTerrain(world, { ...at, mode: 'flatten', size: 2, maxStep: TERRAFORM_STEP }).length > 0)
 })
 
 /* -------------------------------------------------------------------------- */

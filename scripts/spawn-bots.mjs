@@ -10,7 +10,7 @@
 //
 // Usage (through jiti: this pulls in the shared modules, which use extensionless
 // imports node cannot resolve on its own):
-//   pnpm exec jiti scripts/spawn-bots.mjs [--url <base>] [--count N] [--radius R] [--chat] [--dig] [--build]
+//   pnpm exec jiti scripts/spawn-bots.mjs [--url <base>] [--count N] [--radius R] [--chat] [--dig] [--build] [--pace ms] [--home x,y] [--cast]
 //
 // Each bot keeps its own streamed `World`: it builds nothing locally, it just
 // installs the `chunk` frames the server sends and mirrors every `terrain` /
@@ -37,7 +37,7 @@
 // Ctrl-C for a clean shutdown (closes every socket) and a final total.
 
 import { GENDERS, HAIRSTYLES, OUTFITS, PLAYER_COLORS, outfitColorCount } from '../shared/utils/characters.ts'
-import { isWalkable } from '../shared/utils/maze.ts'
+import { isWalkable, terrainHeight } from '../shared/utils/maze.ts'
 import { MAX_PIECES_PER_PLAYER, checkTerraform, resolveBuild } from '../shared/utils/building.ts'
 import { applyPlace, applyRemove, chunkCoord, chunkKey, createWorld, decodeChunk, installChunk, isProtectedTile, removeChunk } from '../shared/utils/world.ts'
 import { deedOp, fencePlan, housePlan, levelPlan, paveOp, plotBounds, plotCentre, plotFor } from './bot-build.mjs'
@@ -56,6 +56,19 @@ const BASE = String(flag('url', 'http://localhost:3000')).replace(/\/$/, '')
 const WS_URL = BASE.replace(/^http/, 'ws') + '/api/ws'
 const COUNT = Math.max(1, Number(flag('count', 3)) || 3)
 const RADIUS = Number(flag('radius', 5)) || 5 // wander radius around spawn (tiles)
+/** Where the wanderers mill about, as "x,y" in tiles. Default: wherever the
+ *  server spawned them. Set it to walk them somewhere else and keep them
+ *  there — for filming, that is how a stretch of road gets a crowd on it. */
+const HOME = (() => {
+  const raw = flag('home', null)
+  if (typeof raw !== 'string') return null
+  const [x, y] = raw.split(',').map(Number)
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
+})()
+/** Deal the outfits and the genders round the bots in order instead of rolling
+ *  them. Five outfits and two genders means five bots show five classes, which
+ *  a random roll does not: it duplicates long before it covers them. */
+const CAST = flag('cast', false) === true
 const CHAT = flag('chat', false) === true
 const DIG = flag('dig', false) === true
 const BUILD = flag('build', false) === true
@@ -66,10 +79,12 @@ const MEADOW_Y = 150
 /** ms between terraform requests — well under the server's 8 per second. */
 const DIG_EVERY = 1200
 /** ms between build/terraform requests from the edit pump. `EDITS_PER_SECOND`
- *  is 8, so this leaves headroom for a settled bot's digging on top. */
-const EDIT_EVERY = 150
-/** The mouth of the gate road: where a paved path from a plot rejoins the town.
- *  y 140 is the first buildable tile, so paving stops a tile short of it. */
+ *  is 8, so the 150 ms default leaves headroom for a settled bot's digging on
+ *  top. `--pace` slows it down, which is not a load-test knob: it is for
+ *  filming, where a house that goes up in ten seconds is over before a camera
+ *  has walked to it. Anything under 125 would outrun the server's bucket. */
+const EDIT_EVERY = Math.max(125, Number(flag('pace', 150)) || 150)
+/** Where a paved path from a plot rejoins the town, out in front of the gate. */
 const ROAD = { x: 72, y: 142 }
 /** Stop building this far short of the budget, so a rebuild always fits. */
 const PIECE_HEADROOM = 8
@@ -110,10 +125,10 @@ function topReasons(n = 3) {
 const NAMES = ['Grix', 'Vesper', 'Mott', 'Bramble', 'Cinder', 'Fenn', 'Halo', 'Juno', 'Kobb', 'Lark', 'Nix', 'Odar', 'Pell', 'Quill', 'Rue', 'Sable', 'Torv', 'Umber', 'Wisp', 'Yarn']
 const CHAT_LINES = ['nice arena', 'over here', 'again?', 'this way', 'anyone seen the oracle', 'careful', 'follow me', 'hey']
 
-function randomAppearance() {
-  const gender = pick(GENDERS)
-  const outfit = pick(OUTFITS).id
-  const hair = pick(HAIRSTYLES[gender]).id
+function randomAppearance(n) {
+  const gender = CAST ? GENDERS[n % GENDERS.length] : pick(GENDERS)
+  const outfit = CAST ? OUTFITS[n % OUTFITS.length].id : pick(OUTFITS).id
+  const hair = CAST ? HAIRSTYLES[gender][n % HAIRSTYLES[gender].length].id : pick(HAIRSTYLES[gender]).id
   return {
     username: `${pick(NAMES)}-bot`,
     character: `${outfit}_${gender}_${hair}`,
@@ -175,7 +190,7 @@ class Bot {
   }
 
   async auth() {
-    const appearance = randomAppearance()
+    const appearance = randomAppearance(this.n)
     const res = await fetch(`${BASE}/api/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(this.cookie ? { cookie: this.cookie } : {}) },
@@ -202,7 +217,7 @@ class Bot {
       if (m.t === 'welcome' && m.self) {
         this.id = m.self.id
         this.pos = { x: m.self.x, y: m.self.y }
-        this.home = { x: m.self.x, y: m.self.y }
+        this.home = HOME ? { ...HOME } : { x: m.self.x, y: m.self.y }
         this.pieces = m.pieces ?? 0
         this.deeds = m.deeds ?? 0
         alive++
@@ -224,7 +239,10 @@ class Bot {
         if (m.piece.owner === this.id) {
           this.placed++
           const op = this.sentBuilds.shift()
-          if (op) this.mine.set(m.piece.id, op)
+          // Remember the height the server actually gave it: a rebuild of this
+          // exact piece has to land back in this exact slot, and the server's
+          // `z` is the only number that says which one that was.
+          if (op) this.mine.set(m.piece.id, { ...op, h: m.piece.z ?? 0 })
         }
         if (m.pieces != null) this.pieces = m.pieces
         if (m.deeds != null) this.deeds = m.deeds
@@ -418,10 +436,14 @@ class Bot {
       this.planAt++
       return
     }
+    // The aim height a player's crosshair would have carried: the storey this
+    // op belongs to, measured off the ground under its own pose. A requeued
+    // rebuild already knows the exact `z` its piece had and carries it as `h`.
+    const request = { ...op, h: this.aimHeight(op) }
     // Run the same predicate the server will, against our streamed world — the
     // client ghost's job. A pose it already refuses is skipped rather than
     // retried, except when the answer is only about timing.
-    const preview = resolveBuild(this.world, op, this.actor(), { owner: this.id, id: 'preview', pieces: this.pieces, deeds: this.deeds })
+    const preview = resolveBuild(this.world, request, this.actor(), { owner: this.id, id: 'preview', pieces: this.pieces, deeds: this.deeds })
     if (!preview.ok) {
       if ((preview.reason === 'too far away' || preview.reason === 'that ground is not loaded') && this.hold()) return
       // The claim is the one op worth hearing about when it is skipped: a bot
@@ -436,7 +458,18 @@ class Bot {
     this.sentBuilds.push(op)
     this.lastEditKind = 'build'
     this.edits++
-    this.send({ t: 'build', kind: op.kind, x: op.x, y: op.y, rot: op.rot })
+    this.send({ t: 'build', kind: op.kind, x: op.x, y: op.y, rot: op.rot, h: request.h })
+  }
+
+  /** The `h` a build op should carry: an explicit one (a rebuild remembers the
+   *  height its piece stood at), otherwise the plan's storey `lift` over the
+   *  ground under the pose. Undefined where the ground is not loaded, which
+   *  leaves the server on its old highest-surface rule. */
+  aimHeight(op) {
+    if (op.h != null) return op.h
+    if (op.lift == null) return undefined
+    const ground = terrainHeight(this.world, op.x, op.y)
+    return Number.isFinite(ground) ? ground + op.lift : undefined
   }
 
   /** Us, as the shared edit rules see us: where we stand and who we are. The

@@ -9,8 +9,10 @@
  */
 
 /** Flat ground colour for the minimap/world map, one per `SURFACE` value:
- *  grass, dirt, stone, sand, path, water. */
-export const SURFACE_COLORS = ['#779661', '#8a7b5c', '#8d8d84', '#c9b98b', '#b0a787', '#369b98']
+ *  grass, dirt, stone, sand, path, water, snow. Snow is not white here: on a
+ *  parchment-pale map a white swatch is the background, so the summits read as
+ *  a cold blue-grey against the rock's warm one. */
+export const SURFACE_COLORS = ['#779661', '#8a7b5c', '#8d8d84', '#c9b98b', '#b0a787', '#369b98', '#d5dde6']
 
 /** The 3D terrain's tint targets, blended into the procedural ground colour by
  *  `terrainChunk.ts`'s `surfaceTint`. Grass has no entry: it is the untinted
@@ -19,8 +21,16 @@ export const TERRAIN_TINTS = {
   soil: '#8a6e4c',
   rock: '#9b9483',
   sand: '#cfbd92',
-  /** Not paving: `path` tiles carry real flagstones on top, so the ground under
-   *  them only has to read as the mortar showing through the joints. */
+  /** Unused: `surfaceTint` leaves a `path` tile at the ground's own colour,
+   *  because the road in `chunkProps`'s paving bank is a skin over those same
+   *  vertices and covers them. Kept as the target if a joint tint is ever
+   *  wanted under it. */
   mortar: '#6b6559',
   wet: '#46695f',
+  /** Snowfields. Deliberately not white: the terrain material is lit and then
+   *  passed through bloom, so an albedo near 1 clips to a flat glowing sheet at
+   *  noon and loses every contour the range has. A cool off-white keeps the
+   *  shading readable in daylight and still reads as snow under the moon, where
+   *  the blue cast is what separates it from bare rock. */
+  snow: '#d2dae1',
 } as const

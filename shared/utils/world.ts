@@ -9,7 +9,7 @@
  * without any of it travelling over the socket.
  *
  * The authored town is a *protected footprint*: the moat's outer square plus a
- * margin, and the gate road out to where it ends. Its pieces are seeded from
+ * margin, and the landing of the gate bridge. Its pieces are seeded from
  * the committed JSON at boot and player edits never reach those tiles. The
  * chunks the footprint touches (`isTownChunk`) are created up front and never
  * evicted, but the ground in them outside the footprint is ordinary editable
@@ -26,7 +26,7 @@ import { isHeightAwareKind, rampartIndex } from './ramparts'
 import type { RampartIndex } from './ramparts'
 import { isTownPlacement, propFromPlacement } from './props'
 import type { PropSpec, WorldPlacement } from './props'
-import { worldTerrainHeight } from './terrain'
+import { WORLD_SEED, worldTerrainHeight } from './terrain'
 import townProps from '../data/courtyard-props.json'
 import townStructure from '../data/courtyard-structure.json'
 
@@ -51,8 +51,9 @@ export const HEIGHT_STEP = 0.05
 export const TERRAFORM_STEP = 0.25
 
 /** Surface type raster values (cosmetic in this phase; the renderer reads them
- *  in Phase 2). */
-export const SURFACE = { grass: 0, dirt: 1, stone: 2, sand: 3, path: 4, water: 5 } as const
+ *  in Phase 2). `snow` is the mountain's: nothing paints it, generation lays it
+ *  above the snowline. */
+export const SURFACE = { grass: 0, dirt: 1, stone: 2, sand: 3, path: 4, water: 5, snow: 6 } as const
 export type SurfaceType = typeof SURFACE[keyof typeof SURFACE]
 
 /**
@@ -62,11 +63,6 @@ export type SurfaceType = typeof SURFACE[keyof typeof SURFACE]
  */
 export const WORLD_BOUNDS = { minCx: -14, maxCx: 17, minCy: -14, maxCy: 17 } as const
 export type WorldBounds = typeof WORLD_BOUNDS
-
-/** Default generation seed. Terrain relief is positional (it has to match the
- *  landscape mesh); the seed drives surface variation and, from Phase 2, the
- *  scatter of generated vegetation. */
-export const WORLD_SEED = 20260915
 
 export interface Chunk {
   cx: number
@@ -163,9 +159,8 @@ export const WORLD_TILE_MAX = (WORLD_BOUNDS.maxCx + 1) * CHUNK_SIZE
 /**
  * The tiles player edits may never touch, inclusive on both ends: the moat's
  * outer square plus `TOWN_MARGIN`, the bank stair with the same margin, and
- * exactly the paved approach from the bridge to the end of the road. It hugs
- * the geometry on purpose: the first tile beside the road or past its end is
- * where a player continues it.
+ * exactly the tiles under the gate bridge's landing. It hugs the geometry on
+ * purpose: the first tile past the bridge is where a player starts a road.
  */
 export const PROTECTED_FOOTPRINT = [
   {
@@ -181,12 +176,12 @@ export const PROTECTED_FOOTPRINT = [
     maxY: MOAT_STAIRS.zEnd,
   },
   {
-    // The road plane spans `gateX ± bridgeWidth / 2` and ends at `exteriorMax`,
-    // so these are its tiles and nothing beside them.
+    // The bridge deck spans `gateX ± bridgeWidth / 2` and lands at `bridgeEnd`,
+    // so these are the tiles under it and nothing beside them.
     minX: FORTIFICATIONS.gateX - FORTIFICATIONS.bridgeWidth / 2,
     maxX: FORTIFICATIONS.gateX + FORTIFICATIONS.bridgeWidth / 2 - 1,
     minY: FORTIFICATIONS.moatOuterMax,
-    maxY: FORTIFICATIONS.exteriorMax - 1,
+    maxY: FORTIFICATIONS.bridgeEnd - 1,
   },
 ] as const
 
@@ -263,10 +258,27 @@ export function hash3(seed: number, a: number, b: number): number {
   return (h >>> 0) / 4294967296
 }
 
+/**
+ * Where bare rock takes over from turf, and where snow lies on it.
+ *
+ * Both are read off the height field, not off the biome label: only a mountain
+ * gets this high, so asking the height keeps the raster in step with the ground
+ * for free and needs no blend. Both sit above the 31 units the pre-mountain
+ * world ever reached, so nothing below the ranges changed colour. The band is
+ * hashed per tile so the snowline is ragged rather than a contour line, and a
+ * face too steep to hold snow stays rock.
+ */
+export const ROCK_LINE = 34
+export const SNOW_LINE = 50
+const SNOW_BAND = 6
+const SNOW_SLOPE_MAX = 0.95
+
 function surfaceFor(seed: number, gx: number, gy: number, height: number, slope: number): SurfaceType {
   if (slope > 1.2) return SURFACE.stone
   if (isProtectedTile(gx, gy)) return SURFACE.path
   const noise = hash3(seed, gx, gy)
+  if (height > SNOW_LINE + noise * SNOW_BAND) return slope > SNOW_SLOPE_MAX ? SURFACE.stone : SURFACE.snow
+  if (height > ROCK_LINE) return noise < 0.82 ? SURFACE.stone : SURFACE.dirt
   if (slope > 0.6) return noise < 0.6 ? SURFACE.stone : SURFACE.dirt
   if (height > 18) return noise < 0.5 ? SURFACE.stone : SURFACE.dirt
   return noise < 0.08 ? SURFACE.dirt : SURFACE.grass
@@ -283,7 +295,7 @@ export function generateChunk(seed: number, cx: number, cy: number): Chunk {
   const heights = new Int16Array(CHUNK_CORNERS * CHUNK_CORNERS)
   for (let ly = 0; ly < CHUNK_CORNERS; ly++) {
     for (let lx = 0; lx < CHUNK_CORNERS; lx++) {
-      heights[ly * CHUNK_CORNERS + lx] = quantise(worldTerrainHeight(cx * CHUNK_SIZE + lx, cy * CHUNK_SIZE + ly))
+      heights[ly * CHUNK_CORNERS + lx] = quantise(worldTerrainHeight(cx * CHUNK_SIZE + lx, cy * CHUNK_SIZE + ly, seed))
     }
   }
   const surface = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE)

@@ -48,12 +48,38 @@ export const BUILD_GRID_SMALL = 1
 export const BUILD_ROT_STEP = Math.PI / 2
 
 /**
+ * Edge pieces: the kit's flat panels.
+ *
+ * Everything else in the kit occupies a whole grid cell and snaps to its
+ * centre. A panel does not: it is the *boundary* of a cell, so it snaps to the
+ * nearest cell edge and takes its heading from that edge. That is the whole
+ * difference between a wall running through the middle of a floor slab and a
+ * wall closing one side of a room, and it is why floors, walls and roofs now
+ * share edges without anyone aiming carefully.
+ *
+ * Because the edge picks the heading, `R` no longer turns these: it flips which
+ * way the panel faces (adds a half turn).
+ */
+const EDGE_KINDS: ReadonlySet<string> = new Set(['Kit_Wall', 'Kit_WallWindow', 'Kit_WallDoor', 'Kit_Fence', 'Kit_Gate'])
+
+/** Whether a kind snaps to a cell edge rather than a cell centre. */
+export function isEdgeKind(kind: string): boolean {
+  return EDGE_KINDS.has(kind)
+}
+
+/**
  * The removable nature kit: what generation scatters outside the town and what
  * players may plant back. These are the `public/models/nature/**` basenames, so
  * a placement's `kind` names its model on both sides.
  */
 export const NATURE_KINDS: ReadonlySet<string> = new Set([
   'tree1', 'tree2', 'tree3', 'tree4', 'tree5',
+  // The regional families: conifers, autumn-red crooked trees, bare trunks.
+  // `shared/utils/vegetation.ts` decides which biome grows which, but any of
+  // them can be felled and replanted anywhere `tree1` can.
+  'pine1', 'pine2', 'pine3',
+  'twisted1', 'twisted2', 'twisted3',
+  'dead1', 'dead2', 'dead3',
   'bush1', 'bush2',
   'rock1', 'rock2', 'rock3',
 ])
@@ -97,10 +123,45 @@ const wrapRot = (rot: number) => ((rot % TWO_PI) + TWO_PI) % TWO_PI
 export function snapPlacement(kind: string, x: number, y: number, rot: number): { x: number, y: number, rot: number } {
   const grid = snapGridFor(kind)
   if (!grid) return { x: round2(x), y: round2(y), rot: round2(wrapRot(rot)) }
+  if (isEdgeKind(kind)) return snapToEdge(grid, x, y, rot)
   return {
-    x: Math.round(x / grid) * grid,
-    y: Math.round(y / grid) * grid,
+    // `|| 0`: `Math.round(-0.45) * 2` is -0, and a pose whose zero has a sign
+    // is not the pose the other side computed.
+    x: Math.round(x / grid) * grid || 0,
+    y: Math.round(y / grid) * grid || 0,
     rot: round2(wrapRot(Math.round(rot / BUILD_ROT_STEP) * BUILD_ROT_STEP)),
+  }
+}
+
+/**
+ * Snap a panel to the nearest cell edge, and align it to that edge.
+ *
+ * Cells are centred on multiples of `grid`, so a cell spans one `grid` either
+ * side of its centre and its edges are the half-grid lines. There are only two
+ * candidates worth testing — the edge of the cell under the aim that runs along
+ * X, and the one that runs along Y — and "nearest" is the distance to each
+ * edge's own line, because the other axis is already its midpoint.
+ *
+ * This must be run from the RAW aim, not from an already-snapped pose: the
+ * flip below is read out of `rot`, and a pose's own heading would be read back
+ * as a different flip. Client and server both feed it the raw request.
+ */
+function snapToEdge(grid: number, x: number, y: number, rot: number): { x: number, y: number, rot: number } {
+  const half = grid / 2
+  const alongX = { x: Math.round(x / grid) * grid, y: Math.round((y - half) / grid) * grid + half }
+  const alongY = { x: Math.round((x - half) / grid) * grid + half, y: Math.round(y / grid) * grid }
+  const runsAlongX = Math.abs(y - alongX.y) <= Math.abs(x - alongY.x)
+  const edge = runsAlongX ? alongX : alongY
+  // A panel's model runs along its local X, so an edge along world X is rot 0.
+  // Every other quarter turn asked for is a flip, which is what keeps `R` a
+  // one-press toggle now that it no longer chooses the heading.
+  const flip = Math.abs(Math.round(rot / BUILD_ROT_STEP)) % 2 === 1 ? Math.PI : 0
+  return {
+    // `|| 0` because `Math.round(-0.3) * 2` is -0, and a pose that differs from
+    // the server's only in the sign of a zero is a pose that differs.
+    x: round2(edge.x) || 0,
+    y: round2(edge.y) || 0,
+    rot: round2(wrapRot((runsAlongX ? 0 : BUILD_ROT_STEP) + flip)),
   }
 }
 
@@ -137,6 +198,35 @@ function propSpan(prop: PropSpec): { lo: number, hi: number } {
 const OVERLAP_EPSILON = 0.02
 
 /**
+ * How far a panel's *overlap* footprint is pulled in at each end: half the
+ * depth of the deepest edge piece (`Kit_Wall` is 0.3 thick).
+ *
+ * Two panels on the perpendicular edges of the same cell meet at that cell's
+ * corner and share exactly that much volume. A corner is a join, not a
+ * collision, so the overlap test insets each panel along its own run by that
+ * amount and the two stop touching. A single inset for every panel rather than
+ * each one's own half-depth, so a wall and a fence agree about where their
+ * corner is.
+ *
+ * Only this test is inset. `propBounds` and the physical collision boxes in
+ * `props.ts` stay exact, so four panels around a cell still seal it: the
+ * perpendicular neighbour covers precisely the strip the inset gave up.
+ */
+const EDGE_CORNER_INSET = 0.15
+
+/** The footprint `overlappingPiece` reasons about: exact, except that a panel
+ *  gives up a corner's worth at each end of its run. */
+function overlapBounds(prop: PropSpec): { minX: number, maxX: number, minY: number, maxY: number } {
+  const b = propBounds(prop)
+  if (!isEdgeKind(prop.kind)) return b
+  // The run is the panel's local X, so world X at rot 0 or PI.
+  if (Math.abs(Math.cos(prop.rot)) > 0.5) {
+    return { ...b, minX: b.minX + EDGE_CORNER_INSET, maxX: b.maxX - EDGE_CORNER_INSET }
+  }
+  return { ...b, minY: b.minY + EDGE_CORNER_INSET, maxY: b.maxY - EDGE_CORNER_INSET }
+}
+
+/**
  * The first solid piece a candidate would intersect, or null. Boxes are tested
  * as AABBs — deliberately a shade conservative for rotated pieces, because a
  * build that is refused reads better than two walls fused into each other.
@@ -146,13 +236,14 @@ const OVERLAP_EPSILON = 0.02
  */
 export function overlappingPiece(world: World, candidate: PropSpec): PropSpec | null {
   if (!isSolidProp(candidate.kind)) return null
-  const a = propBounds(candidate)
+  const a = overlapBounds(candidate)
   const av = propSpan(candidate)
+  const query = propBounds(candidate)
   // The cell index over the candidate's own AABB: every piece whose footprint
   // could touch it is in there, and the exact tests below throw the rest away.
-  for (const prop of propsInBox(world, a.minX, a.minY, a.maxX, a.maxY)) {
+  for (const prop of propsInBox(world, query.minX, query.minY, query.maxX, query.maxY)) {
     if (prop.id === candidate.id || !isSolidProp(prop.kind)) continue
-    const b = propBounds(prop)
+    const b = overlapBounds(prop)
     if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
     if (a.minY >= b.maxY - OVERLAP_EPSILON || a.maxY <= b.minY + OVERLAP_EPSILON) continue
     const bv = propSpan(prop)
@@ -163,22 +254,90 @@ export function overlappingPiece(world: World, candidate: PropSpec): PropSpec | 
 }
 
 /**
+ * How far above the aimed point a support may still be chosen, in tiles.
+ *
+ * The client hands the server the world height of the ray hit, and that hint
+ * only ever narrows the choice: a surface higher than the aim plus this slack
+ * is not what the player was looking at. The slack absorbs the difference
+ * between the point the ray met and the surface the piece will actually rest
+ * on — a slab's lip, a tile of relief under a levelled plot.
+ */
+export const AIM_SLACK = 0.3
+
+/** Aim heights outside this band are nonsense (a stray NaN, a client sending
+ *  1e9) and are clamped rather than trusted: `supportHeight` reads it as a
+ *  ceiling, and an absurd one would simply restore the old behaviour. */
+const AIM_LIMIT = 4096
+
+/** The aim hint as the rules will use it: `undefined` where there is none or it
+ *  is not a finite number, clamped otherwise. */
+function cleanAim(h: number | undefined): number | undefined {
+  if (h == null || !Number.isFinite(h)) return undefined
+  return Math.min(AIM_LIMIT, Math.max(-AIM_LIMIT, h))
+}
+
+/**
+ * The piece hanging over the band this one would occupy, or null.
+ *
+ * Once a support has been chosen by what the player aimed at, "is the band
+ * free" is no longer the whole question: the band also has to fit under
+ * whatever is already above it. A crate under a ceiling two and a half up fits;
+ * a wall of the same height under a floor slab hung lower does not, and saying
+ * so is friendlier than silently putting the wall on the roof.
+ *
+ * Only pieces whose bottom is strictly *above* the candidate's counts — a piece
+ * starting at the same height is an ordinary obstruction and `overlappingPiece`
+ * names it.
+ */
+function ceilingOver(world: World, candidate: PropSpec): PropSpec | null {
+  if (!isSolidProp(candidate.kind)) return null
+  const a = overlapBounds(candidate)
+  const av = propSpan(candidate)
+  const query = propBounds(candidate)
+  for (const prop of propsInBox(world, query.minX, query.minY, query.maxX, query.maxY)) {
+    if (prop.id === candidate.id || !isSolidProp(prop.kind)) continue
+    const bv = propSpan(prop)
+    // Level with us or below: not a ceiling.
+    if (bv.lo <= av.lo + OVERLAP_EPSILON) continue
+    // Clears the top of the band. Touching exactly is clearance, which is what
+    // lets a 2.5 wall stand under a floor laid at 2.5.
+    if (bv.lo >= av.hi - OVERLAP_EPSILON) continue
+    const b = overlapBounds(prop)
+    if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
+    if (a.minY >= b.maxY - OVERLAP_EPSILON || a.maxY <= b.minY + OVERLAP_EPSILON) continue
+    return prop
+  }
+  return null
+}
+
+/**
  * Gameplay elevation for a piece: the highest surface under its footprint —
  * the terrain, or the top of whatever it is stacked on. Sampled at the centre
  * and the four AABB corners, which is enough for grid-sized pieces and cannot
  * be gamed by nudging a corner over a hole.
+ *
+ * `aim` is the world height the player's ray hit, and it bounds the answer: the
+ * highest surface that a body standing at `aim + AIM_SLACK` could step onto.
+ * Without it the highest surface anywhere under the footprint wins, which is
+ * what put a replaced ground-floor wall on the roof and a crate upstairs.
  */
-export function supportHeight(world: World, prop: PropSpec): number {
-  const b = propBounds(prop)
+export function supportHeight(world: World, prop: PropSpec, aim?: number): number {
+  const feet = aim == null ? Infinity : aim + AIM_SLACK
+  // `overlapBounds`, not `propBounds`: a panel's ends are given up to its
+  // perpendicular neighbours at the cell corners, and a corner must not hold a
+  // piece up any more than it collides with one. Without that the second wall
+  // of a room reads the first wall's top through the corner they share and
+  // flies to the storey above.
+  const b = overlapBounds(prop)
   // Inset by the overlap epsilon: two grid neighbours share an edge exactly, and
   // a corner sampled on it would read the neighbour's top and float the piece.
   const minX = b.minX + OVERLAP_EPSILON
   const maxX = b.maxX - OVERLAP_EPSILON
   const minY = b.minY + OVERLAP_EPSILON
   const maxY = b.maxY - OVERLAP_EPSILON
-  let top = surfaceHeight(world, prop.x, prop.y)
+  let top = surfaceHeight(world, prop.x, prop.y, feet)
   for (const [x, y] of [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]] as const) {
-    const h = surfaceHeight(world, x, y)
+    const h = surfaceHeight(world, x, y, feet)
     if (h > top) top = h
   }
   return Number.isFinite(top) ? Math.round(top * 100) / 100 : Number.NEGATIVE_INFINITY
@@ -355,6 +514,11 @@ export function checkTerraform(world: World, request: TerraformRequest, actor: E
   if (!Number.isFinite(x) || !Number.isFinite(y)) return REFUSE('bad coordinates')
   if (mode !== 'raise' && mode !== 'lower' && mode !== 'flatten' && mode !== 'paint') return REFUSE('unknown tool')
   if (size !== 1 && size !== 2 && size !== 3) return REFUSE('brush must be 1 to 3')
+  // Flatten levels every corner in the brush to the one under the crosshair, so
+  // a brush of one corner is that corner alone and nothing can ever move. The
+  // hotbar keeps the tool at two; this refuses out loud rather than letting the
+  // click reach `applyTerrain`, change nothing and read as a dead tool.
+  if (mode === 'flatten' && size === 1) return REFUSE('widen the brush to level ground')
   if (mode === 'paint' && (request.surface == null || !Number.isInteger(request.surface) || request.surface < 0 || request.surface > 5)) {
     return REFUSE('unknown surface')
   }
@@ -409,6 +573,11 @@ export interface BuildRequest {
   x: number
   y: number
   rot: number
+  /** The world height the player's ray hit, when the client knows it. A hint,
+   *  not a position: the server still derives `z` from real surfaces, and this
+   *  only says which of them the player was looking at. Absent, the highest
+   *  surface under the footprint wins, exactly as before. */
+  h?: number
 }
 
 /**
@@ -444,12 +613,13 @@ export function resolveBuild(
     const verdict = checkDeedPlacement(world, pose, context.owner, held)
     if (!verdict.ok) return verdict
   }
-  const support = supportHeight(world, prop)
+  const support = supportHeight(world, prop, cleanAim(request.h))
   if (!Number.isFinite(support)) return { ok: false, reason: 'that ground is not loaded' }
   placement.z = support
   // Keep the resolved spec's band in step with the elevation we just chose, or
   // the overlap test below would still be reasoning about ground level.
   elevateProp(prop, support)
+  if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there' }
   const blocker = overlappingPiece(world, prop)
   if (blocker) return { ok: false, reason: `${blocker.kind} is in the way` }
   return { ok: true, placement }

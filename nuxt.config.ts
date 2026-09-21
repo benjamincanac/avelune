@@ -13,7 +13,7 @@ const site = {
   deployUrl:
     'https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbenjamincanac%2Favelune&env=NUXT_PUBLIC_SITE_URL&envDescription=Optional%20canonical%20URL%20for%20SEO&project-name=avelune&repository-name=avelune',
   ogImage: '/og.png',
-  twitter: '@vercel',
+  twitter: '@benjamincanac',
 }
 
 // Canonical origin. Set NUXT_PUBLIC_SITE_URL in the deploy environment; the
@@ -38,7 +38,7 @@ export default defineNuxtConfig({
         { name: 'color-scheme', content: 'light dark' },
         { name: 'robots', content: 'index, follow' },
         { name: 'description', content: site.description },
-        { name: 'author', content: 'Vercel Labs' },
+        { name: 'author', content: 'Benjamin Canac' },
         {
           name: 'keywords',
           content: 'Nuxt, Vercel, WebSockets, realtime, multiplayer, game, MMO, Nitro, demo',

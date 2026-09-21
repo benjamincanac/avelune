@@ -21,11 +21,17 @@ const focused = ref(false)
 const input = useTemplateRef('input')
 const scrollback = useTemplateRef('scrollback')
 
-const messages = computed<ChatMessage[]>(() => props.game.chatLog.value.slice(focused.value ? -12 : -4))
+/** The whole log, always: the scrollback caps the height and scrolls the rest,
+ *  so focusing the input never resizes the panel. */
+const messages = computed<ChatMessage[]>(() => props.game.chatLog.value)
 
+// A new line follows the bottom only if you were already there, so reading
+// back through the log is not yanked down by the next message.
 watch(messages, async () => {
+  const el = scrollback.value
+  const pinned = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 24
   await nextTick()
-  scrollback.value?.scrollTo({ top: scrollback.value.scrollHeight })
+  if (pinned) scrollback.value?.scrollTo({ top: scrollback.value.scrollHeight })
 })
 
 watch(focused, (value) => {
@@ -60,10 +66,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>
-  <div class="frost pointer-events-auto flex w-105 min-h-0 flex-col overflow-hidden rounded-[6px]">
+  <!-- `max-w-full` is load-bearing: the panel shares the bottom row with the
+       build bar and gives up width to it rather than sliding under it. -->
+  <div class="frost pointer-events-auto flex w-105 min-h-0 max-w-full flex-col overflow-hidden rounded-[6px]">
     <div
       ref="scrollback"
-      class="flex max-h-56 flex-col justify-end gap-1.5 overflow-y-auto p-4"
+      class="flex max-h-56 flex-col gap-1.5 overflow-y-auto overscroll-contain px-4 py-3"
       :class="messages.length ? '' : 'hidden'"
     >
       <p
@@ -76,6 +84,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           class="font-semibold"
           :style="{ color: message.system ? 'var(--ui-primary)' : message.color }"
         >{{ message.system ? 'System' : message.name }}</b>
+        <!-- Spoken lines carry a mic, so a transcript that came out slightly
+             wrong reads as speech rather than as a typo. -->
+        <UIcon
+          v-if="message.voice"
+          name="i-lucide-mic"
+          class="mb-0.5 inline size-3 align-middle text-dimmed"
+        />
         {{ message.text }}
       </p>
     </div>
@@ -90,7 +105,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       variant="none"
       :ui="{
         root: ['w-full border-t border-white/10 px-4.5 py-3 transition-colors duration-120 ease-out', focused ? 'bg-primary/6' : ''],
-        base: 'h-auto rounded-none py-0 ps-15 text-[15px] leading-none text-default caret-primary placeholder:text-muted',
+        base: 'h-auto rounded-none py-0 ps-14 text-[15px] leading-none text-default caret-primary placeholder:text-muted',
         leading: 'ps-4',
       }"
       @focus="focused = true"
@@ -100,7 +115,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       <!-- The cap advertises the key that is live: Enter gets you in, Esc gets
            you back to the game. -->
       <template #leading>
-        <UKbd :value="focused ? 'Esc' : 'Enter'" />
+        <UKbd
+          :value="focused ? 'Esc' : 'Enter'"
+          class="w-11 text-center"
+        />
       </template>
     </UInput>
   </div>

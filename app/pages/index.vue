@@ -51,7 +51,7 @@ const features = [
 const controls = [
   { keys: ['W', 'A', 'S', 'D'], label: 'Move' },
   { keys: ['Space'], label: 'Jump' },
-  { keys: ['Shift'], label: 'Dash' },
+  { keys: ['Shift', 'E'], label: 'Sprint / dash' },
   { keys: ['Click'], label: 'Use tool' },
   { keys: ['1', '9', 'Tab'], label: 'Hotbar' },
   { keys: ['M'], label: 'World map' },
@@ -182,10 +182,16 @@ onMounted(async () => {
               />
             </Transition>
           </div>
+          <!-- CSS alone decides this one, so it is there at first paint. -->
+          <DesktopNotice
+            wide
+            class="mt-3"
+          />
         </main>
 
-        <!-- Right: who is actually in there. Same treatment as the live line
-             above it — read, not clicked, so no panel. -->
+        <!-- Right: who is actually in there. The live data is the pitch on this
+             page, so unlike the line above it this one is content and keeps a
+             panel of its own, with the accent edge that marks it live. -->
         <PlayerRoster
           :entries="status?.roster ?? []"
           :realm="realm"
@@ -197,7 +203,7 @@ onMounted(async () => {
 
       <!-- Bottom: what the server is reporting, at a size you read from across
            the room, and what people are doing with it. -->
-      <div class="flex flex-col gap-14 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
+      <div class="relative flex flex-col gap-14 lg:flex-row lg:items-end lg:justify-between lg:gap-12">
         <div class="fused w-full flex-wrap lg:w-fit lg:flex-nowrap">
           <div
             v-for="stat in [
@@ -219,10 +225,13 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Plain text on the edge wash. -->
+        <!-- Plain text on the edge wash. It only exists after the probe and is
+             taller than the counters, so on the one-screen frame it is pinned
+             out of flow: in flow it would grow this band and lift the centred
+             pitch above it. -->
         <WorldFeed
           :events="feed.events.value"
-          class="-mx-6 lg:mx-0 lg:-mr-9 lg:w-97"
+          class="-mx-6 lg:absolute lg:bottom-0 lg:-right-9 lg:mx-0 lg:w-97"
         />
       </div>
     </div>

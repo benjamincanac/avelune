@@ -20,28 +20,101 @@ independently.
   `generateChunk`, `seedTown`, `applyTerrain` / `applyPlace` / `applyRemove`,
   `installChunk` / `removeChunk`, chunk key helpers, `encodeChunk` /
   `decodeChunk`, `WORLD_BOUNDS`.
+- `shared/utils/voice.ts` — proximity voice's shared half: `selectVoicePairs` (who
+  may hear whom, 24 tiles to connect and 30 to drop so a pair on the boundary is
+  not rebuilt every pass, at most 6 listeners, applied nearest-first and
+  **symmetrically**, because the server forwards both directions off one pair set
+  and an asymmetric list would leave somebody talking into nothing), the binary audio
+  layout both sides encode and decode (`encodeVoiceUp`/`decodeVoiceUp`,
+  `encodeVoiceDown`/`decodeVoiceDown`, `voiceSeqDelta` for the 16-bit wrap), the
+  token bucket, and the transcript filter the chat path uses. Nothing in here is
+  client-only or server-only: the pairing rules and the frame layout are exactly
+  the kind of thing the two sides must not each have their own copy of.
 - `shared/utils/maze.ts` — physics over a `World`: `terrainHeight`, `propsNear`,
   `isWalkable`, `surfaceHeight`, collision, elevation (walkable props),
   `stepBody` kinematics, the movement constants both sides read, and
   `occupancyGrid` (a display-only wall raster, now per chunk, for the minimap).
 - `shared/utils/terrain.ts` — the height field itself (`landscapeHeight`,
-  `worldTerrainHeight`). `app/utils/courtyardLandscape.ts` draws its decorative
-  mesh from the *same* function, so the visible ground and the feet that walk it
-  can never drift apart. Change one and you change both.
+  `worldTerrainHeight(x, y, seed = WORLD_SEED)`) *and* the regional noise both it
+  and `biome.ts` read. `WORLD_SEED` is declared here, the lowest layer that needs
+  it. Terrain is **biome-aware**: `mountainUplift` is a continuous 0..1 field and
+  the mountain amplitude, the crags and the heath's extra roll all multiply by it,
+  so ranges rise and their foothills blend away smoothly. Everything blends on
+  the *continuous field*, never on the discrete `Biome` label — threshold first
+  and every border becomes a cliff. `biomeAt` thresholds the very same numbers,
+  which is why a range's label and its shape cannot disagree.
+  The town is untouched by all of it: inside `MEADOW_BELT` of `LANDSCAPE_CENTER`
+  every relief term is gated to exactly zero, so the protected footprint, the
+  flat square and their approach are the same heights they were before biomes
+  existed (`scripts/terrain-test.ts` asserts that against a copy of the old
+  field). Amplitudes are budgeted against `SLOPE_MAX`: a value-noise octave's
+  steepest slope is `1.5 / lattice` per tile (a ridged one twice that), so a new
+  term is sized from its lattice rather than by eye — a range has to be climbable
+  along most routes, and a tile past `SLOPE_MAX` is a wall at every height, jump
+  included, which is also why no amount of relief can trap a body.
 - `shared/utils/props.ts` — `PropSpec`, `HubPropPlacement`, `WorldPlacement`,
   `SOLID_PROPS` and `makeProp`. Split out of `maze.ts` so `world.ts` (which
   buckets placements) and `maze.ts` (which queries them) share it without a
   runtime import cycle.
+- `shared/utils/kit.ts` — `KIT_ASSETS`, the thirteen-piece dimension table that
+  `snapGridFor` (`building.ts`) and the kit's stair spec (`ramparts.ts`) read,
+  plus `KIT_NAMES`, `kitLabel` and `DEED_KIND`. It sits under `building.ts`
+  rather than in it, so `world.ts` can index a deed post without importing the
+  rules that decide what a plot means. The kit's collision entries in `props.ts`
+  do **not** read it: `props.ts` imports only `courtyard.ts` and `ramparts.ts`,
+  and its kit rows are hand-written literals restating the same numbers
+  (`Kit_Wall` is 2 wide by 0.3 deep by 2.5 tall in both files). A kit dimension
+  therefore has to change in both places, or collision keeps the old shape while
+  the model and the snap grid move.
 - `shared/utils/building.ts` — the pure edit rules both sides run: `EDIT_REACH`,
   `EDITS_PER_SECOND`, `MAX_PIECES_PER_PLAYER`, `BUILD_GRID`, `snapPlacement`,
-  `overlappingPiece` (AABB plus the vertical band `[z, z+top]`, which is what
-  lets pieces stack), `supportHeight` (a placed piece's `z`), `pieceOverBrush`,
-  `isPlaceableKind`, `canRemove`, and the deed-plot rules below. The server
-  decides with them; the client only colours its ghost preview with them. `snapGridFor(kind)` is the grid a piece
-  snaps to: `BUILD_GRID` (2) for everything except pieces whose footprint fits
-  in a tile (`Kit_Crate`, `Kit_Torch`), which get `BUILD_GRID_SMALL` (1) so two
-  of them can sit side by side, and 0 for the free-standing nature kit. The
-  client ghost must call it too or it previews a pose the server won't store.
+  `overlappingPiece` (AABB plus the vertical band `[z, z + height]`, which is
+  what lets pieces stack), `supportHeight` (a placed piece's `z`, bounded by the
+  aim height below), `pieceOverBrush`, `isPlaceableKind`, `canRemove`, and the
+  deed-plot rules below. The server decides with them; the client only colours
+  its ghost preview with them. `snapGridFor(kind)` is the grid a piece snaps to:
+  `BUILD_GRID` (2) for everything except pieces whose footprint fits in a tile (`Kit_Crate`, `Kit_Torch`, `Kit_Deed`), which get `BUILD_GRID_SMALL`
+  (1) so two of them can sit side by side, and 0 for the free-standing nature
+  kit. It is the footprint that decides and not a list of kinds, so a new small
+  piece gets the small grid without a rule being touched. The client ghost must
+  call it too or it previews a pose the server won't store.
+
+  **Cells and edges.** A kit piece is either a cell piece or an edge piece, and
+  `isEdgeKind(kind)` says which. Cell pieces (`Kit_Floor`, `Kit_Roof`,
+  `Kit_RoofCorner`, `Kit_Stairs`, `Kit_Path`, `Kit_Crate`, `Kit_Torch`,
+  `Kit_Deed`) snap to the CENTRE of a grid cell, as everything used to. Edge
+  pieces — the panels: `Kit_Wall`, `Kit_WallWindow`, `Kit_WallDoor`,
+  `Kit_Fence`, `Kit_Gate` — snap to the nearest cell EDGE (a half-grid line, so
+  one coordinate is a multiple of the grid and the other is offset by half of
+  it) and take their heading from that edge. `R` therefore no longer turns a
+  panel: `snapPlacement` reads its `rot` only as a flip (every other quarter
+  turn adds π), so the caller must hand it the RAW aim, never an already-snapped
+  pose — re-snapping a pose reads its own heading back as a different flip.
+  Both `resolveBuild` and the client ghost snap from the raw request.
+
+  Panels meeting at a cell corner share exactly half a wall's depth there, which
+  the old overlap test read as two walls fused. `overlapBounds` insets an edge
+  piece's footprint by `EDGE_CORNER_INSET` (0.15, half of `Kit_Wall`'s depth) at
+  each end of its run, and `overlappingPiece` and `supportHeight` both reason
+  about that inset box: a corner is a join, so it neither refuses a build nor
+  holds the next panel up a storey. `propBounds` and the physical collision
+  boxes in `props.ts` stay exact, so four panels still seal a cell — the
+  perpendicular neighbour covers precisely the strip the inset gave up.
+
+  **Aim height.** A `build` request carries an optional `h`, the world height
+  the client's ray hit. `supportHeight(world, prop, aim)` then answers with the
+  highest surface under the footprint a body standing at `aim + AIM_SLACK`
+  (0.3) could step onto, sampling `surfaceHeight(world, x, y, feet)` at the
+  same centre-plus-inset-corners it always did. Without `h` it is the old rule,
+  the highest surface anywhere under the footprint — which is what put a
+  replaced ground-floor wall on the roof and a crate upstairs. `h` is a hint,
+  never a position: the server still derives `z` from real surfaces, and
+  `cleanAim` drops a non-finite one and clamps the rest, so the worst a client
+  can do with it is get the old behaviour back. Once the support is chosen the
+  band `[z, z + height]` has to be free (`overlappingPiece`) *and* fit under
+  whatever hangs over it: `ceilingOver` refuses with `no room there` when a
+  piece whose bottom is strictly above the candidate's cuts into the band.
+  Touching exactly is clearance, so a 2.5 wall stands under a floor laid at 2.5.
 
   **Deed plots.** A `Kit_Deed` post (`DEED_KIND`, in `kit.ts` so `world.ts` can
   index it without importing the rules) claims the `DEED_SIZE` (16) tile square
@@ -56,7 +129,11 @@ independently.
   per-chunk index of the deeds a chunk *owns* (rebuilt from `placements`
   wherever they change, moves no version, never persisted or sent) — a claim
   query widens its box by a whole plot before reading it, because a deed
-  `DEED_SIZE` tiles away still reaches in. Pulling the deed releases the plot
+  `DEED_SIZE` tiles away still reaches in. `plotsOverlapping` is that widened
+  query and `deedsInBox` in `world.ts` is the index it reads, the way
+  `propsInBox` is for props. `isProtectedBox`, also in `world.ts`, is the box
+  form of `isProtectedTile`, because a plot covers 256 tiles and testing them
+  one at a time is not a per-frame answer. Pulling the deed releases the plot
   and leaves every piece where it stands: the claim is the post, not the ground.
   A refusal carries `claim` (the owner's *id*) alongside the generic
   `that plot is claimed`; `refusalText(verdict, names)` is what turns it into
@@ -73,21 +150,75 @@ independently.
   everywhere else.
   Deliberately NOT inside `generateChunk`: the server's `loadChunk` applies it
   once per chunk, and the client receives the result as placements.
-- `shared/utils/characters.ts` — character roster / assignment logic.
+  The scatter is regional. `FLAVOURS` keys a per-biome table (families, copse
+  odds, cover, scale) and every candidate asks `biomeAt` at **its own point**,
+  never once per chunk, so a border cuts across a chunk instead of following the
+  grid. Candidate `n` keeps its position and its `wild:` id whatever the biome:
+  the denser biomes take the `INFILL` candidates appended after the original 26
+  (`Flavour.infill`), and meadow's numbers are the original ones, so a chunk that
+  is meadow throughout still generates exactly what it always did. The infill
+  hash indices (`n * 7 + k`) must stay clear of the copse salts at `0x10D`, which
+  caps the candidate total at 38. `BIOME_TREES` is the families by biome and
+  `isWildTree` the whole set — never test a tree with `kind.startsWith('tree')`,
+  pines and dead trunks are trees too. `TREELINE` and `BARREN_LINE` are altitude,
+  not biome: above the treeline a candidate falls through to ground cover
+  (boulders), above the bare line nothing grows, whatever country it stands in.
+- `shared/utils/biome.ts` — `biomeAt(seed, x, y)` returning
+  `'meadow' | 'forest' | 'pinewood' | 'grove' | 'heath' | 'mountain'`. Labels
+  only: the fields it thresholds live in `terrain.ts` (two `REGION_SIZE`-lattice
+  value-noise fields for the low country, `mountainUplift` for a range), because
+  the height field has to read the same numbers and a label is the wrong thing to
+  interpolate. Pure in world tile coordinates, no chunk grid and no world state,
+  cheap enough per candidate point. Meadow is the largest share and is forced
+  inside `MEADOW_BELT` of `LANDSCAPE_CENTER` so the approach to the walls never
+  changes character. A range outranks the region fields, and the label threshold
+  sits *above* the height onset on purpose: the foothills keep their neighbour's
+  label, so a wood climbs into a range instead of stopping at its edge. Both
+  sides hold the seed — `WORLD_SEED` as a constant, `welcome.world.seed` on the
+  wire — so the client may call this freely, but only for cosmetics (ground
+  scatter, ambient critters). A biome still decides nothing about collision,
+  elevation or edit rules directly; it only tells generation what to plant, and
+  the *ground* it plants on comes from `terrain.ts`, which is the server's.
+  Widening this union breaks every `Record<Biome, …>` table in `app/**` — that is
+  deliberate, and those are the rendering agent's to fill in.
+- `shared/utils/characters.ts` — the character roster and everything that
+  qualifies one: `OUTFITS`, `HAIRSTYLES`, `OUTFIT_COLORS`, `BEARD_MESH`, and the
+  rules `canBeard` / `isBearded` / `isHairless` / `outfitColorCount` read.
+  `Player.character`, `Player.outfitColor` and `Player.beard` are validated
+  against this table, which is why it is shared and not the onboarding screen's.
 - `shared/utils/courtyard.ts` — the courtyard bounds, arena/fountain positions,
   and `COURTYARD_ASSETS` dimensions shared by collision and the art templates.
-- `shared/utils/propCatalog.ts` — the GLB template name lists (moved out of
-  `MazeScene.vue`) plus `PROP_CATALOG` / `ALL_PROP_KINDS`. Shared so the client
-  renderer and the dev prop editor agree on what's placeable. A prop `kind` is a
-  GLB basename; its directory is implied by which list it's in.
+- `shared/utils/moat.ts` — `MOAT` (the floor and water heights, the swim draft
+  and speed, the bridge underside, and `bodyHeight`, which `maze.ts` re-exports
+  as `BODY_HEIGHT`), `MOAT_STAIRS`, and the channel's geometry: `isOnMoatStairs`,
+  `moatGroundHeight`, `moatWaterDepth` and `hitsMoatObstacle`, all four of which
+  `maze.ts` imports. Nothing in here imports `maze.ts` back, so what a body
+  brings to those functions arrives as an argument (`feet`, `radius`) rather
+  than an import, the same arrangement `ramparts.ts` uses (see "Fortified city
+  boundary").
+- `shared/utils/ramparts.ts` — the height-aware kinds and the geometry of their
+  decks, treads and rails (see "Raised rampart passages").
+- `shared/utils/propCatalog.ts` — `PROP_CATALOG` and `ALL_PROP_KINDS`, composed
+  from `COURTYARD_NAMES` (`courtyard.ts`) and `KIT_NAMES` (`kit.ts`). The name
+  lists themselves live beside the dimensions they belong to, so a kind cannot
+  be catalogued without a footprint. Shared so the client renderer and the dev
+  prop editor agree on what's placeable. A prop `kind` is a GLB basename; its
+  directory is implied by which list it's in. The nature kit is deliberately not
+  in here: `NATURE_KINDS` in `building.ts` is what a player
+  may plant. `ALL_PROP_KINDS` gates every kind the editor may save
+  (`server/api/editor/save.post.ts`), courtyard pieces included; `isKitKind` is
+  the caller that narrows it to the `Kit_` ones.
+- `shared/utils/realm.ts` — `normalizeRealm` and `realmName`: the id every store
+  key is scoped by, and the city name shown for it. It rides the wire as
+  `welcome.world.realm`, which is why it is shared rather than the server's.
 - `shared/data/courtyard-props.json` — the courtyard's hand-placed furniture,
   trees, fountain, and lanterns (see invariant 5).
 - `shared/data/courtyard-structure.json` — editable town buildings and
   perimeter walls (see invariant 5). The legacy colosseum `hub-*.json` files are
   deleted.
-- `shared/data/courtyard-oracle.json` — the Oracle's stand position as a bare `[x, y]`
-  array (a top-level-object JSON crashes the Nitro-beta dev worker). Read by the
-  scene and the editor; written by the editor's save route.
+- `shared/data/courtyard-oracle.json` — the Oracle's stand pose as a bare
+  `[x, y, rot]` array (a top-level-object JSON crashes the Nitro-beta dev
+  worker). Read by the scene and the editor; written by the editor's save route.
 - `shared/types/game.ts` — `Player`, `PlayerState`, `MoveInput`, and the
   `ClientMessage` / `ServerMessage` unions.
 
@@ -114,7 +245,10 @@ independently.
    dirty set and frame cache hold `Chunk` objects. `removeChunk` is its inverse
    and takes the loans back. Neither ever invents a neighbour: `bucket` lends
    only into chunks that already exist, so a streaming client can never generate
-   terrain the server did not send it.
+   terrain the server did not send it. `LEND_RADIUS` (2) is how far out the
+   adopt and withdraw scans look, so it is also the real bound on how far a
+   placement may reach: `bucket` will happily lend a piece wider than that into
+   a chunk no later scan visits, and the loan would never come back.
    **`version` counts mutations of a chunk's own content — heights, surface,
    the placements it owns — exactly one per mutation.** Lending a piece to a
    neighbour or adopting one is derived index state and moves no version, which
@@ -128,6 +262,10 @@ independently.
    (`WORLD_BOUNDS`), and its edge is a hard wall.** A chunk holds 33×33 corner
    heights (`Int16Array`, 0.05 steps, the last row/column duplicating the
    neighbour), a 32×32 surface raster, its placements and a `version`.
+   `surfaceFor` derives that raster from height and slope, so it needs no biome:
+   `ROCK_LINE` (34) is bare rock and `SNOW_LINE` (50, hashed into a ragged band)
+   is `SURFACE.snow`, both above the 31 the pre-mountain world ever reached, so
+   nothing below the ranges changed colour. Snow is generated, never painted.
    `terrainHeight` interpolates bilinearly and returns `-Infinity` for a missing
    chunk, so an unloaded chunk reads as void rather than a hole to fall through.
    `isWalkable` blocks the world edge, missing chunks, and any tile whose local
@@ -154,11 +292,11 @@ independently.
 4. **The town is a protected footprint, not a chunk band.**
    `PROTECTED_FOOTPRINT` in `world.ts` hugs the geometry: the moat's outer
    square plus a 1-tile `TOWN_MARGIN` (`[22, 121]`), the bank stair with the
-   same margin, and exactly the road's tiles (`x` `[68, 75]`, `y` `[121, 139]`),
-   so the first tile beside or past the road is buildable. `isProtectedTile` tests it
+   same margin, and exactly the tiles under the bridge's landing (`x` `[68, 75]`,
+   `y` `[121, 122]`), so the first tile beside or past the bridge is buildable. `isProtectedTile` tests it
    and is what `checkTerraform` / `resolveBuild` / `checkDemolish` refuse on — a
    brush is refused if any corner it writes lands inside — so building starts
-   the tile after the road ends instead of thirty tiles later.
+   the tile after the bridge ends instead of thirty tiles later.
    `isTownChunk(cx, cy)` is the coarser fact: a chunk overlapping the footprint,
    seeded from the town JSON by `seedTown`, created up front and never evicted.
    Its tiles outside the footprint are ordinary editable ground.
@@ -226,6 +364,20 @@ A banded piece is resolved by height, not by footprint alone:
 - otherwise the body passes **underneath**, which is what makes a second-storey
   `Kit_Floor` a ceiling rather than a wall.
 
+Those tests read the body's **centre**, which is what decides where feet stand.
+The body's **width** is `hitsSolidPiece`: a disc of `PLAYER_RADIUS` against every
+piece that is a wall at this height, ground-based or banded, so a character stops
+at a facade instead of sinking a shoulder into it. It refuses only a move that
+*deepens* an overlap, so a body already touching a wall can slide and walk away.
+Slabs no thicker than `STEP_MAX` (a `Kit_Floor`) are exempt, or a stair tread
+catches the landing slab's edge from below.
+
+**Every horizontal displacement of a body goes through `slideBody`**, the
+exported horizontal half of `stepBodyOnce`. The landing snap has no step limit
+(terraforming can raise the ground under a player), so a centre that gets inside
+a tall footprint is lifted to its roof. A raw `x += error` in the client's
+reconcile did exactly that around building corners.
+
 `BODY_HEIGHT` (= `MOAT.bodyHeight`) is the shared player height. `occupancyGrid`
 rasters by `height`, not `top`, so a slab two storeys up is not a minimap wall.
 `isPieceCameraBlocked` is the banded twin of `isRampartCameraBlocked` — the
@@ -238,26 +390,40 @@ keep them out of ordinary footprint collision. Kit stairs carry no rails
 (`railHeight` 0).
 
 ## Protocol shape (you define it; server-net + the client consume it)
-Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a`),
-`action` (`jump`|`dash`), `chat`, `ping`, and the edit verbs `terraform`,
-`build`, `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
+Discriminated unions keyed on `t`. Client→server: `move` (+ heading `a` and the held `sprint` flag; the speed factor is
+shared `speedMultiplier`, never a constant inlined by a consumer),
+`action` (`jump`|`dash`|`respawn`, the last one the way out of a hole and on its
+own cooldown), `chat`, `ping`, `voice` (`{on}`, the opt-in switch only; the
+audio itself is the binary channel in `voice.ts` and never JSON), and the edit
+verbs `terraform` (a `TerraformKind` of `raise`|`lower`|`flatten`|`paint`, plus
+the `surface` the painting one writes), `build` (with the optional aim height
+`h`), `demolish`. Server→client: `welcome`, `join`, `leave`, `state`, `chat`,
 `kicked`, `pong`, plus the world stream `chunk` (encoded heights/surface as
 base64 and the chunk's placements), `unchunk`, `terrain` (`[cornerIndex,
-int16Height][]` deltas, quantised exactly as `Chunk.heights`), `place`,
-`remove`, and `reject`. `terrain` also carries optional `by` (the player whose
+int16Height][]` deltas, quantised exactly as `Chunk.heights`, plus
+`[tileIndex, surface][]` deltas when the brush painted), `place`,
+`remove`, `voice-peers` (who this player may hear and under which numeric talker
+id their frames arrive, the whole set rather than a delta, so a client that
+missed one converges anyway), and `reject`. `terrain` also carries optional `by` (the player whose
 brush it was), `mode` and `at` (`[x, y]`): a height carries no owner the way a
 placement does, so this is the only way the world feed can attribute ground
-work, and a corner index is not a place anyone can read. `welcome` carries
-`{self, players, now, world, pieces, deeds}` —
+work, and a corner index is not a place anyone can read. `TERRAFORM_VERBS` is
+how each mode gets worded for that feed, and `setSurface` in `world.ts` is the
+one place a raster tile changes: it only marks its chunk touched, and
+`applyTerrain` bumps each touched chunk once for the whole brush, however many
+tiles it wrote. `welcome` carries
+`{self, players, now, weather, timeOfDay, world, pieces, deeds, feed}` —
 `self` is always a `Player`, `now` is the server clock the client's day/night +
-weather run on, `world` is `{chunkSize, bounds, seed, realm, persistent, streamed}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD; `streamed` is how many chunks the server streams around a settled player, which the client cannot derive and the entry screen needs as a denominator), and `pieces` is how many
+weather run on, `weather` and `timeOfDay` are the shared overrides that clock
+yields to (see "Shared weather commands"), `world` is `{chunkSize, bounds, seed, realm, persistent, streamed}` (`persistent` false on the in-memory store, shown as a sandbox warning in the HUD; `streamed` is how many chunks the server streams around a settled player, which the client cannot derive and the entry screen needs as a denominator), and `pieces` is how many
 pieces this identity owns in the *whole* world (only the server can count that;
 a client holds 25 chunks), and `deeds` how many plots they hold, counted the
-same way. `place` and `remove` carry optional `pieces`/`deeds` with the same
+same way. `feed` is the server's recent `WorldEvent` rows, newest first, which
+the HUD feed starts from; after that the client words its own rows from the live frames. `place` and `remove` carry optional `pieces`/`deeds` with the same
 meaning, present only on the copy sent to the player whose edit it was — every
 other viewer gets the frame without them and ignores the fields. `state` is filtered
-per session to players within 96 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping; the Oracle
-speaks through the reserved `ORACLE_ID` sender, never a roster player. `kicked`
+per session to players within 192 tiles; `join`/`leave` stay global. `chat` is `{id, text}` with no scoping, plus `voice` on a line the server transcribed from speech rather than read from a keyboard; the Oracle
+speaks through the reserved `ORACLE_ID` sender, never a roster player, and its lines carry `to`, the id of the player it answers, which the scene turns the NPC to face. `kicked`
 carries a `reason` and boots a socket when the same identity opens another
 (single session per player). When you change a frame's shape, flag both
 consumers explicitly — the change is not done until `server-net` and the client
@@ -272,26 +438,37 @@ agent are told what moved.
   `building-test.ts` (and every other `scripts/*-test.ts`) through vitest. `building-test.ts` covers the elevation
   bands: a wild tree on a hill, a kit wall on a slope, walking under and
   standing on a stacked floor, climbing kit stairs onto a landing, and the
-  stack-versus-overlap verdicts `resolveBuild` returns, plus the per-piece snap
-  grid and the footprint edge at the end of the gate road. `world-test.ts` checks spawn, the world edge, town obstacles,
+  stack-versus-overlap verdicts `resolveBuild` returns, the aim height (which
+  storey a crate lands on, a ground-floor wall put back in its slot, the
+  `no room there` refusal, and a bogus `h` being ignored or clamped), plus the
+  per-piece snap grid and the footprint edge at the end of the gate bridge. `world-test.ts` checks spawn, the world edge, town obstacles,
   diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
   covers bilinear heights, the slope rule, terraform-then-walk, chunk-border
   sync, generation determinism, the encode round trip, and the protected
   footprint — that the road ends the protection, that the meadow beside it is
   editable, and that the bank stair is still covered.
-  `scripts/moat-test.ts` and `scripts/character-animation-test.ts` also build a
-  `World` and are run the same way.
+  `scripts/moat-test.ts`, `scripts/index-test.ts` and
+  `scripts/character-animation-test.ts` also build a `World` and are run the
+  same way; `index-test.ts` is the one that covers the per-chunk cell index and
+  what a query must never miss. Two more build no world at all:
+  `voice-test.ts` covers the pairing rules, the hysteresis and the frame layout
+  round trip, and `character-test.ts` the outfit, hair and beard rules.
 - The protocol test is `node scripts/ws-test.mjs ws://localhost:<port>/api/ws`.
 
 ## Shared weather commands
 
-`/weather clear|overcast|rain|auto` changes the shared server weather mode.
+Players change the shared sky by asking the Oracle: `oracleHears` reads the
+request in its classifier pass and calls `setWeather` / `setTimeOfDay` in
+`server/utils/game.ts`, and its reply is the announcement.
+`/weather clear|overcast|rain|auto` is the same switch as a dev-only chat
+command (`DEV_COMMANDS`: `import.meta.dev` or `AVELUNE_DEV_COMMANDS=1`), kept so
+a harness can fix the sky without a model call.
 The server includes `welcome.weather` and broadcasts `{ t: "weather", mode }`.
 `{ t: "system", text }` carries command feedback, with usage errors sent only to
 the caller. The client stores `game.weather` and passes it to the sky renderer;
 `auto` uses the existing server clock cycle. Commands skip chat bubbles and the Oracle.
 
-`/time dawn|day|sunset|night|auto` independently controls the shared sun phase.
+`/time dawn|day|sunset|night|auto`, dev-only too, independently controls the shared sun phase.
 `welcome.timeOfDay` and `{ t: "time", mode }` feed `game.timeOfDay`. Fixed phases
 leave the server clock, weather and animations running; `auto` restores the cycle.
 

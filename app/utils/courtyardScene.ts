@@ -6,7 +6,7 @@ import {
 } from 'three'
 import type { Texture } from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { COURTYARD, COURTYARD_ASSETS, FORTIFICATIONS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
+import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } from '#shared/utils/courtyard'
 import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/props'
 import type { TownMaterials } from './townMaterials'
@@ -20,7 +20,7 @@ import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
 
 /**
- * The pale flagstone the gate approach is paved with. Exported because the
+ * The pale flagstone the gate is paved with. Exported because the
  * `path` surface players paint is the same road: `chunkProps`'s paving mesh
  * builds its material through here so the two can never drift into reading as
  * two different stones where they meet.
@@ -64,23 +64,6 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   const extent = COURTYARD.max - COURTYARD.min
   const center = (COURTYARD.min + COURTYARD.max) / 2
   flat(new PlaneGeometry(extent, extent), soil, center, center, -0.01)
-
-  const approachLength = FORTIFICATIONS.exteriorMax - FORTIFICATIONS.bridgeEnd
-  const approachZ = FORTIFICATIONS.bridgeEnd + approachLength / 2
-  const approach = new PlaneGeometry(FORTIFICATIONS.bridgeWidth, approachLength)
-  // World-space UVs at the same 8-tile repeat the painted paving uses
-  // (`ROAD_UV_SCALE` in chunkProps), so a road a player continues past the end
-  // of this one carries the same grain across the join. `flat()` rotates the
-  // plane by -90° about X, which maps local +y onto world -z.
-  {
-    const pos = approach.attributes.position!
-    const uv = approach.attributes.uv!
-    for (let i = 0; i < pos.count; i++) {
-      uv.setXY(i, (FORTIFICATIONS.gateX + pos.getX(i)) / 8, (approachZ - pos.getY(i)) / 8)
-    }
-    uv.needsUpdate = true
-  }
-  flat(approach, paleStone, FORTIFICATIONS.gateX, approachZ, -0.025)
 
   const gardens = TOWN_GARDENS
   const inGarden = (x: number, z: number) => gardens.some(g => ((x - g.x) / g.rx) ** 2 + ((z - g.z) / g.rz) ** 2 < 1)

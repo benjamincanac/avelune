@@ -17,7 +17,7 @@ import {
 } from 'three'
 import type { Object3D, Scene,
   PerspectiveCamera } from 'three'
-import { brushExtent, checkDemolish, checkTerraform, plotBounds, refusalText, resolveBuild, snapPlacement } from '#shared/utils/building'
+import { EDIT_REACH, brushExtent, checkDemolish, checkTerraform, isEdgeKind, plotBounds, refusalText, resolveBuild, snapGridFor, snapPlacement } from '#shared/utils/building'
 import type { PlotBounds } from '#shared/utils/building'
 import { DEED_KIND } from '#shared/utils/kit'
 import { propHalfExtents } from '#shared/utils/props'
@@ -39,6 +39,18 @@ import type { UseBuild } from '~/composables/useBuild'
  * Pieces are picked by world bounding box for the same reason `hubEditor` does:
  * fences, torches and trees have sparse geometry a triangle ray slips between.
  *
+ * The ray takes the FIRST thing it meets, terrain or piece, and remembers which
+ * face of a piece it entered through: a top face targets the same cell (the
+ * shared rules stack it), a side face targets the neighbour across that face.
+ * Combined with edge snapping that is the whole of "put this next to that" —
+ * aim at a floor's side and the wall lands on the shared edge, aim at a wall's
+ * end and the next one continues the run.
+ *
+ * Nothing the crosshair lands on is ever out of reach: a hit past `EDIT_REACH`
+ * is walked back down the ray to the farthest point still in range, so red is
+ * reserved for a real refusal (protected ground, someone's claim, an occupied
+ * cell) and always carries its reason.
+ *
  * Verdicts come from `shared/utils/building.ts`, the same predicates the server
  * decides with. They only colour the preview: a red ghost still sends its verb,
  * because the server is the authority and the client's world may be a frame
@@ -50,8 +62,17 @@ export interface BuildTarget {
   mode: 'tile' | 'piece'
   x: number
   y: number
+  /** The RAW aim, before any snap. A kit build sends this, never `x`/`y`:
+   *  `snapPlacement`'s edge snap reads the flip out of `rot`, so re-snapping an
+   *  already-snapped pose would read a different one. The server snaps. */
+  rawX: number
+  rawY: number
   /** Snapped rotation, for a kit piece. */
   rot?: number
+  /** World height of the point the ray hit, sent with a build so the server
+   *  resolves the storey the player was looking at rather than the tallest
+   *  surface over the cell. */
+  h?: number
   /** Piece id, when demolishing. */
   id?: string
   /** Whether the local rules allow it. */
@@ -65,6 +86,9 @@ export interface BuildToolsOptions {
   world: World
   templates: ReadonlyMap<string, Group>
   getCamera: () => PerspectiveCamera | undefined
+  /** Cursor mode (Alt held): the pointer in NDC, or null to aim down the
+   *  crosshair at the screen centre. */
+  getPointer?: () => { x: number, y: number } | null
   build: UseBuild
   /** The roster, for naming and colouring a plot's owner. A claim the client
    *  cannot put a name to stays the generic "that plot is claimed" and draws
@@ -88,7 +112,7 @@ const PLOT_COLOR = new Color('#cbd5e1')
 const PLOT_LIFT = 0.07
 
 export function createBuildTools(options: BuildToolsOptions) {
-  const { scene, world, templates, getCamera, build, owner } = options
+  const { scene, world, templates, getCamera, getPointer, build, owner } = options
   const ownerName = (id: string) => owner?.(id)?.name
 
   const group = new Group()
@@ -335,11 +359,39 @@ export function createBuildTools(options: BuildToolsOptions) {
     return null
   }
 
-  /** Nearest placement the crosshair enters, by bounding box. */
-  function pieceHit(actor: { x: number, y: number }): { prop: PropSpec, distance: number, x: number, y: number } | null {
+  /** The face of `box` the point `p` sits on, as an outward unit normal. The
+   *  ray entered through whichever bound it is closest to. */
+  function faceNormal(box: Box3, p: Vector3, out: Vector3): Vector3 {
+    const gaps: [number, number, number, number][] = [
+      [p.x - box.min.x, -1, 0, 0],
+      [box.max.x - p.x, 1, 0, 0],
+      [p.y - box.min.y, 0, -1, 0],
+      [box.max.y - p.y, 0, 1, 0],
+      [p.z - box.min.z, 0, 0, -1],
+      [box.max.z - p.z, 0, 0, 1],
+    ]
+    let best = gaps[0]!
+    for (const gap of gaps) if (gap[0] < best[0]) best = gap
+    return out.set(best[1], best[2], best[3])
+  }
+
+  interface PieceHit {
+    prop: PropSpec
+    distance: number
+    x: number
+    y: number
+    /** Outward normal of the face the ray entered through. */
+    normal: Vector3
+    /** World height of the entry point. */
+    h: number
+  }
+
+  /** Nearest placement the crosshair enters, by bounding box, with the face it
+   *  entered through. */
+  function pieceHit(actor: { x: number, y: number }): PieceHit | null {
     ray.origin.copy(origin)
     ray.direction.copy(forward)
-    let best: { prop: PropSpec, distance: number, x: number, y: number } | null = null
+    let best: PieceHit | null = null
     const seen = new Set<string>()
     for (const prop of propsNear(world, actor.x, actor.y, MAX_RAY)) {
       if (!prop.id || seen.has(prop.id)) continue
@@ -354,9 +406,120 @@ export function createBuildTools(options: BuildToolsOptions) {
       if (!ray.intersectBox(pickBox, point)) continue
       const distance = origin.distanceTo(point)
       if (best && distance >= best.distance) continue
-      best = { prop, distance, x: point.x, y: point.z }
+      best = { prop, distance, x: point.x, y: point.z, h: point.y, normal: faceNormal(pickBox, point, new Vector3()) }
     }
     return best
+  }
+
+  /* Reach ------------------------------------------------------------------ */
+
+  /** Slack left under `EDIT_REACH` when a hit is walked back: the aim still has
+   *  to survive being rounded to a corner or snapped to a grid cell. */
+  const REACH_SLACK = 0.8
+
+  /**
+   * Keep the aim inside the player's reach.
+   *
+   * Looking at a hill a dozen tiles off used to paint the ghost red and leave it
+   * there, which reads as "this tool is broken" rather than "walk closer". The
+   * ray is walked back instead, to the farthest point on it still in range, so
+   * whatever ground is editable ahead of you has the highlight on it. Distance
+   * from the actor grows monotonically along the ray past the player, so a
+   * bisection finds the crossing.
+   */
+  function clampToReach(x: number, y: number, actor: { x: number, y: number }): { x: number, y: number } {
+    if (Math.hypot(x - actor.x, y - actor.y) <= EDIT_REACH) return { x, y }
+    const limit = EDIT_REACH - REACH_SLACK
+    let lo = 0
+    let hi = MAX_RAY
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2
+      const px = origin.x + forward.x * mid
+      const pz = origin.z + forward.z * mid
+      if (Math.hypot(px - actor.x, pz - actor.y) > limit) hi = mid
+      else lo = mid
+    }
+    return { x: origin.x + forward.x * lo, y: origin.z + forward.z * lo }
+  }
+
+  /** The point `EDIT_REACH` out along the view, when the ray never met the
+   *  ground. Null where that ground has not been streamed in. */
+  function reachableGround(actor: { x: number, y: number }): { x: number, y: number } | null {
+    const run = Math.hypot(forward.x, forward.z)
+    if (run < 1e-3) return null
+    const limit = EDIT_REACH - REACH_SLACK
+    const x = actor.x + (forward.x / run) * limit
+    const y = actor.y + (forward.z / run) * limit
+    return Number.isFinite(terrainHeight(world, x, y)) ? { x, y } : null
+  }
+
+  /* Aim -------------------------------------------------------------------- */
+
+  /** How far past a side face an edge piece is pushed before it is snapped:
+   *  just enough to land in the neighbouring half-cell, so the panel takes the
+   *  edge the face is on rather than rounding back onto the piece itself. */
+  const EDGE_NUDGE = 0.05
+
+  /**
+   * Where to aim a panel when the ray met nothing but ground.
+   *
+   * `snapPlacement` takes the nearest edge, which on open ground is a coin
+   * toss decided by the shoulder offset: aim straight ahead and the wall comes
+   * up end-on as often as not. So the aim is first moved onto the edge of that
+   * cell that runs ACROSS the view, which is the one a player means by "a wall
+   * here" — the other coordinate goes to the cell centre so the choice is not a
+   * tie. This only picks the point; both sides still snap it with the shared
+   * rule, so nothing can disagree.
+   */
+  function facingEdge(kind: string, x: number, y: number): { x: number, y: number } {
+    const grid = snapGridFor(kind) || 1
+    const half = grid / 2
+    const line = (v: number) => Math.round((v - half) / grid) * grid + half
+    const cell = (v: number) => Math.round(v / grid) * grid
+    return Math.abs(forward.x) > Math.abs(forward.z)
+      ? { x: line(x), y: cell(y) }
+      : { x: cell(x), y: line(y) }
+  }
+
+  /**
+   * The point a kit piece should be snapped from, given what the ray hit.
+   *
+   * A terrain hit is its own answer. A piece's top face is the same cell (the
+   * shared rules decide the height, and stacking is what you meant); on a panel
+   * the across-axis coordinate comes from the panel, so a second storey lands
+   * on the same edge line rather than wherever the cap happened to be grazed.
+   * A side face is the neighbour across it: half a cell out for a cell piece,
+   * a whisker out for a panel, which puts it on the shared edge.
+   */
+  function aimFor(kind: string, hit: PieceHit | { x: number, y: number }): { x: number, y: number } {
+    if (!('normal' in hit)) return isEdgeKind(kind) ? facingEdge(kind, hit.x, hit.y) : { x: hit.x, y: hit.y }
+    const n = hit.normal
+    if (n.y !== 0) {
+      if (!isEdgeKind(hit.prop.kind)) return { x: hit.x, y: hit.y }
+      return Math.abs(Math.cos(hit.prop.rot)) > 0.5
+        ? { x: hit.x, y: hit.prop.y }
+        : { x: hit.prop.x, y: hit.y }
+    }
+    const push = isEdgeKind(kind) ? EDGE_NUDGE : (snapGridFor(kind) || 1) / 2
+    return { x: hit.x + n.x * push, y: hit.y + n.z * push }
+  }
+
+  /**
+   * The height to tell the server the player aimed at.
+   *
+   * Ground is its own answer. A top face means that piece's walkable top, which
+   * is the face rule spelled out in one number: stack on the thing you clicked.
+   * Any other face is the height of the hit point itself, so aiming at the
+   * lower half of an upstairs wall's neighbour resolves to the storey under it
+   * rather than to the roof above.
+   */
+  function aimHeight(hit: PieceHit | { x: number, y: number }): number | undefined {
+    if (!('normal' in hit)) {
+      const h = terrainHeight(world, hit.x, hit.y)
+      return Number.isFinite(h) ? h : undefined
+    }
+    if (hit.normal.y > 0) return hit.prop.top
+    return hit.h
   }
 
   /* Update ----------------------------------------------------------------- */
@@ -386,7 +549,15 @@ export function createBuildTools(options: BuildToolsOptions) {
     if (!camera || !slot || !selfId) return hide('')
 
     camera.getWorldPosition(origin)
-    camera.getWorldDirection(forward)
+    // Cursor mode aims at the pointer; otherwise straight down the crosshair.
+    const pointer = getPointer?.()
+    if (pointer) {
+      point.set(pointer.x, pointer.y, 0.5).unproject(camera)
+      forward.copy(point).sub(origin).normalize()
+    }
+    else {
+      camera.getWorldDirection(forward)
+    }
 
     const piece = pieceHit(actor)
     const ground = terrainHit()
@@ -406,43 +577,64 @@ export function createBuildTools(options: BuildToolsOptions) {
       helperMaterial.color.copy(verdict.ok ? OK_COLOR : BAD_COLOR)
       build.targetOk.value = verdict.ok
       build.targetHint.value = verdict.ok ? piece.prop.kind : refusalText(verdict, ownerName)
-      return { mode: 'piece', x: piece.prop.x, y: piece.prop.y, id: piece.prop.id, ok: verdict.ok, hint: build.targetHint.value }
+      return { mode: 'piece', x: piece.prop.x, y: piece.prop.y, rawX: piece.prop.x, rawY: piece.prop.y, id: piece.prop.id, ok: verdict.ok, hint: build.targetHint.value }
     }
 
     pieceHelper.visible = false
 
-    // A piece in front of the ground is what you are aiming at: it is how a
-    // wall goes on top of a floor rather than into the dirt beside it.
-    const aim = piece && ground && piece.distance < ground.distance ? piece : ground
+    // Whatever the ray meets first. A piece in front of the ground is what you
+    // are aiming at: it is how a wall goes on top of a floor rather than into
+    // the dirt beside it.
+    // Whatever the ray meets first, or — looking at the horizon, where it meets
+    // nothing inside `MAX_RAY` — the farthest ground along it still in reach.
+    // An armed tool with no target at all reads as broken, and there is always
+    // a tile in front of you.
+    const aim = piece && (!ground || piece.distance < ground.distance) ? piece : (ground ?? reachableGround(actor))
     if (!aim) return hide('nothing in range')
 
     if (slot.kind) {
       brushGroup.visible = false
       setGhostKind(slot.kind)
-      const pose = snapPlacement(slot.kind, aim.x, aim.y, build.rot.value)
+      // The face decides the cell, reach decides how far, and the snap can
+      // still carry the pose up to a cell away — so pull the aim in until the
+      // pose it produces is one the rules accept on distance.
+      const wanted = aimFor(slot.kind, aim)
+      let raw = clampToReach(wanted.x, wanted.y, actor)
+      let pose = snapPlacement(slot.kind, raw.x, raw.y, build.rot.value)
+      for (let i = 0; i < 4 && Math.hypot(pose.x - actor.x, pose.y - actor.y) > EDIT_REACH; i++) {
+        const away = Math.hypot(raw.x - actor.x, raw.y - actor.y) || 1
+        const pull = Math.min(away, snapGridFor(slot.kind) || 1)
+        raw = { x: raw.x - (raw.x - actor.x) / away * pull, y: raw.y - (raw.y - actor.y) / away * pull }
+        pose = snapPlacement(slot.kind, raw.x, raw.y, build.rot.value)
+      }
+      const h = aimHeight(aim)
       const resolved = resolveBuild(
         world,
-        { kind: slot.kind, x: aim.x, y: aim.y, rot: build.rot.value },
+        { kind: slot.kind, x: raw.x, y: raw.y, rot: build.rot.value, h },
         actor,
         { owner: selfId, id: 'ghost', pieces: build.pieces.value, deeds: build.deeds.value },
       )
       const ok = resolved.ok
+      // Pose the ghost from the verdict where there is one: its `z` is the
+      // height the server would give the piece, so the preview shows the real
+      // storey rather than the ground the aim landed on.
+      const posed = ok ? resolved.placement : pose
       const z = ok ? resolved.placement.z ?? 0 : terrainHeight(world, pose.x, pose.y)
       ghost.visible = ghost.children.length > 0
-      ghost.position.set(pose.x, Number.isFinite(z) ? z : 0, pose.y)
-      ghost.rotation.set(0, pose.rot, 0)
+      ghost.position.set(posed.x, Number.isFinite(z) ? z : 0, posed.y)
+      ghost.rotation.set(0, posed.rot, 0)
       ghostMaterial.color.copy(ok ? OK_COLOR : BAD_COLOR)
       if (slot.kind === DEED_KIND) {
         plotPreview.visible = true
         previewMaterial.color.copy(ok ? OK_COLOR : BAD_COLOR)
-        fitLoop(plotPreview, plotBounds(pose))
+        fitLoop(plotPreview, plotBounds(posed))
       }
       else {
         plotPreview.visible = false
       }
       build.targetOk.value = ok
       build.targetHint.value = ok ? slot.label : refusalText(resolved, ownerName)
-      return { mode: 'tile', x: pose.x, y: pose.y, rot: build.rot.value, ok, hint: build.targetHint.value }
+      return { mode: 'tile', x: posed.x, y: posed.y, rawX: raw.x, rawY: raw.y, rot: posed.rot, h, ok, hint: build.targetHint.value }
     }
 
     setGhostKind(null)
@@ -454,8 +646,9 @@ export function createBuildTools(options: BuildToolsOptions) {
     // paint put the highlight and the paint half a tile up and to the left of
     // where the player was looking.
     const tiles = mode === 'paint'
-    const gx = tiles ? Math.floor(aim.x) : Math.round(aim.x)
-    const gy = tiles ? Math.floor(aim.y) : Math.round(aim.y)
+    const reachable = clampToReach(aim.x, aim.y, actor)
+    const gx = tiles ? Math.floor(reachable.x) : Math.round(reachable.x)
+    const gy = tiles ? Math.floor(reachable.y) : Math.round(reachable.y)
     const verdict = checkTerraform(
       world,
       { x: gx, y: gy, mode, size: build.size.value, surface: build.surface.value as SurfaceType },
@@ -470,7 +663,7 @@ export function createBuildTools(options: BuildToolsOptions) {
     brushPostMaterial.color.copy(tint)
     build.targetOk.value = verdict.ok
     build.targetHint.value = verdict.ok ? slot.label : refusalText(verdict, ownerName)
-    return { mode: 'tile', x: gx, y: gy, ok: verdict.ok, hint: build.targetHint.value }
+    return { mode: 'tile', x: gx, y: gy, rawX: reachable.x, rawY: reachable.y, ok: verdict.ok, hint: build.targetHint.value }
   }
 
   function setVisible(visible: boolean) {

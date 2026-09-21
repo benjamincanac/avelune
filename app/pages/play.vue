@@ -13,6 +13,7 @@ useSeoMeta({
 
 const game = useGame()
 const world = useWorld()
+const build = useBuild()
 const oracle = useOracle()
 const feed = useFeed()
 
@@ -36,7 +37,7 @@ type View = 'checking' | 'creating' | 'playing' | 'editing'
  * character cookie is permanent.
  */
 const view = ref<View>('checking')
-const identity = ref<Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> | null>(null)
+const identity = ref<Pick<Player, 'name' | 'color' | 'character' | 'outfitColor' | 'beard'> | null>(null)
 const isDev = import.meta.dev
 
 onMounted(async () => {
@@ -59,7 +60,7 @@ onMounted(async () => {
   try {
     const me = await $fetch('/api/auth')
     if (me.authenticated) {
-      identity.value = { name: me.name, color: me.color, character: me.character, outfitColor: me.outfitColor }
+      identity.value = { name: me.name, color: me.color, character: me.character, outfitColor: me.outfitColor, beard: me.beard }
     }
   }
   catch {
@@ -73,8 +74,6 @@ onMounted(async () => {
 /** Enter the arena as the saved character. */
 function play() {
   view.value = 'playing'
-  // The gate's rows came off `/api/status`; from here the socket is the source.
-  feed.reset()
   game.connect()
 }
 
@@ -141,6 +140,12 @@ function resume() {
   gameScene.value?.requestLock()
 }
 
+/** The way out of a hole. The server owns the cooldown and answers in chat. */
+function respawn() {
+  game.sendAction('respawn')
+  resume()
+}
+
 /** Leave the arena and clear the saved identity before showing the gate again. */
 async function logout() {
   try {
@@ -180,7 +185,16 @@ const keyboard = computed(() =>
 async function toggleFullscreen() {
   try {
     if (document.fullscreenElement) {
+      // Leaving fullscreen drops the pointer lock with it, and that drop must
+      // not read as a menu request. Held before the exit, because
+      // `pointerlockchange` can land while we are still awaiting it. An exit we
+      // did not run stays a menu request: without Keyboard Lock it is the
+      // player's Escape, and nothing else would carry it.
+      gameScene.value?.holdUnlock()
       await document.exitFullscreen()
+      // The player is still in the world, so take the lock back on this same
+      // gesture rather than leaving them with a free cursor.
+      if (!showMenu.value && !map.open.value) gameScene.value?.requestLock()
     }
     else {
       await gameRoot.value?.requestFullscreen()
@@ -236,6 +250,32 @@ onBeforeUnmount(() => {
 })
 
 const live = computed(() => game.status.value === 'connected')
+
+/**
+ * The voice roster, named.
+ *
+ * `voice-peers` carries ids, and a row needs a name — the same reason the world
+ * feed is worded here rather than in `useWorld`. A peer who has just been paired
+ * is always in the roster, since the server only pairs players it has already
+ * announced, so a missing name means the roster is mid-reset and the row waits.
+ */
+const voice = useVoice()
+const voiceRows = computed(() =>
+  voice.peers.value.flatMap((peer) => {
+    const name = game.players.get(peer.id)?.name
+    return name ? [{ id: peer.id, name, speaking: peer.speaking }] : []
+  }),
+)
+
+/**
+ * Say that voice chat exists.
+ *
+ * It is opt in and the HUD draws nothing while it is off, so the feature is
+ * invisible to anyone who never opens the menu. The line sits with the rest of
+ * the voice HUD until they turn it on, which is the only thing that clears it.
+ */
+const voiceNudge = computed(() => live.value && !voice.enabled.value && voice.supported.value !== false)
+
 const realm = computed(() => world.realm.value ? realmName(world.realm.value) : null)
 </script>
 
@@ -244,6 +284,10 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
     ref="gameRoot"
     class="relative h-screen overflow-hidden bg-stage"
   >
+    <!-- A touch device gets this far and then cannot move. Over every view, so
+         it is said before a character is made rather than after. -->
+    <DesktopNotice />
+
     <!-- Character creation, for a visitor with no character cookie yet. -->
     <CharacterGate
       v-if="view === 'creating'"
@@ -279,34 +323,63 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
         <SandboxNotice v-if="world.persistent.value === false" />
       </header>
 
-      <!-- Top right: the minimap, then the feed below it on the edge wash. -->
-      <aside class="pointer-events-none absolute right-7 top-6 z-10 flex flex-col items-end">
+      <!-- Top right: the minimap, then the feed below it on the edge wash. Under
+           `md` the status bar needs the whole top row, so the map drops beneath
+           it (and beneath the sandbox chip when there is one) and the feed,
+           which is wider than a phone, is left out. -->
+      <aside
+        class="pointer-events-none absolute right-7 z-10 flex flex-col items-end md:top-6"
+        :class="world.persistent.value === false ? 'top-30' : 'top-19'"
+      >
         <MiniMap :game="game" />
       </aside>
       <WorldFeed
         :events="feed.events.value"
-        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97"
+        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97 max-md:hidden"
       />
 
-      <!-- Centre: the crosshair the build ray is cast through. -->
-      <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      <!-- Centre: the crosshair the build ray is cast through. Only while a
+           tool is armed, because with bare hands it sits on top of your own
+           nameplate and points at nothing. -->
+      <div
+        v-if="build.active.value"
+        class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+      >
         <span class="size-1.5 rounded-full bg-white/80 ring-1 ring-black/50" />
       </div>
 
-      <!-- Bottom left: chat. The one thing down here you can click, so the one
-           thing down here with a panel. -->
-      <div class="pointer-events-none absolute bottom-6.5 left-7 z-10">
+      <!-- The bottom row: chat on the left, the build bar centred in what is
+           left of the width. One grid rather than two absolutes, because the
+           two used to be laid out as if the viewport were always wide enough
+           and met in the middle when it was not — chat now narrows instead.
+           The empty third column is what keeps the bar on the centre line.
+           Chat is the one thing down here you can click, so the one thing down
+           here with a panel. -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-6.5 z-10 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-x-5 px-7">
         <ChatPanel
           :game="game"
           @focus="typing = true"
           @blur="typing = false"
         />
+        <Hotbar :dimmed="typing" />
+        <div />
       </div>
 
-      <!-- Bottom centre: the build bar. -->
-      <div class="pointer-events-none absolute inset-x-0 bottom-6.5 z-10 flex justify-center">
-        <Hotbar :dimmed="typing" />
-      </div>
+      <!-- Bottom right, above the typing caption: who is speaking nearby, and
+           whether you are. Read-only, so no panel. -->
+      <VoiceHud
+        :enabled="voice.enabled.value"
+        :muted="voice.micMuted.value"
+        :open="voice.micOpen.value"
+        :talking="voice.talking.value"
+        :silent="voice.micSilent.value"
+        :say="voice.say.value"
+        :level="voice.level.value"
+        :hint="voice.hint.value"
+        :nudge="voiceNudge"
+        :rows="voiceRows"
+        class="pointer-events-none absolute bottom-42 right-0 z-10"
+      />
 
       <!-- Bottom right: why the world stopped answering the movement keys. -->
       <Transition
@@ -340,7 +413,7 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
               name="i-lucide-sparkles"
               class="size-3 text-primary"
             />
-            The Oracle listens — speak to it in chat
+            Ask the Oracle in chat. It knows the town and turns the sky.
           </span>
         </div>
       </Transition>
@@ -373,6 +446,7 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
             @resume="resume"
             @fullscreen="toggleFullscreen"
             @map="openMap"
+            @respawn="respawn"
             @edit="edit"
             @logout="logout"
           />

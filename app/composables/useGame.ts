@@ -1,6 +1,7 @@
 import type { Ref } from 'vue'
 import type { ClientMessage, MoveInput, Player, ServerMessage, Surface, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_COLOR, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
+import { decodeVoiceDown } from '#shared/utils/voice'
 import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { TERRAFORM_VERBS } from '#shared/utils/world'
 
@@ -12,6 +13,8 @@ export interface GamePlayer extends Player {
   ra: number
   /** Mid-dash (drives the roll animation). */
   dashing?: boolean
+  /** Sprinting (drives the sprint animation). */
+  sprinting?: boolean
   /** Active chat bubble, if any. */
   bubble?: { text: string, until: number }
 }
@@ -26,6 +29,9 @@ export interface ChatMessage {
   system?: boolean
   /** The Oracle NPC, not a player — the chat panel styles it apart. */
   npc?: boolean
+  /** Spoken rather than typed: a push-to-talk clip the server transcribed. The
+   *  panel puts a small mic beside it. */
+  voice?: boolean
 }
 
 export type GameStatus = 'connecting' | 'connected' | 'disconnected'
@@ -54,7 +60,7 @@ export interface UseGame {
   disconnect: () => void
   setInput: (input: MoveInput) => void
   setLook: (angle: number) => void
-  sendAction: (kind: 'jump' | 'dash') => void
+  sendAction: (kind: 'jump' | 'dash' | 'respawn') => void
   sendChat: (text: string) => void
   /** Push a system announcement into the chat. */
   announce: (text: string) => void
@@ -62,9 +68,14 @@ export interface UseGame {
    *  `terrain` delta, or a `reject`. */
   sendTerraform: (x: number, y: number, mode: 'raise' | 'lower' | 'flatten' | 'paint', size: 1 | 2 | 3, surface?: Surface) => void
   /** Place a kit piece. The server snaps the pose and assigns the id. */
-  sendBuild: (kind: string, x: number, y: number, rot: number) => void
+  sendBuild: (kind: string, x: number, y: number, rot: number, h?: number) => void
   /** Take a piece away, if it is yours or unowned. */
   sendDemolish: (id: string) => void
+  /** Opt in or out of proximity voice. The server owns the pairing that follows;
+   *  `useVoice` holds the mic and the peers. */
+  sendVoice: (on: boolean) => void
+  /** One encoded audio frame, as a binary socket frame beside the JSON ones. */
+  sendVoiceFrame: (frame: Uint8Array<ArrayBuffer>) => void
 }
 
 /**
@@ -84,8 +95,22 @@ const MISSED_BEATS = 3
 
 const BUBBLE_DURATION = 4_000
 
-/** How often mouse-look heading changes are flushed to the server. */
-const LOOK_INTERVAL = 90
+/**
+ * How often mouse-look heading changes may be flushed to the server.
+ *
+ * The heading is the one input the server cannot predict, and it is the axis
+ * every movement is measured from: while you sweep the mouse and hold forward,
+ * the server drives you along whatever heading it last heard, so every
+ * millisecond it is stale becomes sideways velocity the reconcile then has to
+ * pull out of you — felt as crabbing diagonally across your own facing. So the
+ * flush is a *leading*-edge throttle, not a poll: the first change goes out at
+ * once and the rest are spaced one server tick apart, which is as often as the
+ * 20 Hz loop can read them anyway. The trailing timer below only catches a
+ * turn that ended inside the window.
+ */
+const LOOK_INTERVAL = 50
+/** Heading noise under this (radians, ~0.2°) is not worth a frame. */
+const LOOK_EPSILON = 0.004
 
 /** Beyond this distance a state update is a teleport, not movement. */
 const SNAP_DISTANCE = 5
@@ -94,8 +119,8 @@ const SNAP_DISTANCE = 5
  * Maintains a single resilient WebSocket connection to `/api/ws` and exposes
  * the live game state. Reconnects with exponential backoff, as recommended
  * for Vercel Functions WebSockets (connections close when the function
- * reaches its max duration) — on reconnect the server respawns the character
- * in the arena.
+ * reaches its max duration) — on reconnect the server puts the character back
+ * where it stood.
  *
  * The `players` map is deliberately non-reactive: the 3D scene reads it at
  * 60fps and Vue proxies would only add overhead there. UI-facing bits
@@ -109,6 +134,9 @@ export function useGame(): UseGame {
   // The world feed. It lives here rather than in `useWorld` because wording a
   // row needs the roster: the frames carry player ids, not names.
   const feed = useFeed()
+  // Proximity voice. It reads the voice frames and owns the mic; this composable
+  // is only its way onto the wire.
+  const voice = useVoice()
   const status = ref<GameStatus>('connecting')
   const selfId = ref<string | null>(null)
   const players = new Map<string, GamePlayer>()
@@ -135,10 +163,11 @@ export function useGame(): UseGame {
   /** When the outstanding ping left, so its pong measures the round trip. */
   let pingAt = 0
 
-  let lastInput: MoveInput = { forward: false, back: false, left: false, right: false }
+  let lastInput: MoveInput = { forward: false, back: false, left: false, right: false, sprint: false }
   let lookAngle = 0
   let sentLook = 0
   let lookTimer: ReturnType<typeof setInterval> | undefined
+  let lookSentAt = 0
 
   function send(msg: ClientMessage) {
     if (socket?.readyState === WebSocket.OPEN) {
@@ -148,6 +177,7 @@ export function useGame(): UseGame {
 
   function sendMove() {
     sentLook = lookAngle
+    lookSentAt = Date.now()
     send({ t: 'move', ...lastInput, a: lookAngle })
   }
 
@@ -219,6 +249,9 @@ export function useGame(): UseGame {
     // is read by both (it carries the world info as well as the roster), so
     // this runs before the switch rather than instead of it.
     stream.handle(msg)
+    // Voice reads `voice-peers`, `leave` and `welcome`; it holds the mic
+    // and the peer connections, nothing here does.
+    voice.handle(msg)
     switch (msg.t) {
       case 'welcome':
         players.clear()
@@ -228,6 +261,9 @@ export function useGame(): UseGame {
         clockOffset = msg.now - Date.now()
         weather.value = msg.weather
         timeOfDay.value = msg.timeOfDay
+        // Start from the server's recent rows, the live frames take over from
+        // here. Without this the feed stays hidden until someone next acts.
+        feed.adopt(msg.feed)
         // Adopt the spawn heading so the first move doesn't overwrite it,
         // then resume held keys across a reconnect.
         lookAngle = msg.self.angle
@@ -235,7 +271,7 @@ export function useGame(): UseGame {
         // Greet once per session — reconnects re-send `welcome`, but silently.
         if (!greeted) {
           greeted = true
-          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle just inside the gate or head outside to dig and build. Keys 1 to 9 pick a tool, Tab to switch modes. Press M for the map, F for fullscreen, Esc for the menu.`)
+          announce(`Welcome to Avelune, ${msg.self.name}. Meet the Oracle just inside the gate or head outside to dig and build.`)
         }
         break
       case 'time':
@@ -263,6 +299,7 @@ export function useGame(): UseGame {
           player.z = state.z
           player.angle = state.a
           player.dashing = state.d === true
+          player.sprinting = state.s === true
           // A lag spike that lands far away is a teleport, not a walk.
           if (Math.hypot(player.x - player.rx, player.y - player.ry) > SNAP_DISTANCE) {
             player.rx = player.x
@@ -276,14 +313,14 @@ export function useGame(): UseGame {
         // The Oracle speaks as a reserved id, not a roster player: render it
         // with its own name/accent and float a bubble over the 3D NPC.
         if (msg.id === ORACLE_ID) {
-          oracle.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
+          oracle.speech.value = { text: msg.text, until: Date.now() + BUBBLE_DURATION, to: msg.to }
           pushChat({ id: ORACLE_ID, name: ORACLE_NAME, color: ORACLE_COLOR, text: msg.text, at: Date.now(), npc: true })
           break
         }
         const player = players.get(msg.id)
         if (player) {
           player.bubble = { text: msg.text, until: Date.now() + BUBBLE_DURATION }
-          pushChat({ id: msg.id, name: player.name, color: player.color, text: msg.text, at: Date.now() })
+          pushChat({ id: msg.id, name: player.name, color: player.color, text: msg.text, at: Date.now(), voice: msg.voice })
         }
         break
       }
@@ -326,7 +363,7 @@ export function useGame(): UseGame {
     heartbeatTimer = setInterval(beat, HEARTBEAT_INTERVAL)
     // Mouse-look changes are flushed on a small fixed cadence, not per-event.
     lookTimer ??= setInterval(() => {
-      if (Math.abs(lookAngle - sentLook) > 0.02) sendMove()
+      if (Math.abs(lookAngle - sentLook) > LOOK_EPSILON) sendMove()
     }, LOOK_INTERVAL)
   }
 
@@ -349,6 +386,9 @@ export function useGame(): UseGame {
 
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
     const connection = new WebSocket(`${protocol}://${location.host}/api/ws`)
+    // Audio arrives as binary. Asking for `arraybuffer` rather than the default
+    // `blob` keeps the read synchronous, which a 20 ms frame needs.
+    connection.binaryType = 'arraybuffer'
     socket = connection
 
     connection.addEventListener('open', () => {
@@ -356,10 +396,17 @@ export function useGame(): UseGame {
       reconnectDelay = 1000
       status.value = 'connected'
       startHeartbeat()
+      voice.attach({ sendVoice, sendVoiceFrame })
     })
 
     connection.addEventListener('message', (event) => {
       if (socket !== connection) return
+      // Voice audio is the only binary frame, and it must not go near JSON.
+      if (event.data instanceof ArrayBuffer) {
+        const frame = decodeVoiceDown(new Uint8Array(event.data))
+        if (frame) voice.handleFrame(frame)
+        return
+      }
       try {
         handle(JSON.parse(event.data) as ServerMessage)
       }
@@ -378,6 +425,9 @@ export function useGame(): UseGame {
       rtt.value = null
       // The loaded set belonged to that session; a reconnect re-sends it all.
       stream.reset()
+      // So did the voice pairing: a reconnect is a new session, and the server
+      // will hand down a fresh `voice-peers` once we opt in again.
+      voice.detach()
       stopHeartbeat()
       if (closed) return
       reconnectTimer = setTimeout(open, reconnectDelay)
@@ -400,6 +450,7 @@ export function useGame(): UseGame {
       reconnectTimer = undefined
     }
     stopHeartbeat()
+    voice.detach()
     socket?.close()
     socket = undefined
     selfId.value = null
@@ -415,17 +466,26 @@ export function useGame(): UseGame {
     if (
       input.forward === lastInput.forward && input.back === lastInput.back
       && input.left === lastInput.left && input.right === lastInput.right
+      && input.sprint === lastInput.sprint
     ) return
     lastInput = { ...input }
     sendMove()
   }
 
-  /** Update the mouse-look heading; flushed to the server on a fixed cadence. */
+  /**
+   * Update the mouse-look heading.
+   *
+   * Sent straight away when the throttle window is clear, so a turn reaches the
+   * server on the same tick it started rather than up to a window later.
+   */
   function setLook(angle: number) {
     lookAngle = angle
+    if (Math.abs(lookAngle - sentLook) <= LOOK_EPSILON) return
+    if (Date.now() - lookSentAt < LOOK_INTERVAL) return
+    sendMove()
   }
 
-  function sendAction(kind: 'jump' | 'dash') {
+  function sendAction(kind: 'jump' | 'dash' | 'respawn') {
     send({ t: 'action', kind })
   }
 
@@ -433,7 +493,8 @@ export function useGame(): UseGame {
     const trimmed = text.trim().slice(0, MAX_CHAT_LENGTH)
     if (!trimmed) return
     send({ t: 'chat', text: trimmed })
-    if (/^\/(?:weather|time)(?:\s|$)/i.test(trimmed)) return
+    // The sky commands are dev-only; elsewhere the server treats them as chat.
+    if (import.meta.dev && /^\/(?:weather|time)(?:\s|$)/i.test(trimmed)) return
     // Show our own bubble and log entry immediately (the server doesn't echo).
     const self = selfId.value ? players.get(selfId.value) : undefined
     if (self) {
@@ -446,12 +507,27 @@ export function useGame(): UseGame {
     send({ t: 'terraform', x, y, mode, size, surface })
   }
 
-  function sendBuild(kind: string, x: number, y: number, rot: number) {
-    send({ t: 'build', kind, x, y, rot })
+  function sendBuild(kind: string, x: number, y: number, rot: number, h?: number) {
+    send({ t: 'build', kind, x, y, rot, h })
   }
 
   function sendDemolish(id: string) {
     send({ t: 'demolish', id })
+  }
+
+  function sendVoice(on: boolean) {
+    send({ t: 'voice', on })
+  }
+
+  /**
+   * Audio goes out as a binary frame, not as JSON.
+   *
+   * Base64 inside a JSON frame would cost a third more bytes and a parse on both
+   * sides, fifty times a second. The layout is in `shared/utils/voice.ts` and the
+   * first byte is what tells the server which kind of frame it received.
+   */
+  function sendVoiceFrame(frame: Uint8Array<ArrayBuffer>) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(frame)
   }
 
   // The socket is opened by the page once the identity cookie exists (see
@@ -484,5 +560,7 @@ export function useGame(): UseGame {
     sendTerraform,
     sendBuild,
     sendDemolish,
+    sendVoice,
+    sendVoiceFrame,
   }
 }

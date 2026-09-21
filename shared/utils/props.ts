@@ -146,6 +146,18 @@ const SOLID_PROPS: Record<string, SolidProp> = {
   tree3: { top: 3, r: 0.6 },
   tree4: { top: 3, r: 0.6 },
   tree5: { top: 3, r: 0.6 },
+  // Regional trees, from trunk radii measured on the converted GLBs. The
+  // twisted and dead trees are scaled down at conversion (convert_nature.sh) so
+  // every tree is comparable at placement scale 1; these are the scaled trunks.
+  pine1: { top: 3, r: 0.35 },
+  pine2: { top: 3, r: 0.5 },
+  pine3: { top: 3, r: 0.5 },
+  twisted1: { top: 3, r: 0.6 },
+  twisted2: { top: 3, r: 0.55 },
+  twisted3: { top: 3, r: 0.55 },
+  dead1: { top: 3, r: 0.5 },
+  dead2: { top: 3, r: 0.55 },
+  dead3: { top: 3, r: 0.5 },
   rock1: { top: 1.3, r: 0.75 },
   rock2: { top: 1.3, r: 0.7 },
   rock3: { top: 1.3, r: 0.8 },

@@ -3,14 +3,14 @@ import { NeutralToneMapping, Vector3 } from 'three'
 import { TresCanvas } from '@tresjs/core'
 
 /**
- * A slowly turning 3D bust of the selected character for the onboarding gate.
+ * A 3D bust of the selected character, turned by dragging, for the onboarding gate.
  *
  * TresCanvas + lights live here; the model is an inner <CharacterPreviewModel>
  * so it can drive the turntable, animation mixer, and framing camera from
  * Tres's own render loop (useLoop only works inside the canvas context) — the
  * same mechanism the in-world rigs use.
  */
-defineProps<{ character: string, outfitColor: number }>()
+defineProps<{ character: string, outfitColor: number, beard?: boolean, autoSpin?: boolean }>()
 
 // Vector3 instances so the Tres light position props type-check. A bright key +
 // fill lift the dark leather outfits, and a rim light from behind edges the
@@ -51,6 +51,8 @@ const bottomLightPosition = new Vector3(0, -3, 4)
     <CharacterPreviewModel
       :character="character"
       :outfit-color="outfitColor"
+      :beard="beard"
+      :auto-spin="autoSpin"
     />
   </TresCanvas>
 </template>

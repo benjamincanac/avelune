@@ -20,7 +20,7 @@ import {
   WebGLRenderer,
 } from 'three'
 import type { AnimationAction, AnimationClip, BufferGeometry,
-  InstancedMesh } from 'three'
+  InstancedMesh, Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
@@ -31,15 +31,16 @@ import type { HubPropPlacement } from '#shared/utils/props'
 import {
   DASH_COOLDOWN,
   DASH_DURATION,
-  DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
+  speedMultiplier,
   isWalkable,
   surfaceHeight,
   bodySurfaceHeight,
   getSwimmingContact,
   isPieceCameraBlocked,
   isRampartCameraBlocked,
+  slideBody,
   stepBody,
 } from '#shared/utils/maze'
 import { TERRAFORM_STEP, applyPlace, chunkCoord, chunkKey, cornerHeight, createWorld, isTownChunk, parseChunkKey, worldProps } from '#shared/utils/world'
@@ -53,20 +54,34 @@ import { createCourtyardAssets } from '~/utils/courtyardAssets'
 import { createCourtyardScene } from '~/utils/courtyardScene'
 import type { FountainInteractor } from '~/utils/fountainWater'
 import { courtyardWeather, createCourtyardSky } from '~/utils/courtyardSky'
-import { NATURE_NAMES, createGrassBank } from '~/utils/courtyardLandscape'
+import { NATURE_NAMES, createGrassBank, setGrassDetail, setGrassPushers, updateGrassLod } from '~/utils/courtyardLandscape'
 import { createTerrainMaterial, createTerrainMesh, updateTerrainMesh } from '~/utils/terrainChunk'
 import type { HeightSampler } from '~/utils/terrainChunk'
 import { chunkGrassBlades, createChunkProps, createPavingBank } from '~/utils/chunkProps'
+import { createCritters } from '~/utils/critters'
 import { createCourtyardRenderer } from '~/utils/courtyardRenderer'
 import { createHubEditor } from '~/utils/hubEditor'
 import type { HubEditor } from '~/utils/hubEditor'
 import { createBuildTools } from '~/utils/buildTools'
+import { PITCH_MAX, PITCH_MAX_TOOL } from '~/composables/useBuild'
 import { characterFor, isCharacter, outfitColorTexture, outfitOf } from '#shared/utils/characters'
-import { applyOutfitColor } from '~/utils/appearance'
+import { applyBeard, applyOutfitColor } from '~/utils/appearance'
 import { applyCharacterRim, setCharacterRim } from '~/utils/characterRim'
 import { disposeCharacterSkeleton, loadCharacterAsset } from '~/utils/characterModels'
 import type { CharacterAsset } from '~/utils/characterModels'
 import { animationBlendDuration, locomotionTransitionTime, updateDashAnimation } from '~/utils/characterAnimation'
+import {
+  closeAudio,
+  createAmbience,
+  createFootstepState,
+  footSurfaceAt,
+  play,
+  rememberListener,
+  setAudioListener,
+  stepFootsteps,
+} from '~/utils/audio'
+import type { FootstepState } from '~/utils/audio'
+import { biomeAt } from '#shared/utils/biome'
 
 /**
  * Avelune's 3D world, built imperatively with three.js inside the Tres context.
@@ -96,6 +111,11 @@ interface ViewState {
   /** One-shot action queues written by the input layer. */
   jumpQueued: boolean
   dashQueued: boolean
+  /** Cursor-mode aim in NDC, while Alt frees the pointer. False the rest of the
+   *  time, which means "aim down the crosshair". */
+  cursorActive: boolean
+  cursorX: number
+  cursorY: number
 }
 
 const props = defineProps<{ game: UseGame, held: MoveInput, view: ViewState, editor?: boolean }>()
@@ -107,16 +127,48 @@ const oracle = useOracle()
 const { scene, camera: cameraManager, renderer } = useTresContext()
 const camera = cameraManager.activeCamera
 const { onBeforeRender, render } = useLoop()
+
+/**
+ * What the player let the renderer spend. Applied from the render loop rather
+ * than from the watcher: half of it needs the WebGL renderer, which Tres has
+ * not necessarily built yet when the settings load.
+ */
+const graphics = useGraphics()
+let graphicsDirty = true
+watch(graphics.profile, () => {
+  graphicsDirty = true
+})
+
 let pipeline: ReturnType<typeof createCourtyardRenderer> | null = null
 render((notify) => {
   if (sceneDisposed) return
   const active = camera.value
   const gl = renderer.instance
   if (!active || !(gl instanceof WebGLRenderer)) return
-  pipeline ??= createCourtyardRenderer(gl, scene.value, active)
+  if (graphicsDirty) applyGraphics()
+  pipeline ??= createCourtyardRenderer(gl, scene.value, active, graphics.profile.value)
   pipeline.render(active)
+  tickFps()
   notify()
 })
+
+/** A quality change lands everywhere at once. The post pipeline is rebuilt
+ *  rather than mutated — a composer's passes are fixed once it is built — and
+ *  the chunk ring is resynced so the new detail radius takes on the next frame
+ *  instead of at the next border crossing. `shadows` itself is the canvas's,
+ *  because Tres recompiles the town's materials when it flips. */
+function applyGraphics() {
+  graphicsDirty = false
+  const quality = graphics.profile.value
+  atmosphere.setQuality(quality)
+  setGrassDetail(quality.grassDensity, quality.grassRange)
+  detailRadius = quality.detailRadius
+  detailDrop = quality.detailDrop
+  lastChunkCx = Number.NaN
+  lastChunkCy = Number.NaN
+  pipeline?.dispose()
+  pipeline = null
+}
 
 // Dev-only world editor: created in onMounted when `editor` is set (see the
 // bottom of the file). Referenced by buildFloor (rebuild) and the render loop.
@@ -170,16 +222,16 @@ function oraclePos(): { x: number, y: number, rot: number } {
 }
 /** Within this many tiles the player may consult it (drives the HUD prompt). */
 const ORACLE_NEAR = 7
+/** How fast the Oracle turns to face the player it answers (1/s, eased). */
+const ORACLE_TURN_RATE = 4
 interface OracleRig {
   dispose: () => void
   group: Group
   mixer: AnimationMixer
   /** Speech bubble mirroring the players' — shows the Oracle's latest chat line. */
-  bubble: Sprite
-  bubbleCanvas: HTMLCanvasElement
-  bubbleTexture: CanvasTexture
+  bubble: HTMLDivElement
   bubbleText: string
-  /** World-space bottom edge of the bubble; it grows upward from here. */
+  /** Height above the rig's origin that the bubble's tail points at. */
   bubbleBaseY: number
 }
 let oracleRig: OracleRig | null = null
@@ -221,8 +273,11 @@ function bumpSceneVersion() {
  */
 const TERRAIN_RADIUS = 7
 const TERRAIN_DROP = 8
-const DETAIL_RADIUS = 2
-const DETAIL_DROP = 3
+/** The detail ring, tightened by the graphics settings (`useGraphics`). Terrain
+ *  is not: the hills have to keep closing the horizon whatever the machine, and
+ *  the fog is nowhere near thick enough to hide a nearer edge of the world. */
+let detailRadius = 2
+let detailDrop = 3
 
 /** The authored town is a fixed 25 chunks and reads as one place: half of it
  *  fading out as you cross the square would be worse than the draw calls. It
@@ -234,7 +289,7 @@ const alwaysDetailed = (cx: number, cy: number) => isTownChunk(cx, cy)
 function detailFor(cx: number, cy: number): boolean {
   if (alwaysDetailed(cx, cy)) return true
   if (Number.isNaN(lastChunkCx)) return true
-  return Math.max(Math.abs(cx - lastChunkCx), Math.abs(cy - lastChunkCy)) <= DETAIL_RADIUS
+  return Math.max(Math.abs(cx - lastChunkCx), Math.abs(cy - lastChunkCy)) <= detailRadius
 }
 /** Milliseconds of a frame a border crossing may spend building chunks. The
  *  first sync ignores it: the whole view is filled at once, while the models are
@@ -307,11 +362,15 @@ function buildChunkDetail(entry: MountedChunk, chunk: Chunk) {
     entry.grass.dispose()
     entry.grass = null
   }
-  if (!entry.detail) return
+  if (!entry.detail) {
+    critters?.unmount(chunk.cx, chunk.cy)
+    return
+  }
+  critters?.mount(chunk.cx, chunk.cy)
   entry.props = chunkProps.build(chunk)
   tagShadows(entry.props)
   entry.group.add(entry.props)
-  entry.grass = grassBank.patch(chunkGrassBlades(chunk))
+  entry.grass = grassBank.patch(chunkGrassBlades(chunk, hubWorld.seed))
   if (entry.grass) entry.group.add(entry.grass)
 }
 
@@ -348,6 +407,7 @@ function unmountChunk(cx: number, cy: number): void {
   const entry = mounted.get(key)
   if (!entry) return
   mounted.delete(key)
+  critters?.unmount(cx, cy)
   floorGroup.remove(entry.group)
   if (entry.props) chunkProps.release(entry.props)
   entry.grass?.dispose()
@@ -392,7 +452,7 @@ function syncChunks(x: number, y: number) {
       const { cx, cy } = parseChunkKey(key)
       const distance = Math.max(Math.abs(cx - cx0), Math.abs(cy - cy0))
       if (distance > TERRAIN_DROP) unmountChunk(cx, cy)
-      else if (distance > DETAIL_DROP && entry.detail && !alwaysDetailed(cx, cy)) {
+      else if (distance > detailDrop && entry.detail && !alwaysDetailed(cx, cy)) {
         entry.detail = false
         refreshChunkProps(cx, cy)
       }
@@ -553,12 +613,13 @@ if (!props.editor) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Blender-authored assets (see scripts/make_assets.py)                       */
+/* Blender-authored assets (see scripts/build_*.py and scripts/convert_*)     */
 /* -------------------------------------------------------------------------- */
 
 const gltfLoader = new GLTFLoader()
-// The nature/village kits are meshopt-compressed (scripts/convert_kits.sh); the
-// decoder is a no-op for the plain PNG GLBs, so it's safe to always register.
+// The shipped GLBs are meshopt-compressed (scripts/convert_nature.sh,
+// scripts/convert_kit.sh); the decoder is a no-op for uncompressed ones, so
+// it's safe to always register.
 gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 
 /**
@@ -570,7 +631,12 @@ gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 const CHARACTER_SCALE = 0.72
 
 /** Movement states map to clips in the shared universal animation library. */
-const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
+const CLIP = { idle: 'Idle_Loop', run: 'Jog_Fwd_Loop', jump: 'Jump_Loop', dash: 'Sprint_Loop', sprint: 'Sprint_Loop', swim: 'Swim_Loop', tread: 'Swim_Idle' } as const
+
+/** Every model load is counted here, so the entry overlay can wait for the art
+ *  and not only for the socket. */
+const assets = useAssets()
+assets.reset()
 
 const characterAssets = new Map<string, CharacterAsset>()
 const characterLoading = new Set<string>()
@@ -579,7 +645,7 @@ const characterRetryAt = new Map<string, number>()
 function ensureCharacter(name: string) {
   if (characterAssets.has(name) || characterLoading.has(name) || Date.now() < (characterRetryAt.get(name) ?? 0)) return
   characterLoading.add(name)
-  loadCharacterAsset(name).then((asset) => {
+  assets.track(loadCharacterAsset(name)).then((asset) => {
     if (!sceneDisposed) characterAssets.set(name, asset)
   }).catch((error) => {
     characterRetryAt.set(name, Date.now() + 10000)
@@ -599,7 +665,22 @@ const terrainMaterial = createTerrainMaterial(townMaterials)
 /** Shared blade geometry for every chunk's meadow and the town's garden beds. */
 const grassBank = createGrassBank(foliageTime)
 const pavingBank = createPavingBank(townMaterials)
-const chunkProps = createChunkProps({ templates: propTemplates, materials: townMaterials, foliageTime, editor: props.editor })
+const chunkProps = createChunkProps({ templates: propTemplates, materials: townMaterials, seed: hubWorld.seed, foliageTime, editor: props.editor })
+/** Ambient wildlife: purely cosmetic, deterministic per chunk, never on the
+ *  wire. Off in the editor, where every extra pickable body is in the way. */
+const critters = props.editor
+  ? null
+  : createCritters({
+      parent: floorGroup,
+      loader: gltfLoader,
+      world: hubWorld,
+      seed: hubWorld.seed,
+      // A new rig needs the CSM patch and a GTAO rescan, exactly as the Oracle's does.
+      onChange: () => {
+        atmosphere.setupShadows()
+        bumpSceneVersion()
+      },
+    })
 const retiredTemplates: Group[] = []
 let sceneDisposed = false
 function releaseTemplates(templates: Iterable<Group>) {
@@ -628,7 +709,7 @@ function releaseTemplates(templates: Iterable<Group>) {
 async function loadTemplates(dir: string, names: readonly string[]) {
   await Promise.all(names.map(async (name) => {
     try {
-      const gltf = await gltfLoader.loadAsync(`/models/${dir}/${name}.glb`)
+      const gltf = await assets.track(gltfLoader.loadAsync(`/models/${dir}/${name}.glb`))
       if (sceneDisposed) {
         releaseTemplates([gltf.scene])
         return
@@ -708,11 +789,9 @@ interface Rig {
   /** Last observed dash state, so stale remote snapshots never retrigger it. */
   wasDashing: boolean
   dashAnimUntil: number
-  bubble: Sprite
-  bubbleCanvas: HTMLCanvasElement
-  bubbleTexture: CanvasTexture
+  bubble: HTMLDivElement
   bubbleText: string
-  /** World-space bottom edge of the bubble; it grows upward from here. */
+  /** Height above the rig's origin that the bubble's tail points at. */
   bubbleBaseY: number
   /** Ground decal under the feet; fades out as the character leaves the floor. */
   blob: Mesh<PlaneGeometry, MeshBasicMaterial>
@@ -783,17 +862,14 @@ function makeTextSprite(
   const ctx = canvas.getContext('2d')!
   draw(ctx, canvas)
   const texture = new CanvasTexture(canvas)
-  // Text stays crisp without mipmap blur, and the bubble canvas grows to a
-  // non-power-of-two height, so skip mipmaps entirely.
+  // Text stays crisp without mipmap blur.
   texture.minFilter = LinearFilter
   // The canvas holds sRGB pixels. Left unmarked they are read as linear and
-  // re-encoded on output, which lifts the near-black bubble fill to grey.
+  // re-encoded on output, which washes the colours out.
   texture.colorSpace = SRGBColorSpace
-  // Names and bubbles are UI, not lit geometry: keep them out of the ACES
+  // Names are UI, not lit geometry: keep them out of the tone
   // curve and the fog so they read the same at noon and at midnight.
   const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false, fog: false }))
-  // Bubbles keep the default box only until their first message, then rescale
-  // themselves to fit their wrapped text.
   sprite.scale.set(options.scaleX, options.scaleY, 1)
   return { sprite, canvas, texture }
 }
@@ -813,110 +889,71 @@ function drawName(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, name
   ctx.fillText(name, canvas.width / 2, canvas.height / 2)
 }
 
-/* Chat-bubble geometry. The canvas stays a fixed 512px wide; its height grows
- * with the wrapped line count and the sprite is rescaled to match (see
- * BUBBLE_TEXELS_PER_UNIT), so text keeps a constant, crisp size instead of
- * being squished onto a single line. */
-const BUBBLE_CANVAS_WIDTH = 512
-const BUBBLE_FONT = '500 36px Archivo, ui-sans-serif, sans-serif'
-const BUBBLE_LINE_HEIGHT = 46
-const BUBBLE_PAD_X = 26
-const BUBBLE_PAD_Y = 18
-const BUBBLE_RADIUS = 22
-/** The little pointer under the box, aimed at the speaker. */
-const BUBBLE_TAIL_W = 26
-const BUBBLE_TAIL_H = 14
-const BUBBLE_MAX_TEXT_WIDTH = BUBBLE_CANVAS_WIDTH - BUBBLE_PAD_X * 2
-const BUBBLE_MAX_LINES = 6
-/** Canvas px per world unit — keeps texel density constant as the box grows.
- *  Higher = smaller bubble in the world (text stays crisp, just physically
- *  smaller than the nameplate). */
-const BUBBLE_TEXELS_PER_UNIT = 500
-const BUBBLE_WIDTH_UNITS = BUBBLE_CANVAS_WIDTH / BUBBLE_TEXELS_PER_UNIT
+/* Chat bubbles are DOM, not sprites: a canvas texture went through the post
+ * pipeline and lost its glass, and three allocates texture storage once, so a
+ * bubble whose canvas grew for a longer message kept showing the previous one.
+ * Each bubble is a `.chat-bubble` element (main.css) in a layer over the canvas,
+ * moved every frame to its speaker's projected position. */
+let bubbleLayer: HTMLDivElement | null = null
+const bubbleAnchor = new Vector3()
+/** Bubbles hold their size up close, shrink with distance and drop out here. */
+const BUBBLE_FULL_SIZE_DISTANCE = 9
+const BUBBLE_MIN_SCALE = 0.6
+const BUBBLE_MAX_DISTANCE = 56
+const BUBBLE_FADE_MS = 300
 
-/** Greedily wrap `text` into lines no wider than `maxWidth`, hard-breaking any
- *  single word that overflows on its own. `ctx.font` must already be set. */
-function wrapBubbleLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const lines: string[] = []
-  let line = ''
-  const flush = () => {
-    if (line) lines.push(line)
-  }
-  for (const word of text.split(/\s+/)) {
-    if (!word) continue
-    const candidate = line ? `${line} ${word}` : word
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      line = candidate
-      continue
-    }
-    // The word won't fit on the current line: start a new one with it, then
-    // hard-break the word itself if it's still too wide on its own.
-    flush()
-    line = word
-    while (ctx.measureText(line).width > maxWidth && line.length > 1) {
-      let cut = line.length - 1
-      while (cut > 1 && ctx.measureText(line.slice(0, cut)).width > maxWidth) cut--
-      lines.push(line.slice(0, cut))
-      line = line.slice(cut)
-    }
-  }
-  flush()
-  return lines
+function makeBubble(npc = false) {
+  const el = document.createElement('div')
+  el.className = 'chat-bubble'
+  if (npc) el.dataset.npc = ''
+  el.hidden = true
+  return el
 }
 
-/** Draw a rounded speech bubble, wrapping long messages across lines. Returns
- *  the canvas height so the caller can rescale the sprite to keep text crisp. */
-function drawBubble(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, text: string) {
-  ctx.font = BUBBLE_FONT
-  let lines = wrapBubbleLines(ctx, text, BUBBLE_MAX_TEXT_WIDTH)
-  if (lines.length > BUBBLE_MAX_LINES) {
-    lines = lines.slice(0, BUBBLE_MAX_LINES)
-    lines[BUBBLE_MAX_LINES - 1] = `${lines[BUBBLE_MAX_LINES - 1]!.slice(0, -1).trimEnd()}…`
+/** Show `message` over a rig while it lasts, pinned above `bubbleBaseY`. */
+function updateBubble(rig: Pick<Rig, 'group' | 'bubble' | 'bubbleText' | 'bubbleBaseY'>, message: { text: string, until: number } | null | undefined, now: number) {
+  const el = rig.bubble
+  if (!message || message.until <= now) {
+    if (rig.bubbleText) {
+      rig.bubbleText = ''
+      el.hidden = true
+    }
+    return
   }
-  let textWidth = 0
-  for (const line of lines) textWidth = Math.max(textWidth, ctx.measureText(line).width)
+  const canvas = renderer.instance?.domElement
+  if (!canvas?.parentElement) return
+  if (!bubbleLayer) {
+    bubbleLayer = document.createElement('div')
+    bubbleLayer.className = 'chat-bubble-layer'
+    canvas.parentElement.append(bubbleLayer)
+  }
+  if (el.parentElement !== bubbleLayer) bubbleLayer.append(el)
 
-  // Leave a 2px gutter so the ring stroke isn't clipped at the canvas edge.
-  const boxWidth = Math.min(textWidth + BUBBLE_PAD_X * 2, BUBBLE_CANVAS_WIDTH - 4)
-  const boxHeight = Math.max(lines.length, 1) * BUBBLE_LINE_HEIGHT + BUBBLE_PAD_Y * 2
-  const totalHeight = boxHeight + BUBBLE_TAIL_H + 2
+  bubbleAnchor.copy(rig.group.position)
+  bubbleAnchor.y += rig.bubbleBaseY
+  const distance = bubbleAnchor.distanceTo(camera.value.position)
+  camera.value.updateMatrixWorld()
+  bubbleAnchor.project(camera.value)
+  // NDC z leaves [-1, 1] behind the camera and past the far plane.
+  if (distance > BUBBLE_MAX_DISTANCE || Math.abs(bubbleAnchor.z) > 1) {
+    el.hidden = true
+    return
+  }
 
-  // Resizing the canvas clears it and resets the 2D context, so re-set state.
-  canvas.height = totalHeight
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.font = BUBBLE_FONT
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-
-  // One path for the rounded box plus its tail, so the ring outlines both. The
-  // look mirrors the HUD's glass panels (black/35 + a faint white ring).
-  const cx = canvas.width / 2
-  const left = cx - boxWidth / 2
-  const right = cx + boxWidth / 2
-  const top = 2
-  const bottom = top + boxHeight
-  const r = BUBBLE_RADIUS
-  ctx.beginPath()
-  ctx.moveTo(left + r, top)
-  ctx.arcTo(right, top, right, bottom, r)
-  ctx.arcTo(right, bottom, left, bottom, r)
-  ctx.lineTo(cx + BUBBLE_TAIL_W / 2, bottom)
-  ctx.lineTo(cx, bottom + BUBBLE_TAIL_H)
-  ctx.lineTo(cx - BUBBLE_TAIL_W / 2, bottom)
-  ctx.arcTo(left, bottom, left, top, r)
-  ctx.arcTo(left, top, right, top, r)
-  ctx.closePath()
-  ctx.fillStyle = 'rgba(10, 12, 18, 0.9)'
-  ctx.fill()
-  ctx.lineWidth = 2
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
-  ctx.stroke()
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
-  lines.forEach((line, i) => {
-    ctx.fillText(line, cx, top + BUBBLE_PAD_Y + BUBBLE_LINE_HEIGHT * (i + 0.5))
-  })
-  return totalHeight
+  if (rig.bubbleText !== message.text) {
+    rig.bubbleText = message.text
+    el.textContent = message.text
+    // Restart the pop-in for a new line on a bubble that is already showing.
+    el.style.animation = 'none'
+    void el.offsetWidth
+    el.style.animation = ''
+  }
+  const x = (bubbleAnchor.x + 1) / 2 * canvas.clientWidth
+  const y = (1 - bubbleAnchor.y) / 2 * canvas.clientHeight
+  const scale = Math.max(BUBBLE_MIN_SCALE, Math.min(1, BUBBLE_FULL_SIZE_DISTANCE / distance))
+  el.hidden = false
+  el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${scale.toFixed(3)})`
+  el.style.opacity = String(Math.min(1, (message.until - now) / BUBBLE_FADE_MS))
 }
 
 function createRig(player: GamePlayer): Rig | null {
@@ -940,6 +977,8 @@ function createRig(player: GamePlayer): Rig | null {
   // Swap in the chosen outfit colorway (designed texture variant, not a dye).
   // The accent color is a chat/nameplate identity only.
   const outfitMaterials = applyOutfitColor(model, outfitColorTexture(outfitOf(characterName), player.outfitColor ?? 0))
+  // The beard ships visible in the GLB, so every rig states its own answer.
+  applyBeard(model, player.beard === true)
   // After the outfit swap: cloning a material drops its shader hooks, so the
   // rim has to be installed on whatever materials the rig ends up with.
   applyCharacterRim(model)
@@ -967,13 +1006,9 @@ function createRig(player: GamePlayer): Rig | null {
   name.sprite.position.y = headHeight + NAME_GAP + NAME_SPRITE.scaleY / 2
   group.add(name.sprite)
 
-  // Bubbles are centered on their sprite and grow upward from this bottom edge,
-  // which sits just clear of the top of the nameplate.
+  // The bubble's tail sits just clear of the top of the nameplate.
   const bubbleBaseY = headHeight + NAME_GAP + NAME_SPRITE.scaleY + 0.04
-  const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
-  bubble.sprite.position.y = bubbleBaseY + bubble.sprite.scale.y / 2
-  bubble.sprite.visible = false
-  group.add(bubble.sprite)
+  const bubble = makeBubble()
 
   const blob = makeBlobShadow()
   group.add(blob)
@@ -988,8 +1023,7 @@ function createRig(player: GamePlayer): Rig | null {
       disposeCharacterSkeleton(model)
       name.texture.dispose()
       name.sprite.material.dispose()
-      bubble.texture.dispose()
-      bubble.sprite.material.dispose()
+      bubble.remove()
       blob.material.dispose()
       // The outfit swap clones the cloth materials per rig; the shared texture
       // and the template's own materials stay.
@@ -1001,9 +1035,7 @@ function createRig(player: GamePlayer): Rig | null {
     current: CLIP.idle,
     wasDashing: false,
     dashAnimUntil: 0,
-    bubble: bubble.sprite,
-    bubbleCanvas: bubble.canvas,
-    bubbleTexture: bubble.texture,
+    bubble,
     bubbleText: '',
     bubbleBaseY,
     blob,
@@ -1080,6 +1112,37 @@ const CAM_RADIUS = 0.32
 let boomDist = MAX_BOOM
 
 /**
+ * The over-the-shoulder offset a tool is aimed from.
+ *
+ * Centred behind the player the crosshair passes straight through the
+ * character, so the tile it lands on is the one half hidden by their own back.
+ * Arming a tool eases the camera out to one side and in a little, which gives
+ * the ray a clear line to the ground ahead; disarming eases it back. `V` flips
+ * the side (`build.shoulder`), for the times the wall you are building is on
+ * the right.
+ */
+const SHOULDER_SIDE = 0.9
+const SHOULDER_LIFT = 0.25
+const SHOULDER_CLOSE = 0.9
+/** How fast the offset eases in and out, per second. */
+const SHOULDER_RATE = 6
+let shoulderMix = 0
+/** Eye height the boom orbits around. */
+const PIVOT_HEIGHT = 1.5
+/** Closer than this the local character is between the camera and the tile the
+ *  crosshair is on, so it is taken out of the shot. */
+const SELF_FADE_DISTANCE = 1.2
+/** How much of the boom the steepest look gives up. Enough that the camera ends
+ *  up inside `SELF_FADE_DISTANCE`, which is what takes the character out of an
+ *  overhead shot, and near enough straight above that the crosshair lands on the
+ *  tile the boots are on rather than the next one along. */
+const STEEP_CLOSE = 0.65
+/** Where the camera ended up this frame, for the self-rig fade. */
+let camX = 0
+let camY = 0
+let camZ = 0
+
+/**
  * How far the camera can sit behind the player before a wall blocks it. Marches
  * from the head toward the ideal camera spot, sampling the camera's *width*
  * (centre plus both flanks) at each step so it can't slip through a wall corner
@@ -1131,6 +1194,7 @@ const buildTools = props.editor
       world: hubWorld,
       templates: propTemplates,
       getCamera: () => (camera.value instanceof PerspectiveCamera ? camera.value : undefined),
+      getPointer: () => (props.view.cursorActive ? { x: props.view.cursorX, y: props.view.cursorY } : null),
       build,
       owner: id => props.game.players.get(id),
     })
@@ -1140,30 +1204,179 @@ const buildTools = props.editor
 const EDIT_INTERVAL = 1000 / EDITS_PER_SECOND
 let nextEditAt = 0
 
+/**
+ * The last target an edit was sent at.
+ *
+ * Holding the button repeats the armed tool, and for everything but the shovels
+ * a repeat on the same target is nothing but a wasted edit (and, for a build, a
+ * guaranteed refusal). A press clears it, so clicking the same tile twice is
+ * still two edits.
+ */
+let lastEditKey = ''
+let lastPressId = 0
+
+function targetKey(target: NonNullable<ReturnType<NonNullable<typeof buildTools>['update']>>): string {
+  return `${target.mode}:${target.x},${target.y},${target.rot ?? ''},${target.id ?? ''}`
+}
+
 /** Send the armed tool's verb at the current target. Terrain is applied locally
  *  first and reconciled by the server's own delta, whose heights are absolute
  *  and overwrite whatever we guessed. */
 function applyTool(target: ReturnType<NonNullable<typeof buildTools>['update']>) {
   const slot = build.active.value
   if (!target || !slot) return
+  // Raise, lower and flatten move the ground one step per call, so holding them
+  // on one spot is the point. Everything else needs a new target.
+  const repeatable = !slot.kind && slot.id !== 'demolish' && slot.id !== 'paint'
+  const key = targetKey(target)
+  if (!repeatable && key === lastEditKey) return
   const now = Date.now()
   if (now < nextEditAt) return
   nextEditAt = now + EDIT_INTERVAL
+  lastEditKey = key
   if (slot.id === 'demolish') {
     if (target.id) props.game.sendDemolish(target.id)
+    // The server is the authority, so the click goes either way. The sound
+    // reports what the ghost already showed.
+    play(target.ok && target.id ? 'remove' : 'refuse')
     return
   }
   if (slot.kind) {
-    props.game.sendBuild(slot.kind, target.x, target.y, build.rot.value)
+    // The RAW aim, not the pose: `snapPlacement`'s edge snap reads the flip out
+    // of the rotation, so a pose sent back through it would land elsewhere. The
+    // server snaps, exactly as the ghost did.
+    props.game.sendBuild(slot.kind, target.rawX, target.rawY, build.rot.value, target.h)
+    play(target.ok ? 'place' : 'refuse')
     return
   }
   const mode = slot.id as 'raise' | 'lower' | 'flatten' | 'paint'
   const size = build.size.value
   const surface = build.surface.value
   props.game.sendTerraform(target.x, target.y, mode, size, mode === 'paint' ? surface : undefined)
+  play(!target.ok ? 'refuse' : mode === 'lower' ? 'remove' : 'place')
   if (target.ok) {
     stream.predictTerrain({ x: target.x, y: target.y, mode, size, surface: surface as SurfaceType, maxStep: TERRAFORM_STEP })
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sound                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Audio is a client-side cosmetic, like the critters: every sound is derived
+ * from what this frame already renders, nothing is sent or received, and no
+ * sound can move a player. It is off in the editor, which has no player to
+ * follow and no weather worth listening to.
+ *
+ * The engine is created by the first user gesture (`GameScene` calls
+ * `useAudio().unlock()`), so everything below is a no-op until then.
+ */
+const ambience = props.editor ? null : createAmbience()
+/** Beds move slowly; four updates a second is plenty and keeps a dozen
+ *  parameter ramps off the frame. */
+const AMBIENCE_INTERVAL = 0.25
+let ambienceIn = 0
+const audioForward = new Vector3()
+const AUDIO_UP = new Vector3(0, 1, 0)
+
+/** Per-body sound state, keyed by player id. Kept beside the rigs rather than
+ *  on them, because it is derived from the *rendered* body and a rig can be
+ *  rebuilt under it. */
+interface BodySound {
+  foot: FootstepState
+  x: number
+  y: number
+  z: number
+  airborne: boolean
+  /** Fastest descent seen during this fall, for the landing's weight. */
+  fall: number
+  dashing: boolean
+  swimming: boolean
+  /** Distance since the last swimming stroke. */
+  stroke: number
+}
+const bodySounds = new Map<string, BodySound>()
+
+/** Proximity voice. The scene's only part in it is putting each peer's panner
+ *  where that peer is drawn, once a frame. */
+const voice = useVoice()
+/** Roughly where a mouth is above the feet, so a voice does not come out of the
+ *  ground. */
+const VOICE_MOUTH_HEIGHT = 1.6
+
+/** A fall this fast lands at full weight. Terminal velocity off a rampart. */
+const LAND_FORCE_SPEED = 9
+/** How far a swimmer travels between strokes, in tiles. */
+const STROKE_STRIDE = 1.3
+
+/**
+ * Sound one rendered body: its footfalls, its jump and landing, its dash and
+ * whatever it does in the water. Self plays flat so it sits in the middle of
+ * the mix; everyone else is positioned at their rig and attenuated by the
+ * panner, which is also what culls the far half of a busy town.
+ */
+function soundBody(id: string, isSelf: boolean, x: number, y: number, z: number, dt: number, state: { airborne: boolean, dashing: boolean, sprinting: boolean, swimming: boolean }): void {
+  let body = bodySounds.get(id)
+  if (!body) {
+    body = { foot: createFootstepState(), x, y, z, airborne: state.airborne, fall: 0, dashing: state.dashing, swimming: state.swimming, stroke: 0 }
+    bodySounds.set(id, body)
+    return
+  }
+  const distance = Math.hypot(x - body.x, y - body.y)
+  const descent = dt > 0 ? (body.z - z) / dt : 0
+  const at = isSelf ? undefined : { x, y: z + 0.9, z: y }
+
+  if (state.airborne) body.fall = Math.max(body.fall, descent)
+  if (!body.airborne && state.airborne) play('jump', { gain: isSelf ? 0.7 : 0.55, position: at })
+  else if (body.airborne && !state.airborne) {
+    const force = Math.min(1, body.fall / LAND_FORCE_SPEED)
+    // A hop off a kerb is not a landing. Anything with real drop behind it is.
+    if (force > 0.12) play('land', { gain: isSelf ? 0.8 : 0.6, force, position: at })
+    body.fall = 0
+  }
+
+  if (!body.dashing && state.dashing) play('dash', { gain: isSelf ? 0.7 : 0.5, position: at })
+
+  if (!body.swimming && state.swimming) {
+    play('splash', { gain: isSelf ? 0.9 : 0.7, force: Math.min(1, 0.4 + body.fall / LAND_FORCE_SPEED), position: at })
+    body.stroke = 0
+  }
+  if (state.swimming) {
+    body.stroke += distance
+    if (body.stroke >= STROKE_STRIDE) {
+      body.stroke = 0
+      play('swim', { gain: isSelf ? 0.7 : 0.5, position: at })
+    }
+  }
+  else if (stepFootsteps(body.foot, { distance, dt, grounded: !state.airborne, swimming: false, sprinting: state.sprinting })) {
+    play('footstep', {
+      gain: isSelf ? 0.6 : 0.45,
+      surface: footSurfaceAt(hubWorld, x, y),
+      position: at,
+    })
+  }
+
+  body.x = x
+  body.y = y
+  body.z = z
+  body.airborne = state.airborne
+  body.dashing = state.dashing
+  body.swimming = state.swimming
+}
+
+// Arming a hotbar slot ticks once. The hotbar itself is `game-ui`'s, but the
+// sound belongs with the rest of the mix.
+if (!props.editor) {
+  watch(() => build.active.value?.id, (id) => {
+    if (id) play('arm')
+  })
+  // The Oracle's own voice: one soft chord as a line appears, not per word.
+  watch(() => oracle.speech.value?.until, (until) => {
+    if (!until) return
+    const at = oraclePos()
+    play('oracle', { gain: 0.8, position: { x: at.x, y: 2.2, z: at.y } })
+  })
 }
 
 /** Arrow keys turn as a no-mouse fallback. */
@@ -1199,14 +1412,27 @@ const RECONCILE_IDLE_FREEZE = 0.4
 let oracleTemplate: Group | null = null
 let oracleClips: AnimationClip[] = []
 let oracleLoading = false
+let oracleRetryAt = 0
 
 function ensureOracle() {
-  if (oracleTemplate || oracleLoading) return
+  if (oracleTemplate || oracleLoading || Date.now() < oracleRetryAt) return
   oracleLoading = true
-  gltfLoader.loadAsync('/models/monsters/MushroomKing.glb').then((gltf) => {
+  assets.track(gltfLoader.loadAsync('/models/monsters/MushroomKing.glb')).then((gltf) => {
+    // A load that lands after disposal has missed its scene, and `disposeScene`
+    // has already released what it knew about, so this one is ours to free.
+    if (sceneDisposed) {
+      releaseTemplates([gltf.scene])
+      return
+    }
     oracleTemplate = gltf.scene
     oracleClips = gltf.animations
-  })
+  }).catch((error) => {
+    // The render loop asks every frame until the template lands, so a failure
+    // has to back off rather than latch: without this the flag stayed raised
+    // and the Oracle was gone for the session, silently.
+    oracleRetryAt = Date.now() + 10000
+    console.error('Oracle model could not load', error)
+  }).finally(() => { oracleLoading = false })
 }
 
 /** Scaled height — taller than the ~1.3-unit players, so the Oracle looms. */
@@ -1250,10 +1476,7 @@ function createOracleRig(): OracleRig | null {
 
   // Speech bubble (hidden until the Oracle speaks in chat), like the players'.
   const bubbleBaseY = ORACLE_HEIGHT + NAME_GAP + NAME_SPRITE.scaleY + 0.04
-  const bubble = makeTextSprite(ctx => ctx.clearRect(0, 0, 512, 128))
-  bubble.sprite.position.set(0, bubbleBaseY + bubble.sprite.scale.y / 2, 0)
-  bubble.sprite.visible = false
-  group.add(bubble.sprite)
+  const bubble = makeBubble(true)
 
   floorGroup.add(group)
   atmosphere.setupShadows()
@@ -1267,12 +1490,29 @@ function createOracleRig(): OracleRig | null {
       disposeCharacterSkeleton(model)
       label.texture.dispose()
       label.sprite.material.dispose()
-      bubble.texture.dispose()
-      bubble.sprite.material.dispose()
+      bubble.remove()
       glow.dispose()
     },
-    group, mixer, bubble: bubble.sprite, bubbleCanvas: bubble.canvas, bubbleTexture: bubble.texture, bubbleText: '', bubbleBaseY,
+    group, mixer, bubble, bubbleText: '', bubbleBaseY,
   }
+}
+
+/**
+ * Take the local character out of the shot when the camera closes on it.
+ *
+ * Aiming at your own feet swings the boom in over your head, and your own back
+ * is then the only thing under the crosshair. Hidden outright rather than faded:
+ * `appearance.ts` clones only the *cloth* materials per rig, so the skin, hair
+ * and boots are still the cached template's — turning those transparent would
+ * fade every character wearing that model, the other players included.
+ *
+ * The ray never needed this. Players are not placements, so `propsNear` has
+ * never returned one and the pick has always looked straight through them; this
+ * is only so the tile is visible.
+ */
+function hideSelfWhenClose(group: Object3D, distance: number) {
+  const visible = distance > SELF_FADE_DISTANCE
+  if (group.visible !== visible) group.visible = visible
 }
 
 onBeforeRender(({ delta }) => {
@@ -1327,8 +1567,7 @@ onBeforeRender(({ delta }) => {
     let dy = 0
     if (drive !== 0 || strafe !== 0) {
       const len = Math.hypot(drive, strafe)
-      const dash = selfDashing ? DASH_MULTIPLIER : 1
-      const speed = PLAYER_SPEED * dash * dt / len
+      const speed = PLAYER_SPEED * speedMultiplier(selfDashing, props.held.sprint) * dt / len
       const cos = Math.cos(props.view.yaw)
       const sin = Math.sin(props.view.yaw)
       dx = (cos * drive - sin * strafe) * speed
@@ -1359,17 +1598,15 @@ onBeforeRender(({ delta }) => {
       const tx = dx / len
       const ty = dy / len
       const along = ex * tx + ey * ty
-      local.x += (ex - along * tx) * k
-      local.y += (ey - along * ty) * k
-      if (along > 0) {
-        local.x += along * tx * k
-        local.y += along * ty * k
-      }
+      const ahead = Math.max(0, along)
+      // Through the shared collision, never a raw add: the straight line to the
+      // server's position can cross a building's corner, and a body whose centre
+      // lands inside a footprint is lifted onto the roof by the next step.
+      slideBody(hubWorld, local, (ex - along * tx + ahead * tx) * k, (ey - along * ty + ahead * ty) * k)
     }
     else if (Math.hypot(ex, ey) > RECONCILE_IDLE_FREEZE) {
       // Idle: only chase real disagreement; small stop-overshoot is left be.
-      local.x += ex * k
-      local.y += ey * k
+      slideBody(hubWorld, local, ex * k, ey * k)
     }
   }
 
@@ -1385,28 +1622,79 @@ onBeforeRender(({ delta }) => {
   // Third-person camera: behind the shoulder, pulled in by walls.
   else if (camera.value) {
     const yaw = props.view.yaw
+    // The steep range belongs to the hotbar. Putting the tool away eases the
+    // view back into the walking band rather than snapping it.
+    const ceiling = build.active.value ? PITCH_MAX_TOOL : PITCH_MAX
+    if (props.view.pitch > ceiling) {
+      // eslint-disable-next-line vue/no-mutating-props
+      props.view.pitch += (ceiling - props.view.pitch) * (1 - Math.exp(-dt * 6))
+    }
     const pitch = props.view.pitch
     const headX = local.x
     const headZ = local.y
+    shoulderMix += ((build.active.value ? 1 : 0) - shoulderMix) * (1 - Math.exp(-dt * SHOULDER_RATE))
+    const lift = SHOULDER_LIFT * shoulderMix
+    // The boom is a true polar orbit around a pivot at eye height, so `pitch`
+    // is the angle the crosshair actually looks down at. The old ad-hoc
+    // camera-up / target-down pair only reached about 28° at full extension,
+    // which is why the tiles around your own feet were unaimable.
+    const pivotY = local.z + PIVOT_HEIGHT + lift
+    const cosP = Math.cos(pitch)
+    const sinP = Math.sin(pitch)
+    // The ideal seat: back along the view axis, out along the camera's own
+    // right (`cross(forward, up)` for a forward of `(cos yaw, 0, sin yaw)`),
+    // and up by however far the pitch has swung it over the player.
+    // Steep pitch pulls the boom in as well as up: left at full extension the
+    // camera would sit four tiles over your head, and the tile under the
+    // crosshair would be a postage stamp. In close it is a proper overhead
+    // view — and close enough for the fade below to take the character out of
+    // the shot.
+    const steep = Math.max(0, Math.min(1, (pitch - PITCH_MAX) / (PITCH_MAX_TOOL - PITCH_MAX)))
+    const back = (MAX_BOOM - SHOULDER_CLOSE * shoulderMix) * (1 - STEEP_CLOSE * steep)
+    // The shoulder fades out as the view tips down: looking at your own boots
+    // there is no character left to see past, and an off-centre overhead camera
+    // puts the crosshair a tile to the side of the one you are standing on.
+    const side = SHOULDER_SIDE * build.shoulder.value * shoulderMix * (1 - steep)
+    const offX = -Math.cos(yaw) * back * cosP - Math.sin(yaw) * side
+    const offZ = -Math.sin(yaw) * back * cosP + Math.cos(yaw) * side
+    const offY = back * sinP
+    const reach = Math.hypot(offX, offZ)
     // Boom collision: snap IN immediately when a wall intrudes (so the camera
     // never lags behind it and flashes the void), but ease back OUT smoothly so
-    // it zooms rather than popping once the wall is clear.
-    const camHeight = Math.max(local.z + 0.35, local.z + 1.5 + pitch * 1.8)
-    const targetBoom = clipBoom(headX, headZ, -Math.cos(yaw), -Math.sin(yaw), MAX_BOOM, Math.min(camHeight, local.z + 1))
+    // it zooms rather than popping once the wall is clear. The offset seat is
+    // what gets clipped, not the centred one, so a shoulder pressed to a wall
+    // still comes in. Looking near-straight down the horizontal run collapses
+    // to nothing and there is no wall to clip against, so the test is skipped.
+    const targetBoom = reach > 0.05
+      ? clipBoom(headX, headZ, offX / reach, offZ / reach, reach, Math.min(pivotY + offY, local.z + 1))
+      : reach
     boomDist = targetBoom < boomDist
       ? targetBoom
       : boomDist + (targetBoom - boomDist) * (1 - Math.exp(-dt * 9))
-    camera.value.position.set(
-      headX - Math.cos(yaw) * boomDist,
-      camHeight,
-      headZ - Math.sin(yaw) * boomDist,
-    )
+    const scale = reach > 0.05 ? Math.min(1, boomDist / reach) : 1
+    camX = headX + offX * scale
+    camY = pivotY + offY * scale
+    camZ = headZ + offZ * scale
+    camera.value.position.set(camX, camY, camZ)
+    // The look target carries the same lateral offset, so the view axis stays
+    // parallel to the heading: a shoulder camera that looked back at the head
+    // would point the crosshair at the player's own ear.
+    const lookSide = side * scale
     camera.value.lookAt(
-      headX + Math.cos(yaw) * 1.2,
-      local.z + 1 - pitch * 1.2,
-      headZ + Math.sin(yaw) * 1.2,
+      headX + Math.cos(yaw) * 1.2 * cosP - Math.sin(yaw) * lookSide,
+      pivotY - 1.2 * sinP,
+      headZ + Math.sin(yaw) * 1.2 * cosP + Math.cos(yaw) * lookSide,
     )
     torchLight.position.set(headX, local.z + 1.7, headZ)
+  }
+
+  // The ears go where the camera went, after it moved: a frame-old transform
+  // would pan the world against the view. Every positioned sound below this is
+  // placed against the listener remembered here.
+  if (ambience && camera.value) {
+    camera.value.getWorldDirection(audioForward)
+    rememberListener(camera.value.position)
+    setAudioListener(camera.value.position, audioForward, AUDIO_UP)
   }
 
   // Aim after the camera has moved: the crosshair ray is the camera's own
@@ -1414,10 +1702,15 @@ onBeforeRender(({ delta }) => {
   if (buildTools) {
     buildTools.setVisible(self != null)
     const target = self ? buildTools.update(local, selfId) : null
-    if (build.fireQueued.value) {
-      build.fireQueued.value = false
-      applyTool(target)
+    // A fresh press forgets the last target, so a second click on the same tile
+    // is a second edit while a held button across it stays one.
+    if (build.pressId.value !== lastPressId) {
+      lastPressId = build.pressId.value
+      lastEditKey = ''
     }
+    const clicked = build.fireQueued.value
+    build.fireQueued.value = false
+    if (clicked || build.holding.value) applyTool(target)
   }
 
   if (camera.value && renderer.instance instanceof WebGLRenderer) {
@@ -1434,12 +1727,33 @@ onBeforeRender(({ delta }) => {
     Math.max(0, rimSky.sunHeight) * (1 - rimSky.overcast * 0.5),
   )
 
+  // Wind, rain, thunder and the day/night beds, off the same clock the sky runs
+  // on. Levels ramp over seconds, so this does not want a frame.
+  if (ambience) {
+    ambienceIn -= dt
+    if (ambienceIn <= 0) {
+      const elapsed = AMBIENCE_INTERVAL - ambienceIn
+      ambienceIn = AMBIENCE_INTERVAL
+      ambience.update(elapsed, {
+        dayness: rimSky.dayness,
+        overcast: rimSky.overcast,
+        rain: rimSky.rain,
+        x: local.x,
+        y: local.y,
+        altitude: local.z,
+        biome: biomeAt(hubWorld.seed, local.x, local.y),
+        now: serverNow,
+      })
+    }
+  }
+
   // Reconcile player rigs with the roster.
   for (const [id, rig] of rigs) {
     if (!props.game.players.has(id)) {
       playerGroup.remove(rig.group)
       rig.dispose()
       rigs.delete(id)
+      bodySounds.delete(id)
       bumpSceneVersion()
     }
   }
@@ -1456,6 +1770,7 @@ onBeforeRender(({ delta }) => {
     let moving = false
     let airborne = false
     let dashing = false
+    let sprinting = false
     if (isSelf) {
       // Your own rig follows the *predicted* body; it faces its travel
       // direction, not the free-orbit camera (which mouse-look drives).
@@ -1466,6 +1781,8 @@ onBeforeRender(({ delta }) => {
       moving = props.held.forward || props.held.back || props.held.left || props.held.right
       airborne = !local.grounded
       dashing = selfDashing
+      sprinting = props.held.sprint
+      hideSelfWhenClose(rig.group, Math.hypot(camX - local.x, camZ - local.y, camY - (local.z + PIVOT_HEIGHT)))
     }
     else {
       // The lag vector (authoritative minus rendered) points where they're
@@ -1495,6 +1812,7 @@ onBeforeRender(({ delta }) => {
       // The server can omit a stationary final snapshot. Once interpolation
       // settles, release its dash edge so the next burst can start normally.
       dashing = player.dashing === true && moving
+      sprinting = player.sprinting === true
     }
 
     rig.group.position.set(player.rx, player.rz, player.ry)
@@ -1520,26 +1838,29 @@ onBeforeRender(({ delta }) => {
     if (swimming) setAnimation(rig, moving ? CLIP.swim : CLIP.tread)
     else if (dashAnimating) setAnimation(rig, CLIP.dash)
     else if (airborne) setAnimation(rig, CLIP.jump, 1.1)
+    else if (moving && sprinting) setAnimation(rig, CLIP.sprint)
     else if (moving) setAnimation(rig, CLIP.run, 1.15)
     else setAnimation(rig, CLIP.idle)
     rig.mixer.update(dt)
 
-    // Chat bubble: redraw when the text changes, fade out at the end.
-    if (player.bubble && player.bubble.until > now) {
-      if (rig.bubbleText !== player.bubble.text) {
-        rig.bubbleText = player.bubble.text
-        const height = drawBubble(rig.bubbleCanvas.getContext('2d')!, rig.bubbleCanvas, player.bubble.text)
-        rig.bubbleTexture.needsUpdate = true
-        rig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
-        rig.bubble.position.y = rig.bubbleBaseY + rig.bubble.scale.y / 2
-      }
-      rig.bubble.visible = true
-      rig.bubble.material.opacity = Math.min(1, (player.bubble.until - now) / 300)
+    // The same states the clips are picked from drive the sound, so a footfall
+    // and the leg that made it can never disagree.
+    if (ambience) {
+      soundBody(id, isSelf, player.rx, player.ry, player.rz, dt, {
+        airborne,
+        dashing: dashAnimating,
+        sprinting,
+        swimming: swimming != null,
+      })
     }
-    else {
-      rig.bubble.visible = false
-      rig.bubbleText = ''
-    }
+
+    // A voice comes out of a mouth, so the panner follows the *rendered* rig at
+    // head height rather than the authoritative position — the same body you can
+    // see is the one you hear. A player nobody is paired with has no sink and
+    // this is a map miss.
+    if (!isSelf) voice.positionPeer(id, { x: player.rx, y: player.rz + VOICE_MOUTH_HEIGHT, z: player.ry })
+
+    updateBubble(rig, player.bubble, now)
   }
 
   waterActors.length = props.game.players.size
@@ -1552,6 +1873,14 @@ onBeforeRender(({ delta }) => {
     actor.feetY = id === selfId ? local.z : player.rz
     waterActorIndex++
   }
+  // The same rendered bodies bend the grass. Both banks (chunk meadows and the
+  // town's garden beds) share one uniform, so this one call covers them.
+  setGrassPushers(waterActors, local.x, local.y)
+  // The same rendered bodies are what the wildlife runs from.
+  critters?.update(dt, now, waterActors, camera.value?.position, rimSky.dayness)
+  // Distant patches draw only the tufts that can still be standing there.
+  const eye = camera.value?.position
+  if (eye) for (const entry of mounted.values()) if (entry.grass) updateGrassLod(entry.grass, eye.x, eye.z)
   // Shader clocks are `uniform float`: at epoch scale (~1.79e9) a float32's ULP
   // is 128 s, so wind and ripples would sit perfectly still. Wrap what reaches
   // a uniform; the fountain keeps absolute seconds because its particle sim
@@ -1571,23 +1900,21 @@ onBeforeRender(({ delta }) => {
     // constant in play).
     oracleRig.group.position.x = op.x
     oracleRig.group.position.z = op.y
-    oracleRig.group.rotation.y = op.rot
     const speech = oracle.speech.value
-    if (speech && speech.until > now) {
-      if (oracleRig.bubbleText !== speech.text) {
-        oracleRig.bubbleText = speech.text
-        const height = drawBubble(oracleRig.bubbleCanvas.getContext('2d')!, oracleRig.bubbleCanvas, speech.text)
-        oracleRig.bubbleTexture.needsUpdate = true
-        oracleRig.bubble.scale.set(BUBBLE_WIDTH_UNITS, height / BUBBLE_TEXELS_PER_UNIT, 1)
-        oracleRig.bubble.position.y = oracleRig.bubbleBaseY + oracleRig.bubble.scale.y / 2
-      }
-      oracleRig.bubble.visible = true
-      oracleRig.bubble.material.opacity = Math.min(1, (speech.until - now) / 300)
+    // Turn to face whoever it is answering while the line is up, then ease back
+    // to the authored pose. The editor keeps the pose exact so rotating is live.
+    let yaw = op.rot
+    if (speech?.to && speech.until > now && !props.editor) {
+      // Out of `state` range there is nobody to look at: hold the authored pose.
+      const other = speech.to === selfId ? undefined : props.game.players.get(speech.to)
+      const tx = (other ? other.rx : local.x) - op.x
+      const ty = (other ? other.ry : local.y) - op.y
+      if ((other || speech.to === selfId) && Math.hypot(tx, ty) > 0.5) yaw = Math.atan2(tx, ty)
     }
-    else {
-      oracleRig.bubble.visible = false
-      oracleRig.bubbleText = ''
-    }
+    oracleRig.group.rotation.y = props.editor
+      ? yaw
+      : oracleRig.group.rotation.y + angleDelta(yaw, oracleRig.group.rotation.y) * Math.min(1, dt * ORACLE_TURN_RATE)
+    updateBubble(oracleRig, speech, now)
   }
   oracle.near.value = self ? Math.hypot(local.x - op.x, local.y - op.y) < ORACLE_NEAR : false
 })
@@ -1619,7 +1946,7 @@ if (import.meta.dev) {
     // controller re-clones its placements off its own deep watch.
     watch(() => ed!.structureVersion.value, buildFloor)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).__editor = ed
+    ;(window as any).__editor = { ...ed, seat: editorCtl.seat }
   })
 }
 
@@ -1629,6 +1956,7 @@ if (import.meta.dev) {
 function disposeScene() {
   if (sceneDisposed) return
   sceneDisposed = true
+  resetFps()
   pipeline?.dispose()
   for (const rig of rigs.values()) rig.dispose()
   rigs.clear()
@@ -1638,6 +1966,7 @@ function disposeScene() {
   unsubscribe.length = 0
   if (townRebuild) clearTimeout(townRebuild)
   buildTools?.dispose()
+  critters?.dispose()
   chunkProps.dispose()
   grassBank.dispose()
   pavingBank.dispose()
@@ -1653,14 +1982,27 @@ function disposeScene() {
   townMaterials.dispose()
   retiredTemplates.length = 0
   atmosphere.dispose()
+  ambience?.dispose()
+  bodySounds.clear()
+  // Leaving the arena takes the context with it. The next entry unlocks a fresh
+  // one on its own first gesture.
+  closeAudio()
+  bubbleLayer?.remove()
+  bubbleLayer = null
   scene.value.remove(torchLight, floorGroup, playerGroup)
 }
 onMounted(() => emit('ready', disposeScene))
 onBeforeUnmount(disposeScene)
 
 if (import.meta.dev) {
+  // `audio.debug()` is how a headed run checks the mix without listening: the
+  // context state, the voice count, a per-sound tally and the master RMS.
+  // `voice.debug()` is the same for proximity voice: the mic state, whether we
+  // are transmitting, and each peer's frame counts, buffer and inbound level.
+  // `voice.setTalking(true)` stands in for holding the key, which is unreliable
+  // to synthesise.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view }
+  ;(window as any).__maze = { local, camera, game: props.game, held: props.held, view: props.view, critters, audio: { ...useAudio(), play }, voice }
 }
 </script>
 

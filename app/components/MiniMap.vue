@@ -71,7 +71,9 @@ onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <template>
-  <div class="pointer-events-none w-53.5">
+  <!-- The bitmap stays SIZE square and CSS scales it, so a narrow window gets a
+       smaller map rather than one laid over the status bar. -->
+  <div class="pointer-events-none w-32 md:w-53.5">
     <div class="relative overflow-hidden rounded-[6px] shadow-[inset_0_0_0_1px_rgb(255_255_255/0.2)]">
       <canvas
         ref="canvas"
@@ -79,13 +81,13 @@ onBeforeUnmount(() => clearInterval(timer))
         :height="SIZE"
         role="img"
         aria-label="Map of the streamed world around you, with the town, players and anything built nearby"
-        class="block"
+        class="block h-auto w-full"
       />
       <span class="telemetry absolute left-2.5 top-2.5 font-semibold tracking-[0.14em] text-highlighted [text-shadow:0_1px_3px_#000]">N</span>
     </div>
     <div class="frost telemetry on-render mt-1.5 flex items-center justify-between rounded-[6px] px-3 py-1.5 tracking-widest">
       <span class="text-highlighted">{{ at.x }}, {{ at.y }}</span>
-      <span class="text-muted">{{ chunkCount }} chunks</span>
+      <span class="text-muted max-md:hidden">{{ chunkCount }} chunks</span>
     </div>
   </div>
 </template>

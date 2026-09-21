@@ -27,7 +27,7 @@ import { TERRAIN_TINTS } from './surfaceColors'
  */
 
 /** How far the protected town's ground sinks below zero so every plaza plane in
- *  `courtyardScene` (the lowest sits at -0.025) stays on top of it rather than
+ *  `courtyardScene` (the lowest sits at -0.015) stays on top of it rather than
  *  z-fighting with it. Ramped out over the last tiles of the flat town ground,
  *  where it is a 6 cm step in open grass. */
 const TOWN_CLEARANCE = 0.06
@@ -48,7 +48,11 @@ const highland = new Color('#74886f')
 const rock = new Color(TERRAIN_TINTS.rock)
 const sand = new Color(TERRAIN_TINTS.sand)
 const wet = new Color(TERRAIN_TINTS.wet)
+const snow = new Color(TERRAIN_TINTS.snow)
 const scratch = new Color()
+/** The grass bank colours its blades with the same pigments, so a tuft takes
+ *  the colour of the ground it stands on. */
+export const MEADOW_PALETTE = { lush, dryGrass, straw, highland }
 
 /** Trodden ground: the widening approach track that runs out from the gate
  *  bridge into the meadow. */
@@ -66,13 +70,25 @@ function roadWear(x: number, z: number): number {
  * from the decorative heightfield this replaced, so the view from the walls is
  * the one players already know.
  */
-function groundColor(out: Color, x: number, z: number, y: number, slope: number) {
-  const distant = smoothstep(45, 145, Math.hypot(x - LANDSCAPE_CENTER, z - LANDSCAPE_CENTER) - LANDSCAPE_EXPANSION)
+/** What grows at a point, in the terms `groundColor` mixes its pigments by:
+ *  `lush` and `straw` are the two lerp weights, `bare` is how much of the
+ *  ground is worn soil or exposed rock, where nothing should stand. */
+export function meadowCover(x: number, z: number, slope: number) {
   const moisture = 0.5 + 0.25 * Math.sin(x * 0.021 + Math.sin(z * 0.017) * 2.3)
     + 0.25 * Math.sin(z * 0.034 - x * 0.013)
   const dryness = 0.5 + 0.5 * Math.sin(x * 0.013 - z * 0.029 + Math.sin(x * 0.008) * 1.7)
-  out.copy(dryGrass).lerp(lush, smoothstep(0.28, 0.78, moisture))
-  out.lerp(straw, smoothstep(0.5, 0.95, dryness) * 0.6)
+  return {
+    lush: smoothstep(0.28, 0.78, moisture),
+    straw: smoothstep(0.5, 0.95, dryness) * 0.6,
+    bare: Math.max(roadWear(x, z) * 0.82, smoothstep(0.22, 0.7, slope) * 0.88),
+  }
+}
+
+function groundColor(out: Color, x: number, z: number, y: number, slope: number) {
+  const distant = smoothstep(45, 145, Math.hypot(x - LANDSCAPE_CENTER, z - LANDSCAPE_CENTER) - LANDSCAPE_EXPANSION)
+  const cover = meadowCover(x, z, slope)
+  out.copy(dryGrass).lerp(lush, cover.lush)
+  out.lerp(straw, cover.straw)
   out.lerp(soil, roadWear(x, z) * 0.82)
   const exposed = smoothstep(0.22, 0.7, slope)
   out.lerp(rock, exposed * 0.88)
@@ -95,6 +111,12 @@ function surfaceTint(out: Color, surface: number) {
     case SURFACE.sand: return out.lerp(sand, 0.65)
     case SURFACE.path: return out
     case SURFACE.water: return out.lerp(wet, 0.7)
+    // The deepest lerp of the lot. Every other surface is soil or stone showing
+    // through the meadow's own pigment, but snow lies *over* the ground: leave
+    // a third of a green hillside in it and the summits come out sage. The
+    // remaining tenth is what the ground's own patch and strata variation shows
+    // through as drift, so a snowfield is not one flat value.
+    case SURFACE.snow: return out.lerp(snow, 0.9)
     default: return out
   }
 }
@@ -268,7 +290,7 @@ export function updateTerrainMesh(mesh: Mesh, chunk: Chunk, sample: HeightSample
 
 /** Whether a tile is open ground the meadow's grass may grow on. Inside the
  *  protected footprint the raster says nothing useful, so the town's own
- *  geometry (plaza, moat, bridge and approach) is what is excluded instead;
+ *  geometry (plaza, moat and bridge) is what is excluded instead;
  *  everywhere else, the outer tiles of a town chunk included, the raster
  *  decides — which is what keeps grass and flowers off a player's flagstones. */
 export function isGrassTile(chunk: Chunk, lx: number, ly: number): boolean {
@@ -276,7 +298,5 @@ export function isGrassTile(chunk: Chunk, lx: number, ly: number): boolean {
   const y = chunk.cy * CHUNK_SIZE + ly + 0.5
   if (!isProtectedTile(x, y)) return chunk.surface[ly * CHUNK_SIZE + lx] === SURFACE.grass
   if (x > COURTYARD.min && x < COURTYARD.max && y > COURTYARD.min && y < COURTYARD.max) return false
-  if (isInMoat(x, y) || isOnMoatStairs(x, y) || isOnGateBridge(x, y)) return false
-  const f = FORTIFICATIONS
-  return !(Math.abs(x - f.gateX) < f.bridgeWidth / 2 + 0.3 && y >= f.bridgeEnd && y <= f.exteriorMax)
+  return !(isInMoat(x, y) || isOnMoatStairs(x, y) || isOnGateBridge(x, y))
 }

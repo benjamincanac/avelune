@@ -42,6 +42,9 @@ export interface HubEditor {
   update: (dt: number) => void
   /** Re-clone every placement (call once templates finish loading). */
   rebuild: () => void
+  /** Put the fly camera at an exact pose (tiles, radians). The run-mmo driver
+   *  frames the landing still with this rather than flying there by key. */
+  seat: (x: number, y: number, z: number, yaw: number, pitch: number) => void
   /** Tear down: detach listeners, drop scene objects, stop watchers. */
   dispose: () => void
 }
@@ -511,7 +514,10 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
       camPos.x += (fx * fwd + Math.cos(yaw) * strafe) * speed
       camPos.z += (fz * fwd - Math.sin(yaw) * strafe) * speed
     }
-    camPos.y = clamp(camPos.y + rise * speed, 1, 60)
+    // The ceiling has to clear the tallest ground there is, not the town's:
+    // ranges reach 74 units now, and a 60-unit cap left the fly camera stuck
+    // inside a mountain with no way to rise over it.
+    camPos.y = clamp(camPos.y + rise * speed, 1, 140)
 
     camera.position.copy(camPos)
     camera.rotation.order = 'YXZ'
@@ -530,6 +536,12 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     pitch = CAM_PITCH
   }
 
+  function seat(x: number, y: number, z: number, toYaw: number, toPitch: number) {
+    camPos.set(x, y, z)
+    yaw = toYaw
+    pitch = clamp(toPitch, -PITCH_LIMIT, PITCH_LIMIT)
+  }
+
   function dispose() {
     canvas.removeEventListener('mousedown', onMouseDown)
     canvas.removeEventListener('wheel', onWheel)
@@ -545,5 +557,5 @@ export function createHubEditor(opts: HubEditorOptions): HubEditor {
     editorGroup.clear()
   }
 
-  return { update, rebuild, dispose }
+  return { update, rebuild, seat, dispose }
 }

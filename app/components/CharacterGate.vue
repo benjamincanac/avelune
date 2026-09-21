@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GENDERS, HAIRSTYLES, OUTFITS, OUTFIT_COLORS, PLAYER_COLORS, characterName, isAllowedColorIndex, isOutfitColor, randomAppearance, randomColorIndex } from '#shared/utils/characters'
+import { GENDERS, HAIRSTYLES, OUTFITS, OUTFIT_COLORS, PLAYER_COLORS, canBeard, characterName, isAllowedColorIndex, isOutfitColor, randomAppearance, randomColorIndex } from '#shared/utils/characters'
 import type { Gender } from '#shared/utils/characters'
 import type { Player } from '#shared/types/game'
 import { DEED_LIMIT, EDIT_REACH, MAX_PIECES_PER_PLAYER } from '#shared/utils/building'
@@ -8,7 +8,7 @@ import type { WorldEvent } from '~/composables/useFeed'
 
 /**
  * The onboarding gate previews appearance changes before creating an identity.
- * Characters offer gender, outfit, hairstyle and texture colorway choices.
+ * Characters offer gender, outfit, hairstyle, beard and texture colorway choices.
  *
  * Three zones on a dark stage: options left, dossier right, the commit stack
  * centred at the bottom. The character is the only thing at full brightness —
@@ -22,7 +22,7 @@ import type { WorldEvent } from '~/composables/useFeed'
  * Submitting POSTs to /api/auth (which sets the signed identity cookie); on
  * success the page opens the socket and drops into the hub.
  */
-const props = defineProps<{ initial?: Pick<Player, 'name' | 'color' | 'character' | 'outfitColor'> }>()
+const props = defineProps<{ initial?: Pick<Player, 'name' | 'color' | 'character' | 'outfitColor' | 'beard'> }>()
 const emit = defineEmits<{ done: [identity: Player], cancel: [] }>()
 
 const toast = useToast()
@@ -39,6 +39,7 @@ const gender = ref<Gender>(initialGender)
 const outfitIndex = ref(initialOutfitIndex)
 const hairIndex = ref(Math.max(0, HAIRSTYLES[initialGender].findIndex(h => h.id === initialParts[2])))
 const outfitColor = ref(isOutfitColor(OUTFITS[initialOutfitIndex]!.id, props.initial?.outfitColor) ? props.initial!.outfitColor : 0)
+const beard = ref(props.initial?.beard === true)
 const colorIndex = ref(isAllowedColorIndex(initialColorIndex) ? initialColorIndex : randomColorIndex()) // accent, hidden (chat only)
 const username = ref(props.initial?.name ?? '')
 const submitting = ref(false)
@@ -46,10 +47,16 @@ const input = useTemplateRef('input')
 
 const currentOutfit = computed(() => OUTFITS[outfitIndex.value]!)
 const hairstyles = computed(() => HAIRSTYLES[gender.value])
+const hairless = computed(() => !!currentOutfit.value.hairless)
 const colorways = computed(() => OUTFIT_COLORS[currentOutfit.value.id] ?? [])
 const hairId = computed(() => hairstyles.value[hairIndex.value]?.id)
-const hairName = computed(() => hairstyles.value[hairIndex.value]?.name ?? '')
+const hairName = computed(() => hairless.value ? '' : hairstyles.value[hairIndex.value]?.name ?? '')
 const character = computed(() => characterName(currentOutfit.value.id, gender.value, hairId.value))
+// Only the male GLBs of an outfit that leaves the face open carry a beard mesh,
+// so the control is hidden elsewhere and the pick sent as false. The ref itself
+// keeps its value, so a return to Male brings the beard back.
+const beardOffered = computed(() => canBeard(currentOutfit.value.id, gender.value))
+const bearded = computed(() => beardOffered.value && beard.value)
 // A name is required to enter (Accept disabled, Enter ignored, until non-blank).
 const canSubmit = computed(() => username.value.trim().length > 0)
 
@@ -61,8 +68,11 @@ const canSubmit = computed(() => username.value.trim().length > 0)
  * focus states in the first place.
  */
 const genderItems = computed(() => GENDERS.map(g => ({ label: g, value: g })))
-const outfitItems = computed(() => OUTFITS.map((outfit, value) => ({ label: outfit.name, icon: outfit.icon, value })))
+// `glyph`, not `icon`: with `indicator="hidden"` URadioGroup renders an item's
+// `icon` itself, centred above the label, on top of the one the slot draws.
+const outfitItems = computed(() => OUTFITS.map((outfit, value) => ({ label: outfit.name, glyph: outfit.icon, value })))
 const hairItems = computed(() => hairstyles.value.map((hair, value) => ({ label: hair.name, value })))
+const beardItems = [{ label: 'None', value: false }, { label: 'Full', value: true }]
 const colorwayItems = computed(() => colorways.value.map((colorway, value) => ({ label: colorway.name, swatch: colorway.swatch, value })))
 
 /** The library's card focus is a 25%-opacity outline plus a 1px border colour,
@@ -86,7 +96,7 @@ const CELL_WASH = {
 }
 const SWATCH = {
   fieldset: 'flex-nowrap gap-2',
-  item: `rounded-[4px] border-transparent p-0 has-data-[state=checked]:border-transparent ${FOCUS}`,
+  item: `rounded-[4px] border-transparent p-0.75 transition-colors duration-120 ease-out hover:bg-white/12 has-data-[state=checked]:border-primary/45 has-data-[state=checked]:bg-primary/12 ${FOCUS}`,
   wrapper: 'w-full',
   label: 'w-full',
 }
@@ -111,6 +121,7 @@ function randomize() {
   outfitIndex.value = Math.max(0, OUTFITS.findIndex(o => o.id === a.outfit))
   hairIndex.value = Math.max(0, HAIRSTYLES[a.gender].findIndex(h => h.id === a.hairId))
   outfitColor.value = a.outfitColor
+  beard.value = a.beard
   if (!props.initial) colorIndex.value = randomColorIndex()
 }
 
@@ -125,6 +136,7 @@ async function submit() {
         character: character.value,
         colorIndex: colorIndex.value,
         outfitColor: outfitColor.value,
+        beard: bearded.value,
       },
     })
     emit('done', identity)
@@ -154,16 +166,12 @@ onMounted(async () => {
     <!-- The stage. One neutral radial, so the character is the only thing at
          full brightness and an outfit change reads on the model. -->
     <div class="absolute inset-0 bg-[radial-gradient(66%_62%_at_50%_40%,#16222b_0%,#0c1216_48%,#070d0f_100%)]" />
-    <!-- The ground under the feet. Placed as a fraction of the stage rather than
-         a fixed offset from the bottom: the camera frames the figure by its own
-         height, so the boots land at the same 72% whatever the window is. -->
-    <div class="absolute left-1/2 top-[72%] h-px w-105 -translate-x-1/2 -translate-y-1/2 bg-[linear-gradient(90deg,rgb(111_240_218/0),rgb(111_240_218/0.5),rgb(111_240_218/0))]" />
-    <div class="absolute left-1/2 top-[72%] h-15 w-110 -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(50%_50%,rgb(111_240_218/0.16),rgb(111_240_218/0))]" />
 
     <!-- Big 3D character stage (transparent canvas over the backdrop). -->
     <CharacterPreview
       :character="character"
       :outfit-color="outfitColor"
+      :beard="bearded"
       class="absolute inset-0"
     />
 
@@ -175,7 +183,7 @@ onMounted(async () => {
     </div>
 
     <!-- Left: creation controls. -->
-    <div class="frost absolute left-9 top-24 z-10 flex max-h-[calc(100dvh-14rem)] w-79.5 flex-col gap-5.5 overflow-y-auto rounded-[6px] p-5.5">
+    <div class="frost absolute left-9 top-24 z-10 flex max-h-[calc(100dvh-8rem)] w-79.5 flex-col gap-5.5 overflow-y-auto rounded-[6px] p-5.5">
       <URadioGroup
         v-model="gender"
         legend="Gender"
@@ -205,9 +213,12 @@ onMounted(async () => {
         :ui="{ ...CELL_WASH, legend: 'label-section mb-2.25 text-label' }"
       >
         <template #label="{ item, modelValue }">
-          <span class="flex w-full items-center gap-3.25 px-3.5 py-3.25 text-left">
+          <!-- Tighter than it was at two outfits: five rows have to sit in the
+               panel alongside gender, hair and the colourways without the
+               column becoming a scroller on a short window. -->
+          <span class="flex w-full items-center gap-3.25 px-3.5 py-2.75 text-left">
             <UIcon
-              :name="item.icon"
+              :name="item.glyph"
               class="size-4.25 shrink-0"
               :class="modelValue === item.value ? 'text-primary' : 'text-dimmed'"
             />
@@ -224,9 +235,30 @@ onMounted(async () => {
       </URadioGroup>
 
       <URadioGroup
+        v-if="!hairless"
         v-model="hairIndex"
         legend="Hair"
         :items="hairItems"
+        variant="card"
+        orientation="horizontal"
+        indicator="hidden"
+        :ui="{ ...CELL_WASH, legend: 'label-section mb-2.25 text-label' }"
+      >
+        <template #label="{ item, modelValue }">
+          <span
+            class="block w-full py-2.75 text-center font-display text-[13px] uppercase leading-none tracking-[0.14em]"
+            :class="modelValue === item.value ? 'font-bold text-primary' : 'font-semibold text-muted'"
+          >{{ item.label }}</span>
+        </template>
+      </URadioGroup>
+
+      <!-- The beard is a mesh inside the male GLBs rather than a model of its
+           own, so it is a choice of its own next to the hairstyle. -->
+      <URadioGroup
+        v-if="beardOffered"
+        v-model="beard"
+        legend="Beard"
+        :items="beardItems"
         variant="card"
         orientation="horizontal"
         indicator="hidden"
@@ -250,12 +282,9 @@ onMounted(async () => {
         indicator="hidden"
         :ui="{ ...SWATCH, legend: 'label-section mb-2.25 text-label' }"
       >
-        <template #label="{ item, modelValue }">
+        <template #label="{ item }">
           <span
-            class="block size-9.5 rounded-[4px] transition-shadow duration-120 ease-out"
-            :class="modelValue === item.value
-              ? 'shadow-[0_0_0_2px_var(--ui-primary)]'
-              : 'shadow-[inset_0_0_0_1px_rgb(255_255_255/0.2)] hover:shadow-[0_0_0_2px_rgb(255_255_255/0.4)]'"
+            class="block size-7.5 rounded-[2px] shadow-[inset_0_0_0_1px_rgb(255_255_255/0.2)]"
             :style="{ backgroundColor: item.swatch }"
           />
           <span class="sr-only">{{ item.label }}</span>
@@ -268,7 +297,7 @@ onMounted(async () => {
         variant="subtle"
         size="sm"
         icon="i-lucide-dices"
-        label="Randomise"
+        label="Randomize"
         @click="randomize"
       />
     </div>
@@ -327,6 +356,10 @@ onMounted(async () => {
           <template v-if="hairName">
             <span class="text-faint">·</span>
             <span>{{ hairName }}</span>
+          </template>
+          <template v-if="bearded">
+            <span class="text-faint">·</span>
+            <span>Bearded</span>
           </template>
         </p>
 

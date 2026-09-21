@@ -2,7 +2,7 @@
 #
 # Compress the player build kit exported by scripts/build_kit.py.
 #
-# Same gltf-transform flow as convert_kits.sh, minus the texture work: these are
+# Same gltf-transform flow as convert_nature.sh, minus the texture work: these are
 # Blender-authored, untextured, COLOR_0-painted pieces, so the passes that matter
 # are dedup/prune/weld plus Meshopt. Two are turned off on purpose:
 #   --simplify false  low-poly kit geometry has no spare triangles to collapse,

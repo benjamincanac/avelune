@@ -4,7 +4,7 @@
 // a character over `POST /api/auth` and carries the cookie into the upgrade.
 const WS_URL = process.argv[2] ?? 'ws://localhost:50889/api/ws'
 const BASE = WS_URL.replace(/^ws/, 'http').replace(/\/api\/ws.*$/, '')
-const characters = { A: 'Peasant_Male_SimpleParted', B: 'Ranger_Female_Long' }
+const characters = { A: 'Peasant_Male_SimpleParted', B: 'Ranger_Female_Long', C: 'Ranger_Female_Long' }
 
 /** Create a character and return its `avelune_id` cookie. The route validates
  *  and falls back to the default character, so a bare name is enough here. */
@@ -26,12 +26,20 @@ async function auth(label) {
 function connect(label, cookie) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL, { headers: { cookie } })
+    ws.binaryType = 'arraybuffer'
     // `times` runs alongside `frames`: the streaming budget spreads a
     // neighbourhood over several ticks, so when a frame arrived is as much a
     // part of the contract as whether it did.
-    const client = { ws, label, cookie, welcome: null, frames: [], times: [], t0: 0 }
+    // `audio` collects the binary voice frames, which are a separate channel from
+    // the JSON ones and must never be parsed as JSON.
+    const client = { ws, label, cookie, welcome: null, frames: [], times: [], audio: [], t0: 0 }
     const timeout = setTimeout(() => reject(new Error(`${label}: no welcome`)), 5000)
     ws.addEventListener('message', (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        const bytes = new Uint8Array(event.data)
+        client.audio.push({ talker: (bytes[1] << 8) | bytes[2], seq: (bytes[3] << 8) | bytes[4], bytes })
+        return
+      }
       const msg = JSON.parse(event.data)
       client.frames.push(msg)
       client.times.push(performance.now())
@@ -63,7 +71,8 @@ check(
   !!self && self.z === 0 && typeof a.welcome.now === 'number'
   && ['auto', 'clear', 'overcast', 'rain'].includes(a.welcome.weather)
   && ['auto', 'dawn', 'day', 'sunset', 'night'].includes(a.welcome.timeOfDay)
-  && a.welcome.seed === undefined && a.welcome.records === undefined,
+  && a.welcome.seed === undefined && a.welcome.records === undefined
+  && Array.isArray(a.welcome.feed),
   `${self.name} @ (${self.x.toFixed(1)}, ${self.y.toFixed(1)}, z=${self.z})`,
 )
 
@@ -121,6 +130,8 @@ check('the authored town streams as placements', town > 100, `${town} pieces acr
 
 const statesOf = (client, id, since = 0) =>
   client.frames.slice(since).filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === id)
+// Long enough for a dash burst to end before the next measurement.
+const DASH_SETTLE = 300
 const lastState = () => statesOf(b, self.id).at(-1) ?? self
 
 // Jump: z rises past half a tile, then returns to the ground.
@@ -153,6 +164,19 @@ check('dash outruns walking', dashed > plain * 1.3, `plain=${plain.toFixed(2)} d
 const dashFlag = statesOf(b, self.id, mark).some(s => s.d === true)
 check('dash flagged in snapshots', dashFlag)
 
+// Sprint: the same held key with `sprint` covers more ground, and says so.
+await sleep(DASH_SETTLE)
+mark = b.frames.length
+const p3 = lastState()
+send(a, { t: 'move', ...noMove, forward: true, sprint: true, a: 0 })
+await sleep(350)
+send(a, { t: 'move', ...noMove, a: 0 })
+await sleep(250)
+const p4 = lastState()
+const sprinted = Math.hypot(p4.x - p3.x, p4.y - p3.y)
+check('sprint outruns walking', sprinted > plain * 1.3, `plain=${plain.toFixed(2)} sprinted=${sprinted.toFixed(2)}`)
+check('sprint flagged in snapshots', statesOf(b, self.id, mark).some(s => s.s === true))
+
 // Chat reaches the other client, with no floor scoping left on the frame.
 send(a, { t: 'chat', text: 'well met' })
 await sleep(300)
@@ -181,14 +205,15 @@ const refusal = a.frames.findLast(f => f.t === 'reject')
 check('terraform inside the walls is refused', refusal?.reason === 'the town is protected', refusal?.reason)
 check('a refusal stays private', !b.frames.slice(bMark).some(f => f.t === 'reject' || f.t === 'terrain'))
 
-// Protection is a tile footprint now, not a chunk band: the gate road is
-// refused, and the grass beside it — six tiles away, still inside the chunks
-// that used to be off limits — is editable without walking anywhere.
+// Protection is a tile footprint now, not a chunk band: a brush reaching the
+// gate bridge's landing is refused, and the grass beside spawn — six tiles
+// away, still inside the chunks that used to be off limits — is editable
+// without walking anywhere.
 const onRoad = positionOf(a)
-send(a, { t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y) + 5, mode: 'raise', size: 1 })
+send(a, { t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y) - 6, mode: 'raise', size: 3 })
 await sleep(200)
 const roadRefusal = a.frames.findLast(f => f.t === 'reject')
-check('the gate road is protected', roadRefusal?.reason === 'the town is protected', roadRefusal?.reason)
+check('the gate bridge is protected', roadRefusal?.reason === 'the town is protected', roadRefusal?.reason)
 let beside = null
 for (const dx of [-6, 6, -5, 5]) {
   const aMark = a.frames.length
@@ -306,6 +331,27 @@ if (built) {
   await sleep(250)
   const gone = a.frames.slice(aMark).find(f => f.t === 'remove')
   check('removing your own piece gives the budget back', gone?.id === built.mine.piece.id && gone?.pieces === 0, `pieces=${gone?.pieces}`)
+
+  // The aim height on the wire: the same pose three times, and `h` alone
+  // decides whether a crate stacks or is refused for the slot being taken.
+  const pose = { kind: 'Kit_Crate', x: built.mine.piece.x, y: built.mine.piece.y, rot: 0 }
+  const place = async (frame) => {
+    const mark = a.frames.length
+    send(a, frame)
+    await sleep(250)
+    return a.frames.slice(mark).find(f => f.t === 'place' || f.t === 'reject')
+  }
+  const lower = await place({ t: 'build', ...pose })
+  const upper = lower?.t === 'place' ? await place({ t: 'build', ...pose, h: lower.piece.z + 1 }) : null
+  check('a build aimed a storey up stacks on the piece below', upper?.t === 'place' && upper.piece.z === lower.piece.z + 1, upper?.t === 'place' ? `z=${upper.piece.z}` : upper?.reason)
+  const again = lower?.t === 'place' ? await place({ t: 'build', ...pose, h: lower.piece.z }) : null
+  check('a build aimed back at the taken slot is refused', again?.t === 'reject', again?.t === 'place' ? `z=${again.piece.z}` : again?.reason)
+  for (const frame of [lower, upper]) {
+    if (frame?.t === 'place') {
+      send(a, { t: 'demolish', id: frame.piece.id })
+      await sleep(150)
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -421,6 +467,108 @@ if (deed) {
   check('the meadow is left as it was found', leftover?.pieces === 0, `A owns ${leftover?.pieces} pieces`)
 }
 
+/* -------------------------------------------------------------------------- */
+/* Proximity voice                                                            */
+/* -------------------------------------------------------------------------- */
+
+// Voice rides this same socket as binary frames beside the JSON ones. The server
+// owns who hears whom: a client cannot name its own listeners, and the only thing
+// it can do is opt in and talk. A and B are both standing in the meadow here,
+// close enough to be paired.
+const VOICE_KIND = 1
+/** `[u8 kind][u16 seq]` then the payload, exactly as `encodeVoiceUp` writes it. */
+function voiceFrame(seq, size = 40, fill = 0xab) {
+  const frame = new Uint8Array(3 + size)
+  frame[0] = VOICE_KIND
+  frame[1] = (seq >> 8) & 0xff
+  frame[2] = seq & 0xff
+  frame.fill(fill, 3)
+  return frame
+}
+const peersOf = client => client.frames.filter(f => f.t === 'voice-peers').at(-1)
+
+check('nobody is paired before anyone opts in', !peersOf(a) && !peersOf(b))
+
+// Opting in alone pairs you with nobody, and that is not worth a frame.
+send(a, { t: 'voice', on: true })
+await sleep(700)
+check('one talker alone is paired with nobody', (peersOf(a)?.peers.length ?? 0) === 0)
+
+// A frame from a talker with no listeners goes nowhere, and one from a player who
+// never opted in goes nowhere either.
+let audioMark = b.audio.length
+a.ws.send(voiceFrame(1))
+b.ws.send(voiceFrame(1))
+await sleep(250)
+check('audio from a talker with no listeners reaches nobody', b.audio.length === audioMark && a.audio.length === 0)
+
+send(b, { t: 'voice', on: true })
+await sleep(800)
+const aPeers = peersOf(a)
+const bPeers = peersOf(b)
+const bId = b.welcome.self.id
+check(
+  'two talkers standing together are paired, each way',
+  aPeers?.peers.length === 1 && aPeers.peers[0].id === bId
+  && bPeers?.peers.length === 1 && bPeers.peers[0].id === self.id,
+  `A hears ${JSON.stringify(aPeers?.peers)} / B hears ${JSON.stringify(bPeers?.peers)}`,
+)
+const aTalker = bPeers?.peers[0]?.talker
+check('the pairing names the numeric talker id the audio arrives under', Number.isInteger(aTalker) && aTalker > 0, `talker=${aTalker}`)
+
+// One frame, one listener, byte for byte.
+audioMark = b.audio.length
+const sentAt = a.audio.length
+a.ws.send(voiceFrame(4242, 40, 0x5a))
+await sleep(250)
+const heard = b.audio.slice(audioMark)
+check('a voice frame reaches the listener the server paired', heard.length === 1, `${heard.length} frames`)
+check('the frame carries the talker id and the sequence number untouched', heard[0]?.talker === aTalker && heard[0]?.seq === 4242, JSON.stringify({ talker: heard[0]?.talker, seq: heard[0]?.seq }))
+check('the payload survives the relay', heard[0]?.bytes.length === 45 && heard[0]?.bytes[5] === 0x5a, `${heard[0]?.bytes.length} bytes`)
+check('a talker never hears themselves', a.audio.length === sentAt)
+
+// An oversized payload is dropped rather than multiplied by the listener count.
+audioMark = b.audio.length
+a.ws.send(voiceFrame(4243, 401))
+a.ws.send(new Uint8Array([VOICE_KIND, 0, 0]))
+await sleep(250)
+check('an oversized frame and a headerless one are both dropped', b.audio.length === audioMark)
+check('and the socket survives them', a.ws.readyState === WebSocket.OPEN)
+
+// The rate limit is what bounds the relay's outbound cost, so a flood has to be
+// cut off well short of what was sent.
+audioMark = b.audio.length
+for (let i = 0; i < 400; i++) a.ws.send(voiceFrame(5000 + i))
+await sleep(600)
+const relayed = b.audio.length - audioMark
+check('a flood is cut down to the allowance', relayed > 0 && relayed < 200, `${relayed} of 400 frames relayed`)
+
+// Walking out of range takes the pair down, on both sides, and the audio with it.
+send(b, { t: 'chat', text: '/tp 320 320' })
+await sleep(900)
+check('a talker who walks out of range is dropped by both sides', (peersOf(a)?.peers.length ?? 1) === 0 && (peersOf(b)?.peers.length ?? 1) === 0)
+audioMark = b.audio.length
+a.ws.send(voiceFrame(9000))
+await sleep(250)
+check('and hears nothing more', b.audio.length === audioMark)
+
+// Turning voice off clears the state, and the transcription route refuses anyone
+// who is not in the world with voice on.
+send(a, { t: 'voice', on: false })
+await sleep(250)
+const sayOff = await fetch(`${BASE}/api/voice/say`, {
+  method: 'POST',
+  headers: { 'content-type': 'audio/webm', 'cookie': a.cookie },
+  body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+})
+check('a spoken line is refused while voice is off', sayOff.status === 409 || sayOff.status === 503, `status ${sayOff.status}`)
+const sayAnon = await fetch(`${BASE}/api/voice/say`, {
+  method: 'POST',
+  headers: { 'content-type': 'audio/webm' },
+  body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+})
+check('and refused outright without a character', sayAnon.status === 401)
+
 // Anything but a tool the server knows is refused outright.
 const badMark = a.frames.length
 send(a, { t: 'terraform', x: outside.x, y: outside.y, mode: 'nuke', size: 9 })
@@ -519,6 +667,32 @@ check('late connection inherits automatic time', a3.welcome.timeOfDay === 'auto'
 check('time reset preserves automatic weather', a3.welcome.weather === 'auto')
 a3.ws.close()
 b2.ws.close()
+
+// A reconnect resumes where the body stood; `respawn` is the way back to the
+// gate, on a cooldown.
+const c = await connect('C', await auth('C'))
+const gate = c.welcome.self
+send(c, { t: 'move', ...noMove, forward: true, a: Math.PI / 2 })
+await sleep(1500)
+send(c, { t: 'move', ...noMove, a: Math.PI / 2 })
+await sleep(300)
+const walked = c.frames.filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === gate.id).at(-1)
+check('C walked away from the gate', !!walked && Math.hypot(walked.x - gate.x, walked.y - gate.y) > 3, walked ? `to ${walked.x.toFixed(1)}, ${walked.y.toFixed(1)}` : 'no state')
+c.ws.close()
+await sleep(300)
+const c2 = await connect('C2', c.cookie)
+const back = c2.welcome.self
+check('a reconnect resumes where the body stood', !!walked && Math.hypot(back.x - walked.x, back.y - walked.y) < 0.5, `at ${back.x.toFixed(1)}, ${back.y.toFixed(1)}`)
+check('and keeps its heading', Math.abs(back.angle - Math.PI / 2) < 0.01, `angle=${back.angle}`)
+send(c2, { t: 'action', kind: 'respawn' })
+await sleep(300)
+const home = c2.frames.filter(f => f.t === 'state').flatMap(f => f.players).filter(p => p.id === gate.id).at(-1)
+check('respawn returns to the gate', !!home && Math.hypot(home.x - gate.x, home.y - gate.y) < 1.5, home ? `at ${home.x.toFixed(1)}, ${home.y.toFixed(1)}` : 'no state')
+check('respawn is confirmed', c2.frames.some(f => f.t === 'system' && f.text === 'Returned to town.'))
+send(c2, { t: 'action', kind: 'respawn' })
+await sleep(150)
+check('a second respawn waits out the cooldown', c2.frames.some(f => f.t === 'system' && f.text.startsWith('You can return to town again in')))
+c2.ws.close()
 
 a2.ws.close()
 a.ws.close()

@@ -9,6 +9,7 @@
  */
 
 import type { WorldPlacement } from '../utils/props'
+import type { VoicePeerInfo } from '../utils/voice'
 
 /**
  * A surface raster value — the numeric codes in `SURFACE` (shared/utils/world.ts):
@@ -26,6 +27,9 @@ export interface Player {
   character: string
   /** Chosen outfit colorway index (resolved against the character's outfit). */
   outfitColor: number
+  /** Whether the beard mesh is shown. Only males on a non-hairless outfit can
+   *  carry one; the server normalises every other case to false. */
+  beard: boolean
   x: number
   y: number
   /** Height above the floor plane (jumping, standing on props). */
@@ -40,6 +44,8 @@ export interface MoveInput {
   back: boolean
   left: boolean
   right: boolean
+  /** Sprint is held. Only changes speed while a direction is held too. */
+  sprint: boolean
 }
 
 /** Positional delta for one player inside a state snapshot. */
@@ -53,21 +59,32 @@ export interface PlayerState {
   a: number
   /** Mid-dash right now (drives the roll animation remotely). */
   d?: boolean
+  /** Sprinting right now (drives the sprint animation remotely). */
+  s?: boolean
 }
 
 /** Messages the client sends to the server. */
 export type ClientMessage
   = | { t: 'move', a?: number } & MoveInput
-    /** One-shot actions; the server validates grounded/cooldown state. */
-    | { t: 'action', kind: 'jump' | 'dash' }
+    /** One-shot actions; the server validates grounded/cooldown state.
+     *  `respawn` is the way out of a hole: back to the gate, on a cooldown. */
+    | { t: 'action', kind: 'jump' | 'dash' | 'respawn' }
     | { t: 'chat', text: string }
     /** Move terrain under the brush. The server validates reach, protection,
      *  rate and the step; it never trusts the resulting height. */
     | { t: 'terraform', x: number, y: number, mode: TerraformKind, size: 1 | 2 | 3, surface?: Surface }
-    /** Place a piece. The server snaps it, computes its `z` and assigns its id. */
-    | { t: 'build', kind: string, x: number, y: number, rot: number }
+    /** Place a piece. The server snaps it, computes its `z` and assigns its id.
+     *  `h` is the world height the client's aim ray hit: a hint that bounds
+     *  which surface under the footprint may support the piece, so a wall
+     *  replaced under an upper storey goes back in its slot instead of onto the
+     *  roof. Optional — without it the highest surface wins, as it always did. */
+    | { t: 'build', kind: string, x: number, y: number, rot: number, h?: number }
     /** Remove a piece by id — the owner's own, or an unowned generated one. */
     | { t: 'demolish', id: string }
+    /** Opt in or out of proximity voice. Voice is off until a player asks for
+     *  it, and turning it off is what takes them out of the pairing. The audio
+     *  itself is not JSON: see the binary frames in `shared/utils/voice.ts`. */
+    | { t: 'voice', on: boolean }
     | { t: 'ping' }
 
 /** What a brush did to the ground. Echoed back on `terrain` so the feed can
@@ -98,17 +115,32 @@ export interface WorldInfo {
   streamed: number
 }
 
+/** One thing that happened in the world, worded the way the feed reads it. */
+export interface WorldEvent {
+  at: number
+  name: string
+  text: string
+  /** Same actor doing the same kind of thing again replaces the row instead of
+   *  stacking: a wall goes up in a dozen clicks and the feed shows one line. */
+  kind: string
+}
+
 /** Messages the server sends to the client. */
 export type ServerMessage
   /** `pieces` is how many pieces this identity owns in the whole world, and
    *  `deeds` how many plots they hold — only the server can count either: a
-   *  client holds twenty-five chunks of it. */
-  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number, deeds: number }
+   *  client holds twenty-five chunks of it. `feed` is the server's recent rows,
+   *  newest first, so the HUD feed is not blank until someone next acts. */
+  = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number, deeds: number, feed: WorldEvent[] }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
     /** Snapshot of every player that moved since the last one. */
     | { t: 'state', players: PlayerState[] }
-    | { t: 'chat', id: string, text: string }
+    /** `to` rides only on the Oracle's lines: the player it is answering or
+     *  greeting, so the scene can turn the NPC to face them. `voice` marks a
+     *  line that was spoken rather than typed — a push-to-talk clip the server
+     *  transcribed — so the chat can put a small mic beside it. */
+    | { t: 'chat', id: string, text: string, to?: string, voice?: true }
     | { t: 'weather', mode: WeatherMode }
     | { t: 'time', mode: TimeOfDayMode }
     | { t: 'system', text: string }
@@ -133,6 +165,13 @@ export type ServerMessage
     | { t: 'remove', cx: number, cy: number, v: number, id: string, pieces?: number, deeds?: number }
     /** An edit request the server refused, sent only to the requester. */
     | { t: 'reject', reason: string }
+    /** Who this player can hear right now, and under which numeric talker id
+     *  their audio frames arrive. The whole set, not a delta, so a client that
+     *  missed one frame still converges. Sent only to players with voice on,
+     *  recomputed on a slow cadence rather than every tick, and empty when voice
+     *  goes off. The pairing is the server's: `shared/utils/voice.ts` holds the
+     *  range, the hysteresis and the cap. */
+    | { t: 'voice-peers', peers: VoicePeerInfo[] }
     /** This identity connected from another tab/window and that newer socket
      *  took over — only one live session per player is allowed. The client
      *  shows the reason and stops reconnecting (a reconnect would kick the new

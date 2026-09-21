@@ -1,17 +1,29 @@
-import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode } from '#shared/types/game'
+import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode, WorldEvent } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import {
   DASH_COOLDOWN,
   DASH_DURATION,
-  DASH_MULTIPLIER,
   JUMP_VELOCITY,
   PLAYER_SPEED,
+  bodySurfaceHeight,
+  speedMultiplier,
   stepBody,
 } from '#shared/utils/maze'
-import { CHUNK_SIZE, TERRAFORM_STEP, TERRAFORM_VERBS, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
+import { CHUNK_SIZE, TERRAFORM_STEP, TERRAFORM_VERBS, WORLD_TILE_MAX, WORLD_TILE_MIN, applyPlace, applyRemove, applyTerrain, chunkCoord, makePlacementId } from '#shared/utils/world'
 import type { Chunk, SurfaceType } from '#shared/utils/world'
 import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { EDITS_PER_SECOND, checkDemolish, checkTerraform, isKitKind, refusalText, resolveBuild } from '#shared/utils/building'
+import {
+  VOICE_FRAMES_PER_SECOND,
+  VOICE_FRAME_BURST,
+  VOICE_PAIR_EVERY,
+  createBucket,
+  decodeVoiceUp,
+  encodeVoiceDown,
+  selectVoicePairs,
+  spendToken,
+} from '#shared/utils/voice'
+import type { TokenBucket, VoiceBody, VoicePeerInfo } from '#shared/utils/voice'
 import {
   WORLD,
   broadcastToChunk,
@@ -29,12 +41,14 @@ import {
 } from './world'
 import { addDeed, addPiece, deedCount, pieceCount, removeDeed, removePiece } from './pieces'
 import { REALM, chunkStore } from './chunkStore'
+import { flushPositions, notePosition } from './positions'
+import type { SavedPosition } from './positions'
 import type { Identity } from './session'
 import { FORTIFICATIONS } from '#shared/utils/courtyard'
 import { realmName } from '#shared/utils/realm'
 import HUB_ORACLE from '#shared/data/courtyard-oracle.json'
-import type { HubMessage } from './oracle'
-import { oracleGreeting, oracleReply } from './oracle'
+import type { HubMessage, SkyControl } from './oracle'
+import { oracleAnswer, oracleGreeting, oracleHears } from './oracle'
 
 /**
  * The authoritative arena.
@@ -71,6 +85,9 @@ const STATE_RANGE = 192
 const VOID_FLOOR = -50
 /** While a player's chunk is still in flight, look for it again this often. */
 const RESYNC_EVERY = 20
+/** How often a player may ask to be put back at the gate. Long enough that it
+ *  is a way out of a hole and not a way home. */
+const RESPAWN_COOLDOWN = 30_000
 
 interface Session {
   player: Player
@@ -84,8 +101,6 @@ interface Session {
   moved: boolean
   joinedAt: number
   lastSeen: number
-  /** A greeting composed on join, spoken when they step through the gate. */
-  greeting?: Promise<string | null>
   /** Chunk keys this socket holds, the ones still owed to it, and the chunk it
    *  last synced around. */
   chunks: Set<string>
@@ -95,7 +110,22 @@ interface Session {
   /** Edit budget: a token bucket refilled at `EDITS_PER_SECOND`. */
   editTokens: number
   editAt: number
+  /** Whether this player opted into proximity voice. False until they ask. */
+  voice: boolean
+  /** The small numeric id this session's audio frames travel under, handed to
+   *  its listeners on `voice-peers`. Per process, not per identity. */
+  talker: number
+  /** The listeners the last `voice-peers` frame named, in order, so an unchanged
+   *  set is not re-sent twice a second. */
+  voicePeers: string[]
+  /** Audio budget: its own bucket, because 50 frames a second must not eat the
+   *  edit allowance and an edit must not cost anyone their voice. */
+  voiceBucket: TokenBucket
+  /** Chat budget, shared by typed lines and transcribed ones. */
+  chatBucket: TokenBucket
   send: (data: string) => void
+  /** Send a binary frame. Voice audio is the only thing that uses it. */
+  sendBytes: (data: Uint8Array) => void
   close: () => void
 }
 
@@ -106,6 +136,38 @@ let tickCount = 0
 let weather: WeatherMode = 'auto'
 let timeOfDay: TimeOfDayMode = 'auto'
 
+/**
+ * Turn the shared sky. Players ask the Oracle for this (`oracleHears` calls
+ * these on its classifier's verdict, and its reply is the announcement); the
+ * dev commands below reach them too, so a harness can fix the sky without a
+ * model.
+ */
+function setWeather(mode: WeatherMode) {
+  weather = mode
+  broadcast({ t: 'weather', mode })
+}
+
+function setTimeOfDay(mode: TimeOfDayMode) {
+  timeOfDay = mode
+  broadcast({ t: 'time', mode })
+}
+
+/**
+ * Whether the dev-only chat commands are live.
+ *
+ * `/weather` and `/time` fix the sky and `/tp` moves a body without the sim's
+ * consent, which is exactly what makes a rendering or building change
+ * verifiable from a script — and exactly what has no business in a public
+ * build. `nuxt dev` turns it on; a production build a verification harness
+ * drives asks for it by name.
+ */
+const DEV_COMMANDS = import.meta.dev || process.env.AVELUNE_DEV_COMMANDS === '1'
+
+/** How high above the ground a teleport parks a body whose destination chunk is
+ *  still in flight from the store: the tick freezes it until the chunk lands,
+ *  then it falls the last little way onto real ground. */
+const TELEPORT_HOVER = 40
+
 /** Spawn position, jittered so simultaneous arrivals don't stack. */
 function spawnAt(): { x: number, y: number, z: number } {
   return {
@@ -114,6 +176,24 @@ function spawnAt(): { x: number, y: number, z: number } {
     z: 0,
   }
 }
+
+/** Put a body back at the gate, wherever it was. */
+function respawn(session: Session) {
+  const { player } = session
+  const spawn = spawnAt()
+  player.x = spawn.x
+  player.y = spawn.y
+  player.z = spawn.z
+  session.vz = 0
+  session.grounded = true
+  session.dashUntil = 0
+  session.moved = true
+  syncChunks(session, player.x, player.y, true)
+}
+
+/** When each identity last asked for a respawn. Keyed by identity rather than
+ *  held on the session, so a reconnect does not reset the cooldown. */
+const respawnedAt = new Map<string, number>()
 
 function broadcast(msg: ServerMessage, exceptId?: string) {
   const data = JSON.stringify(msg)
@@ -147,10 +227,9 @@ function tick() {
     let dx = 0
     let dy = 0
     if (drive !== 0 || strafe !== 0) {
-      // Normalize so diagonals aren't faster; dashing modifies speed.
+      // Normalize so diagonals aren't faster; dashing and sprinting modify speed.
       const len = Math.hypot(drive, strafe)
-      const dash = dashing ? DASH_MULTIPLIER : 1
-      const speed = PLAYER_SPEED * dash * dt / len
+      const speed = PLAYER_SPEED * speedMultiplier(dashing, input.sprint) * dt / len
       const cos = Math.cos(player.angle)
       const sin = Math.sin(player.angle)
       dx = (cos * drive - sin * strafe) * speed
@@ -177,15 +256,8 @@ function tick() {
     session.grounded = body.grounded
     // Belt and braces: whatever let a body through the floor, it comes back.
     if (player.z < VOID_FLOOR) {
-      const spawn = spawnAt()
-      player.x = spawn.x
-      player.y = spawn.y
-      player.z = spawn.z
-      session.vz = 0
-      session.grounded = true
-      session.moved = true
+      respawn(session)
       console.error(`[game] ${player.id} fell out of the world; respawned`)
-      syncChunks(session, player.x, player.y, true)
     }
     if (before.x !== player.x || before.y !== player.y || before.z !== player.z) {
       session.moved = true
@@ -201,6 +273,10 @@ function tick() {
 
   if (tickCount % BROADCAST_EVERY === 0) broadcastState(now)
 
+  // Voice pairing is deliberately not per tick: a connection takes a moment to
+  // build and nobody walks 24 tiles in half a second.
+  if (tickCount % VOICE_PAIR_EVERY === 0) updateVoicePairs()
+
   if (tickCount % SWEEP_EVERY === 0) {
     const min = Date.now() - STALE_TIMEOUT
     for (const session of sessions.values()) {
@@ -211,7 +287,11 @@ function tick() {
 
   // Write-behind: the flush is async and self-guarding, so the tick hands it
   // the roster (a CAS conflict has to re-send the chunk) and moves on.
-  if (tickCount % FLUSH_EVERY === 0) void flushDirtyChunks(sessions.values())
+  // Positions ride the same flush: note where everyone stands first.
+  if (tickCount % FLUSH_EVERY === 0) {
+    for (const { player } of sessions.values()) notePosition(player.id, player)
+    void flushDirtyChunks(sessions.values())
+  }
 }
 
 /**
@@ -245,6 +325,7 @@ function broadcastState(now: number) {
       a: Math.round(angle * 1000) / 1000,
     }
     if (now < session.dashUntil) state.d = true
+    else if (session.input.sprint) state.s = true
     moved.push({ state, x, y })
   }
   if (!moved.length) return
@@ -360,9 +441,154 @@ function announceEdit(session: Session, chunk: Chunk, frame: Extract<ServerMessa
   session.send(JSON.stringify({ ...frame, pieces: pieceCount(id), deeds: deedCount(id) } satisfies ServerMessage))
 }
 
+/* -------------------------------------------------------------------------- */
+/* Proximity voice                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The server decides who may talk to whom.
+ *
+ * It already knows every position, so pairing belongs here rather than in a
+ * client that could claim to be standing anywhere. The rules — range, the
+ * hysteresis band and the cap of six — are in `shared/utils/voice.ts`, and the
+ * only state kept here is the live pair set, which the hysteresis reads.
+ *
+ * Media never passes through this process. All the server carries is the
+ * handful of signalling frames a pair needs to find each other, and only for a
+ * pair it already holds.
+ */
+const livePairs = new Set<string>()
+
+/** Talker ids are handed out in order. Small, because they ride every audio
+ *  frame, and 16 bits is 65k arrivals before the counter comes back around. */
+let nextTalker = 1
+
+/**
+ * The next talker id nobody is using.
+ *
+ * The counter wraps, and a wrap that handed out an id a live session already
+ * holds would put one player's voice in another player's mouth: the listener
+ * routes by talker id, so the audio would be attributed to the wrong person and
+ * panned at the wrong rig. Skipping the ids in use costs a walk of the roster
+ * once per connection. Zero is never handed out, so an unmapped id on a client
+ * is always nobody.
+ */
+function takeTalker(): number {
+  const live = new Set<number>()
+  for (const session of sessions.values()) live.add(session.talker)
+  for (let tries = 0; tries < 0xffff; tries++) {
+    const id = nextTalker
+    nextTalker = nextTalker >= 0xffff ? 1 : nextTalker + 1
+    if (!live.has(id)) return id
+  }
+  // 65535 sessions at once on one instance. Not reachable, and a duplicate id is
+  // better than refusing the connection.
+  return nextTalker
+}
+
+/**
+ * Recompute the mesh and tell whoever's set changed.
+ *
+ * Runs every `VOICE_PAIR_EVERY` ticks (2 Hz), over the players with voice on and
+ * nobody else, so a town of silent players and every `spawn-bots.mjs` bot pay
+ * nothing at all for this. The cost is O(n²) in the *voice-on* count, which the
+ * cap of six peers keeps small in practice: 20 people all talking is 190
+ * distance tests twice a second.
+ */
+function updateVoicePairs() {
+  const talkers: VoiceBody[] = []
+  for (const session of sessions.values()) {
+    if (session.voice) talkers.push({ id: session.player.id, x: session.player.x, y: session.player.y })
+  }
+  // Nobody is listening and nothing was up: there is nothing to recompute.
+  if (talkers.length < 2 && !livePairs.size) return
+
+  const { pairs, peers } = selectVoicePairs(talkers, livePairs)
+  livePairs.clear()
+  for (const key of pairs) livePairs.add(key)
+
+  for (const body of talkers) {
+    const session = sessions.get(body.id)
+    if (!session) continue
+    sendVoicePeers(session, peers.get(body.id) ?? [])
+  }
+}
+
+/** Hand a session its peer set, unless it already has exactly that one. */
+function sendVoicePeers(session: Session, peers: string[]) {
+  if (peers.length === session.voicePeers.length && peers.every((id, i) => session.voicePeers[i] === id)) return
+  session.voicePeers = peers
+  const info: VoicePeerInfo[] = []
+  for (const id of peers) {
+    const peer = sessions.get(id)
+    // A peer that has just gone is simply left out; the next pass agrees.
+    if (peer) info.push({ id, talker: peer.talker })
+  }
+  session.send(JSON.stringify({ t: 'voice-peers', peers: info } satisfies ServerMessage))
+}
+
+/**
+ * Relay one audio frame, the moment it arrives.
+ *
+ * Deliberately not on the tick: 20 Hz would quantise every frame's latency by up
+ * to 50 ms and a 20 ms frame does not survive that. Forwarding here instead costs
+ * the tick nothing, because this runs on the socket's own message event and does
+ * no work the tick could be waiting on: no JSON, no chunk access, no store, and
+ * one allocation per listener. Ordering is safe for the same reason — the tick
+ * never reads or writes anything this touches except `voicePeers`, which it only
+ * replaces wholesale.
+ *
+ * The validation is the point. This is the only path where one player's bytes
+ * reach another's socket, so: the sender must have voice on, the payload must be
+ * short, the rate must be inside the bucket, and the listeners are the ones the
+ * server's own pairing named and nobody else. The sender is never in that list,
+ * so there is no echo. Everything refused is dropped in silence, because
+ * answering a flood is how a flood becomes amplification.
+ */
+function relayVoiceFrame(session: Session, bytes: Uint8Array) {
+  if (!session.voice) return
+  const frame = decodeVoiceUp(bytes)
+  if (!frame) return
+  if (!spendToken(session.voiceBucket, VOICE_FRAMES_PER_SECOND, VOICE_FRAME_BURST)) return
+  if (!session.voicePeers.length) return
+  // One outgoing buffer for every listener: the header is the same for all of
+  // them, so it is built once rather than per socket.
+  const out = encodeVoiceDown(session.talker, frame.seq, frame.payload)
+  for (const id of session.voicePeers) {
+    const peer = sessions.get(id)
+    if (peer?.voice) peer.sendBytes(out)
+  }
+}
+
+/**
+ * Take a player out of the mesh: their own set goes empty, and every peer that
+ * held a pair with them is told immediately rather than at the next pass.
+ *
+ * Called when they turn voice off, when they disconnect, and when a second tab
+ * takes the identity over — a socket that is gone must not leave the other end
+ * holding a connection to it.
+ */
+function clearVoice(session: Session) {
+  const id = session.player.id
+  session.voice = false
+  if (session.voicePeers.length) sendVoicePeers(session, [])
+  for (const peer of sessions.values()) {
+    if (peer === session || !peer.voice) continue
+    if (!peer.voicePeers.includes(id)) continue
+    sendVoicePeers(peer, peer.voicePeers.filter(other => other !== id))
+  }
+  for (const key of [...livePairs]) {
+    const [one, two] = key.split('|')
+    if (one === id || two === id) livePairs.delete(key)
+  }
+}
+
 export interface Connection {
   player: Player
   handleMessage: (raw: string) => void
+  /** One binary frame. Voice audio is the only thing that arrives this way, and
+   *  it is forwarded on receipt rather than on the tick. */
+  handleBytes: (bytes: Uint8Array) => void
   disconnect: () => void
 }
 
@@ -474,16 +700,6 @@ export interface ArenaState {
 /* -------------------------------------------------------------------------- */
 /* The live surface: peak, history and the world feed                          */
 /* -------------------------------------------------------------------------- */
-
-/** One thing that happened in the world, worded the way the feed reads it. */
-export interface WorldEvent {
-  at: number
-  name: string
-  text: string
-  /** Same actor doing the same kind of thing again replaces the row instead of
-   *  stacking: a wall goes up in a dozen clicks and the feed shows one line. */
-  kind: string
-}
 
 /** The feed surfaces show three rows; a few spare cover a burst of activity. */
 const FEED_LIMIT = 6
@@ -658,36 +874,218 @@ export function snapshot(): ArenaState {
 /** Recent arena chat as context for the Oracle (players' lines and its own). */
 const hubChat: HubMessage[] = []
 const HUB_CHAT_CONTEXT = 12
-/** One reply in flight at a time, plus a cooldown after each — anti-flood. */
-let oracleBusy = false
+/**
+ * One *answer* in flight at a time, plus a cooldown after each — anti-flood.
+ *
+ * Listening is not gated with speaking, and that separation is the point. The
+ * classifier runs on every line, banter included, so a single lock around both
+ * halves let ordinary player-to-player chatter swallow the one line that was a
+ * question: it was dropped before anyone had even read it. Classification is
+ * cheap and fast, so it runs concurrently; only the reply waits its turn.
+ */
+let oracleSpeaking = false
 let oracleQuietUntil = 0
 const ORACLE_COOLDOWN = 4000
+/**
+ * Classifier calls allowed at once. Uncapped, a chat flood fans out one model
+ * call per line; this bounds the spend while leaving enough room that a
+ * question is never dropped behind ordinary banter.
+ */
+const ORACLE_MAX_CLASSIFY = 4
+let oracleClassifying = 0
+/** Order of arrival in chat, so the newest addressed line wins the slot even
+ *  when the classifiers resolve out of order. */
+let oracleSeq = 0
+/**
+ * A question this old is dropped rather than answered. Generous, because the
+ * gates above cap the wait at about one cooldown plus one reply; it is there so
+ * a pathological backlog can never surface an answer nobody remembers asking for.
+ */
+const ORACLE_PENDING_MAX_AGE = 15_000
+
+/** A line heard, its sky already turned, waiting for the Oracle to be free. */
+interface PendingAnswer {
+  /** The player to answer, so clients turn the NPC to face them. */
+  id: string
+  seq: number
+  /** The transcript as it stood when this line was classified, ending on it —
+   *  not `hubChat` as it will be later, which may have moved on. */
+  recent: HubMessage[]
+  /** Sky changes already applied, for the responder to acknowledge. */
+  done: string[]
+  at: number
+}
+/**
+ * The line waiting to be answered, at most one. A newer question replaces an
+ * older one rather than queueing behind it: by the time the Oracle is free the
+ * freshest question is the one whose asker is still looking, and a FIFO queue
+ * would answer all of them several seconds late.
+ */
+let oraclePending: PendingAnswer | undefined
+let oraclePendingTimer: ReturnType<typeof setTimeout> | undefined
+
+/** The Oracle's hand on the sky, and the dev commands' — one object so the two
+ *  halves of a reply (the turn, then the wording) see the same sky. */
+const skyControl: SkyControl = {
+  now: () => skyNow(Date.now()),
+  setWeather,
+  setTime: setTimeOfDay,
+}
 
 /**
  * Say an Oracle line: remember it as context for later replies, start the
  * cooldown, and put it on the wire as an ordinary chat frame from ORACLE_ID.
+ * `to` is the player being answered, so clients can turn the NPC to face them.
  */
-function speak(reply: string) {
+function speak(reply: string, to: string) {
   oracleQuietUntil = Date.now() + ORACLE_COOLDOWN
   hubChat.push({ name: ORACLE_NAME, text: reply })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
-  broadcast({ t: 'chat', id: ORACLE_ID, text: reply })
+  broadcast({ t: 'chat', id: ORACLE_ID, text: reply, to })
 }
 
-function considerOracle(name: string, text: string) {
+/**
+ * How fast anyone may put a line in the chat, typed or spoken.
+ *
+ * Generous for a person and pointless for a script. A spoken line goes through
+ * the same bucket because it is the same channel: the Oracle, the other players
+ * and the log cannot tell the two apart, so neither should the limit.
+ */
+const CHAT_PER_SECOND = 1.5
+const CHAT_BURST = 4
+
+/**
+ * Put one line in the arena chat.
+ *
+ * The single path in, for a typed line and for a transcribed one alike. That is
+ * what lets speech reach the Oracle with no change to its classifier: by the time
+ * anything here runs, a spoken sentence and a typed one are the same line from
+ * the same player. `spoken` only marks the frame so the chat panel can draw a
+ * mic beside it.
+ */
+function sayChat(session: Session, text: string, spoken = false): boolean {
+  const trimmed = text.trim().slice(0, MAX_CHAT_LENGTH)
+  if (!trimmed) return false
+  if (!spendToken(session.chatBucket, CHAT_PER_SECOND, CHAT_BURST)) {
+    session.send(JSON.stringify({ t: 'system', text: 'Slow down.' } satisfies ServerMessage))
+    return false
+  }
+  const { player } = session
+  // A typed line is not echoed to its author, who drew it the moment they hit
+  // Enter. A spoken line is: the speaker has nothing on screen until the
+  // transcript exists, and the server's wording is the only one there is.
+  broadcast({ t: 'chat', id: player.id, text: trimmed, ...(spoken ? { voice: true as const } : {}) }, spoken ? undefined : player.id)
+  // The Oracle overhears the arena and answers only when addressed.
+  considerOracle(player.id, player.name, trimmed)
+  return true
+}
+
+/**
+ * Say something as a player who is in the world right now, from outside the
+ * socket — the transcription route's way in.
+ *
+ * Gated on a live session with voice on, because a clip can only have come from
+ * someone holding the push-to-talk key in the arena. An identity with no session
+ * gets nothing, rather than a line appearing from a player who left.
+ */
+export function speakForIdentity(id: string, text: string): boolean {
+  const session = sessions.get(id)
+  if (!session || !session.voice) return false
+  return sayChat(session, text, true)
+}
+
+/** Whether this identity is in the world with voice on. The transcription route
+ *  checks it before spending money on a clip. */
+export function hasLiveVoice(id: string): boolean {
+  return sessions.get(id)?.voice === true
+}
+
+/**
+ * Let the Oracle hear a chat line.
+ *
+ * Every line is classified, whatever the Oracle is doing — a reply in flight or
+ * a cooldown gates speaking, never listening. A line that turns out to be for
+ * the Oracle takes the answer slot and is answered as soon as it is free, so
+ * asking while it is mid-sentence to someone else no longer loses the question.
+ */
+function considerOracle(id: string, name: string, text: string) {
   hubChat.push({ name, text })
   if (hubChat.length > HUB_CHAT_CONTEXT) hubChat.shift()
-  // Don't even classify while replying or cooling down: the classifier gates
-  // *what* it answers, these gate *how often* — together they prevent floods.
-  if (oracleBusy || Date.now() < oracleQuietUntil) return
-  oracleBusy = true
-  oracleReply([...hubChat], snapshot)
-    .then((reply) => {
-      if (reply) speak(reply)
+  if (oracleClassifying >= ORACLE_MAX_CLASSIFY) {
+    // Logged, because silence here is indistinguishable from the classifier
+    // deciding the line wasn't for the Oracle — and that one logs a score.
+    console.log('[oracle] skip', `classifying ${oracleClassifying}`, JSON.stringify(text))
+    return
+  }
+  const seq = ++oracleSeq
+  const recent = [...hubChat]
+  oracleClassifying++
+  oracleHears(recent, skyControl)
+    .then((done) => {
+      if (!done) return
+      rememberOracle({ id, seq, recent, done, at: Date.now() })
+      drainOracle()
     })
     .catch(() => {})
     .finally(() => {
-      oracleBusy = false
+      oracleClassifying--
+    })
+}
+
+/**
+ * Take the answer slot, or settle with whoever holds it. The newest line wins,
+ * because its asker is the one still waiting — but the loser's sky deeds carry
+ * over, since the sky already turned for them and the line that does get
+ * answered is the only one left to own it.
+ */
+function rememberOracle(next: PendingAnswer) {
+  const held = oraclePending
+  if (!held) {
+    oraclePending = next
+    return
+  }
+  const winner = next.seq > held.seq ? next : held
+  const loser = winner === next ? held : next
+  console.log('[oracle] supersede', JSON.stringify(loser.recent.at(-1)?.text), 'by', JSON.stringify(winner.recent.at(-1)?.text))
+  oraclePending = { ...winner, done: [...held.done, ...next.done] }
+}
+
+/**
+ * Answer the waiting line once the Oracle is free and the cooldown has run out.
+ * Called when the slot is filled and again after every answer, so a question
+ * asked mid-reply is answered a beat later instead of being dropped.
+ */
+function drainOracle() {
+  if (!oraclePending || oracleSpeaking) return
+  const cooling = oracleQuietUntil - Date.now()
+  if (cooling > 0) {
+    // +20ms so the re-check lands past the boundary, not on it. One timer only:
+    // a line that supersedes this one inherits the wait already running.
+    if (!oraclePendingTimer) {
+      oraclePendingTimer = setTimeout(() => {
+        oraclePendingTimer = undefined
+        drainOracle()
+      }, cooling + 20)
+      // Never hold the process open just for a pending answer.
+      ;(oraclePendingTimer as { unref?: () => void }).unref?.()
+    }
+    return
+  }
+  const pending = oraclePending
+  oraclePending = undefined
+  if (Date.now() - pending.at > ORACLE_PENDING_MAX_AGE) {
+    console.log('[oracle] stale', JSON.stringify(pending.recent.at(-1)?.text))
+    return
+  }
+  oracleSpeaking = true
+  oracleAnswer(pending.recent, pending.done, snapshot, skyControl)
+    .then((reply) => {
+      if (reply) speak(reply, pending.id)
+    })
+    .catch(() => {})
+    .finally(() => {
+      oracleSpeaking = false
+      drainOracle()
     })
 }
 
@@ -706,20 +1104,21 @@ const GREET_RETRY = 1500
 const greetedAt = new Map<string, number>()
 
 /**
- * Start composing a greeting the moment a traveller joins, so the line is
- * ready by the time they walk the bridge and step through South Gate. The
- * model call takes seconds; the walk from the spawn bank takes about five, and
- * a greeting that arrives after they have already passed the Oracle reads as
- * an afterthought. Nothing is said here: `deliverGreeting` speaks it at the
- * gate, and a traveller who leaves without crossing is never greeted.
+ * Greet a traveller as they step through South Gate.
  *
- * Gated once per identity per `GREET_INTERVAL`, so a refresh or a tab
- * take-over stays silent. The slot is claimed here and released again if the
- * greeting is abandoned, so a traveller who arrived mid-conversation can still
- * be met later. The call runs outside the `oracleBusy` lock: that lock keeps
- * the Oracle from talking over itself, and composing is not talking.
+ * The line is written, not generated (`oracleGreeting` picks one to suit the
+ * company and the sky), so an arrival costs no model call however many arrive
+ * at once. Gated once per identity per `GREET_INTERVAL`, so walking back and
+ * forth through the gate, a refresh or a tab take-over stays silent.
+ *
+ * Never talks over a reply in flight, a cooldown, or a question already waiting
+ * to be answered: it waits, looking again every `GREET_RETRY`, and gives up once
+ * `GREET_WINDOW` has passed — a party arriving together is worth a short wait, a
+ * busy chat is not, and a greeting never queues indefinitely. A traveller's
+ * question always outranks the welcome they get for walking in. Giving up, or the traveller leaving first,
+ * releases the slot so the next visit is greeted.
  */
-function prepareGreeting(session: Session) {
+function deliverGreeting(session: Session) {
   const { id, name } = session.player
   const now = Date.now()
   for (const [key, at] of greetedAt) {
@@ -727,45 +1126,18 @@ function prepareGreeting(session: Session) {
   }
   if (greetedAt.has(id)) return
   greetedAt.set(id, now)
-  session.greeting = oracleGreeting(name, snapshot).catch(() => null)
-}
-
-/**
- * Say the prepared greeting as the traveller steps through South Gate.
- *
- * Never talks over a reply in flight or a cooldown: it waits, looking again
- * every `GREET_RETRY`, and gives up once `GREET_WINDOW` has passed — a party
- * arriving together is worth a short wait, a busy chat is not, and a greeting
- * never queues indefinitely. Dropped if the traveller is gone again.
- * Fire-and-forget like `considerOracle`: nothing here can throw into the tick
- * loop, and if the model was unreachable `oracleGreeting` still resolved to a
- * fixed in-character line, so an arrival is never met with silence.
- */
-function deliverGreeting(session: Session) {
-  const pending = session.greeting
-  if (!pending) return
-  session.greeting = undefined
-  const { id } = session.player
-  const deadline = Date.now() + GREET_WINDOW
+  const deadline = now + GREET_WINDOW
 
   const attempt = (delay: number) => {
     const timer = setTimeout(() => {
       // Gone again, or the Oracle stayed busy too long: drop it, don't queue.
       if (sessions.get(id) !== session) return void greetedAt.delete(id)
-      if (oracleBusy || Date.now() < oracleQuietUntil) {
+      if (oracleSpeaking || oraclePending || Date.now() < oracleQuietUntil) {
         if (Date.now() > deadline) return void greetedAt.delete(id)
         // Wait out whatever the Oracle is saying, then look again.
         return attempt(Math.max(oracleQuietUntil - Date.now() + 200, GREET_RETRY))
       }
-      oracleBusy = true
-      pending
-        .then((line) => {
-          if (line) speak(line)
-        })
-        .catch(() => {})
-        .finally(() => {
-          oracleBusy = false
-        })
+      speak(oracleGreeting(name, { others: sessions.size - 1, ...skyNow(Date.now()) }), id)
     }, delay)
     // Never hold the process open just for a pending greeting.
     ;(timer as { unref?: () => void }).unref?.()
@@ -775,21 +1147,29 @@ function deliverGreeting(session: Session) {
 }
 
 /**
- * Register a new socket. Spawns the authenticated identity's character in the
- * arena, sends the welcome frame with the world state, and announces the join.
+ * Register a new socket. Puts the authenticated identity's character back
+ * where it last stood (`saved`, see `./positions`) or at the gate, sends the
+ * welcome frame with the world state, and announces the join.
  * Identity (id/name/color/character) comes from the signed cookie the WS
  * handler verified — see server/utils/session.ts.
  */
-export function registerConnection(identity: Identity, send: (data: string) => void, close: () => void): Connection {
+export function registerConnection(
+  identity: Identity,
+  saved: SavedPosition | null,
+  send: (data: string) => void,
+  close: () => void,
+  sendBytes: (data: Uint8Array) => void = () => {},
+): Connection {
+  // A take-over resumes from the live body, which is newer than anything saved.
+  const resume = sessions.get(identity.id)?.player ?? saved
   const player: Player = {
     ...identity,
-    ...spawnAt(),
-    angle: -Math.PI / 2,
+    ...(resume ? { x: resume.x, y: resume.y, z: resume.z, angle: resume.angle } : { ...spawnAt(), angle: -Math.PI / 2 }),
   }
 
   const session: Session = {
     player,
-    input: { forward: false, back: false, left: false, right: false },
+    input: { forward: false, back: false, left: false, right: false, sprint: false },
     vz: 0,
     grounded: true,
     dashUntil: 0,
@@ -803,7 +1183,13 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     chunkCy: Number.NaN,
     editTokens: EDITS_PER_SECOND,
     editAt: Date.now(),
+    voice: false,
+    talker: takeTalker(),
+    voicePeers: [],
+    voiceBucket: createBucket(VOICE_FRAME_BURST),
+    chatBucket: createBucket(CHAT_BURST),
     send,
+    sendBytes,
     close,
   }
 
@@ -818,6 +1204,10 @@ export function registerConnection(identity: Identity, send: (data: string) => v
   sessions.set(player.id, session)
   startLoop()
   if (existing) {
+    // The old socket is about to go. Take it out of the mesh first, so its peers
+    // are told to drop it now rather than keep a dead connection open — the new
+    // session starts with voice off and has to opt in for itself.
+    clearVoice(existing)
     existing.send(JSON.stringify({ t: 'kicked', reason: 'You opened the arena in another tab. This window has been disconnected.' } satisfies ServerMessage))
     existing.close()
   }
@@ -834,18 +1224,22 @@ export function registerConnection(identity: Identity, send: (data: string) => v
     // spread over the whole world, and the client only ever holds 25 chunks.
     pieces: pieceCount(player.id),
     deeds: deedCount(player.id),
+    feed: worldFeed,
   } satisfies ServerMessage))
   // The ground before anything standing on it: the spawn neighbourhood goes out
   // on the same tick as the welcome, so no `state` can ever name a player on a
   // chunk the client has not been given.
   syncChunks(session, player.x, player.y, true)
   broadcast({ t: 'join', player }, player.id)
-  recordEvent(player.name, 'join', 'entered the town')
+  recordEvent(player.name, 'join', resume ? 'returned to the world' : 'entered the town')
   notePlayers(sessions.size)
-  prepareGreeting(session)
 
   return {
     player,
+    handleBytes(bytes) {
+      session.lastSeen = Date.now()
+      relayVoiceFrame(session, bytes)
+    },
     handleMessage(raw) {
       let msg: ClientMessage
       try {
@@ -860,7 +1254,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
       // The wire is untrusted: validate every field before acting on it.
       switch (msg.t) {
         case 'move': {
-          session.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right }
+          session.input = { forward: !!msg.forward, back: !!msg.back, left: !!msg.left, right: !!msg.right, sprint: !!msg.sprint }
           const heading = toHeading(msg.a)
           if (heading !== null && heading !== player.angle) {
             player.angle = heading
@@ -878,6 +1272,16 @@ export function registerConnection(identity: Identity, send: (data: string) => v
             session.dashUntil = Date.now() + DASH_DURATION * 1000
             session.dashCooldownUntil = Date.now() + DASH_COOLDOWN * 1000
           }
+          else if (msg.kind === 'respawn') {
+            const wait = (respawnedAt.get(player.id) ?? 0) + RESPAWN_COOLDOWN - Date.now()
+            if (wait > 0) {
+              send(JSON.stringify({ t: 'system', text: `You can return to town again in ${Math.ceil(wait / 1000)}s.` } satisfies ServerMessage))
+              return
+            }
+            respawnedAt.set(player.id, Date.now())
+            respawn(session)
+            send(JSON.stringify({ t: 'system', text: 'Returned to town.' } satisfies ServerMessage))
+          }
           break
         }
         case 'chat': {
@@ -885,29 +1289,49 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           const text = msg.text.trim().slice(0, MAX_CHAT_LENGTH)
           if (!text) return
           const [command, mode, ...extra] = text.toLowerCase().split(/\s+/)
-          if (command === '/weather') {
+          if (DEV_COMMANDS && command === '/tp') {
+            const tx = Number(mode)
+            const ty = Number(extra[0])
+            if (extra.length !== 1 || !Number.isFinite(tx) || !Number.isFinite(ty)) {
+              send(JSON.stringify({ t: 'system', text: 'Usage: /tp <x> <y>' } satisfies ServerMessage))
+              return
+            }
+            if (tx < WORLD_TILE_MIN || ty < WORLD_TILE_MIN || tx >= WORLD_TILE_MAX || ty >= WORLD_TILE_MAX) {
+              send(JSON.stringify({ t: 'system', text: 'That is outside the world.' } satisfies ServerMessage))
+              return
+            }
+            player.x = tx
+            player.y = ty
+            session.vz = 0
+            session.grounded = true
+            session.moved = true
+            // Pull the destination's chunks before reading the ground: without
+            // them the height is -Infinity and the body has nothing to stand on.
+            syncChunks(session, player.x, player.y, true)
+            const floor = bodySurfaceHeight(WORLD, tx, ty, TELEPORT_HOVER)
+            player.z = Number.isFinite(floor) ? floor : TELEPORT_HOVER
+            send(JSON.stringify({ t: 'system', text: `Moved to ${Math.round(tx)}, ${Math.round(ty)}.` } satisfies ServerMessage))
+            return
+          }
+          if (DEV_COMMANDS && command === '/weather') {
             if (extra.length || (mode !== 'auto' && mode !== 'clear' && mode !== 'overcast' && mode !== 'rain')) {
               send(JSON.stringify({ t: 'system', text: 'Usage: /weather clear | overcast | rain | auto' } satisfies ServerMessage))
               return
             }
-            weather = mode
-            broadcast({ t: 'weather', mode })
+            setWeather(mode)
             broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic weather restored.' : `Weather changed to ${mode}.` })
             return
           }
-          if (command === '/time') {
+          if (DEV_COMMANDS && command === '/time') {
             if (extra.length || (mode !== 'auto' && mode !== 'dawn' && mode !== 'day' && mode !== 'sunset' && mode !== 'night')) {
               send(JSON.stringify({ t: 'system', text: 'Usage: /time dawn | day | sunset | night | auto' } satisfies ServerMessage))
               return
             }
-            timeOfDay = mode
-            broadcast({ t: 'time', mode })
+            setTimeOfDay(mode)
             broadcast({ t: 'system', text: mode === 'auto' ? 'Automatic day/night cycle restored.' : `Time of day changed to ${mode}.` })
             return
           }
-          broadcast({ t: 'chat', id: player.id, text }, player.id)
-          // The Oracle overhears the arena and answers only when addressed.
-          considerOracle(player.name, text)
+          sayChat(session, text)
           break
         }
         case 'terraform': {
@@ -931,7 +1355,7 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           const owned = pieceCount(player.id)
           const resolved = resolveBuild(
             WORLD,
-            { kind: msg.kind, x: msg.x, y: msg.y, rot: msg.rot },
+            { kind: msg.kind, x: msg.x, y: msg.y, rot: msg.rot, h: msg.h },
             player,
             { owner: player.id, id: makePlacementId(), pieces: owned, deeds: deedCount(player.id) },
           )
@@ -973,6 +1397,16 @@ export function registerConnection(identity: Identity, send: (data: string) => v
           )
           break
         }
+        case 'voice': {
+          const on = msg.on === true
+          if (on === session.voice) return
+          if (!on) return clearVoice(session)
+          session.voice = true
+          // Pair on the next pass rather than here: one player turning voice on
+          // has to be matched against everyone else's set, which is exactly what
+          // the pass does.
+          break
+        }
         case 'ping':
           send(JSON.stringify({ t: 'pong' } satisfies ServerMessage))
           break
@@ -983,15 +1417,19 @@ export function registerConnection(identity: Identity, send: (data: string) => v
       // A newer tab may have taken over (see the take-over above), in which case
       // the booted socket's close lands here too — but the delete + leave belong
       // to the session that replaced it, not this one.
+      // `clearVoice` works by player id, so only the session that still owns the
+      // id may run it. A socket that was replaced and closes late would otherwise
+      // tear down its replacement's pairs. The takeover already cleared this one.
+      if (sessions.get(player.id) === session) clearVoice(session)
+      else session.voice = false
       if (sessions.get(player.id) === session) {
+        notePosition(player.id, player)
+        void flushPositions()
         sessions.delete(player.id)
         broadcast({ t: 'leave', id: player.id })
         notePlayers(sessions.size)
       }
-      // Left without ever stepping through the gate: they were never greeted,
-      // so the next visit should be.
       releaseViewer(session)
-      if (session.greeting) greetedAt.delete(player.id)
       stopLoop()
     },
   }
