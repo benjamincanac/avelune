@@ -170,11 +170,61 @@ export function isWalkable(world: World, tx: number, ty: number): boolean {
   return tileSlope(chunk, tx, ty) <= SLOPE_MAX
 }
 
+/** Highest corner of a tile, in world height. */
+function tileTop(chunk: Chunk, tx: number, ty: number): number {
+  const i = (ty - chunk.cy * CHUNK_SIZE) * CHUNK_CORNERS + (tx - chunk.cx * CHUNK_SIZE)
+  return Math.max(chunk.heights[i]!, chunk.heights[i + 1]!, chunk.heights[i + CHUNK_CORNERS]!, chunk.heights[i + CHUNK_CORNERS + 1]!) * HEIGHT_STEP
+}
+
+/** Top of the tile under a point when that tile is steep, null on ordinary ground. */
+function steepTileAt(world: World, x: number, y: number): number | null {
+  const tx = Math.floor(x)
+  const ty = Math.floor(y)
+  const chunk = world.getChunk(chunkCoord(tx), chunkCoord(ty))
+  if (!chunk || tileSlope(chunk, tx, ty) <= SLOPE_MAX) return null
+  return tileTop(chunk, tx, ty)
+}
+
+/**
+ * `isWalkable` for a body whose feet are at `feet`. A steep tile is a cliff
+ * face, not an endless wall: it blocks feet that are below its highest corner
+ * and lets a body through once its feet reach that corner minus `STEP_MAX`, the
+ * same ledge rule a raised piece uses. That is what lets a jump clear a dug
+ * hole, and what lets a body walk off the top of a cliff and fall. The world
+ * edge and a missing chunk stay walls at every height.
+ */
+export function isWalkableAt(world: World, tx: number, ty: number, feet: number): boolean {
+  if (tx < WORLD_TILE_MIN || ty < WORLD_TILE_MIN || tx >= WORLD_TILE_MAX || ty >= WORLD_TILE_MAX) return false
+  const chunk = world.getChunk(chunkCoord(tx), chunkCoord(ty))
+  if (!chunk) return false
+  return tileSlope(chunk, tx, ty) <= SLOPE_MAX || feet >= tileTop(chunk, tx, ty) - STEP_MAX
+}
+
+/**
+ * Whether a steep tile refuses a move whose centre ends on it. A body can get
+ * onto a cliff face from above, by landing on it or by walking off its top, and
+ * the landing snap would then carry it up the face one step at a time. So a
+ * body whose feet are below the tile's top may only move across it level or
+ * downhill: a move that ends on higher ground than it started from is refused.
+ * Downhill is never refused, so a face can always be left the way gravity goes.
+ */
+function climbsSteepTile(world: World, fromX: number, fromY: number, x: number, y: number, feet: number): boolean {
+  const top = steepTileAt(world, x, y)
+  if (top === null || feet >= top - STEP_MAX) return false
+  return terrainHeight(world, x, y) > terrainHeight(world, fromX, fromY) + 1e-9
+}
+
 /**
  * Move a circle of radius `r` by (dx, dy) with axis-separated collision
  * against blocked tiles, sliding along them instead of sticking.
  * Used by the server for authoritative movement and by the client for
  * third-person prediction — same function, same result.
+ *
+ * Without `feet` a steep tile is a wall at every height, as `isWalkable` says.
+ * With it the tile is a cliff face (`isWalkableAt`), and a face the body's
+ * leading edge is already over does not stop it: a body can be standing on one,
+ * and snapping it back to the tile's edge would throw it uphill. What it may do
+ * from there is `climbsSteepTile`'s to say.
  */
 export function moveWithCollision(
   world: World,
@@ -183,13 +233,19 @@ export function moveWithCollision(
   dx: number,
   dy: number,
   r: number = PLAYER_RADIUS,
+  feet?: number,
 ): { x: number, y: number } {
   const EPSILON = 0.001
+  const open = (tx: number, ty: number, over: boolean) => {
+    if (feet === undefined) return isWalkable(world, tx, ty)
+    return isWalkableAt(world, tx, ty, over ? Infinity : feet)
+  }
 
   let nx = x + dx
   if (dx !== 0) {
     const edge = Math.floor(nx + Math.sign(dx) * r)
-    if (!isWalkable(world, edge, Math.floor(y - r)) || !isWalkable(world, edge, Math.floor(y + r))) {
+    const over = edge === Math.floor(x + Math.sign(dx) * r)
+    if (!open(edge, Math.floor(y - r), over) || !open(edge, Math.floor(y + r), over)) {
       nx = dx > 0 ? edge - r - EPSILON : edge + 1 + r + EPSILON
     }
   }
@@ -197,7 +253,8 @@ export function moveWithCollision(
   let ny = y + dy
   if (dy !== 0) {
     const edge = Math.floor(ny + Math.sign(dy) * r)
-    if (!isWalkable(world, Math.floor(nx - r), edge) || !isWalkable(world, Math.floor(nx + r), edge)) {
+    const over = edge === Math.floor(y + Math.sign(dy) * r)
+    if (!open(Math.floor(nx - r), edge, over) || !open(Math.floor(nx + r), edge, over)) {
       ny = dy > 0 ? edge - r - EPSILON : edge + 1 + r + EPSILON
     }
   }
@@ -454,6 +511,7 @@ export function stepBody(world: World, body: KinematicBody, dx: number, dy: numb
  *  nothing there too tall to step onto, and no wall, rail or moat obstacle. */
 function canEnter(world: World, fromX: number, fromY: number, x: number, y: number, feet: number): boolean {
   return bodySurfaceHeight(world, x, y, feet) - feet <= STEP_MAX
+    && !climbsSteepTile(world, fromX, fromY, x, y, feet)
     && !hitsRaisedPiece(world, x, y, feet)
     && !hitsSolidPiece(world, fromX, fromY, x, y, feet)
     && !hitsRampartRail(rampartsAt(world, x, y), x, y, feet, PLAYER_RADIUS, STEP_MAX)
@@ -469,7 +527,7 @@ function canEnter(world: World, fromX: number, fromY: number, x: number, y: numb
  */
 export function slideBody(world: World, body: Pick<KinematicBody, 'x' | 'y' | 'z'>, dx: number, dy: number) {
   if (dx === 0 && dy === 0) return
-  const walled = moveWithCollision(world, body.x, body.y, dx, dy)
+  const walled = moveWithCollision(world, body.x, body.y, dx, dy, PLAYER_RADIUS, body.z)
   if (canEnter(world, body.x, body.y, walled.x, body.y, body.z)) body.x = walled.x
   if (canEnter(world, body.x, body.y, body.x, walled.y, body.z)) body.y = walled.y
 }

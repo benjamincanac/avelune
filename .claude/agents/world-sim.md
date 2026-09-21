@@ -50,8 +50,8 @@ independently.
   field). Amplitudes are budgeted against `SLOPE_MAX`: a value-noise octave's
   steepest slope is `1.5 / lattice` per tile (a ridged one twice that), so a new
   term is sized from its lattice rather than by eye — a range has to be climbable
-  along most routes, and a tile past `SLOPE_MAX` is a wall at every height, jump
-  included, which is also why no amount of relief can trap a body.
+  along most routes, and a tile past `SLOPE_MAX` is a cliff face that no body
+  walks up (see invariant 3).
 - `shared/utils/props.ts` — `PropSpec`, `HubPropPlacement`, `WorldPlacement`,
   `SOLID_PROPS` and `makeProp`. Split out of `maze.ts` so `world.ts` (which
   buckets placements) and `maze.ts` (which queries them) share it without a
@@ -269,7 +269,19 @@ independently.
    `terrainHeight` interpolates bilinearly and returns `-Infinity` for a missing
    chunk, so an unloaded chunk reads as void rather than a hole to fall through.
    `isWalkable` blocks the world edge, missing chunks, and any tile whose local
-   gradient exceeds `SLOPE_MAX` (1.2 per tile) — that is how cliffs work.
+   gradient exceeds `SLOPE_MAX` (1.2 per tile) — that is how cliffs work. That
+   is the 2D answer, for bots, critters and the camera. A body is resolved by
+   height: `isWalkableAt(world, tx, ty, feet)` opens a steep tile to feet at or
+   above its highest corner minus `STEP_MAX`, the ledge rule a raised piece
+   uses, so a jump clears a dug hole and walking off a cliff top is a fall. The
+   world edge and a missing chunk stay walls at every height. `slideBody` passes
+   `body.z` to `moveWithCollision`, which without a `feet` argument is still the
+   2D wall. A body can therefore stand on a face, having landed on it or walked
+   off its top, and `climbsSteepTile` in `canEnter` is what keeps the landing
+   snap from carrying it up: below the tile's top band, a move that ends on
+   higher terrain than it started from is refused, level and downhill never
+   are. A face whose rise is within a jump (about 2 per tile) can be jumped,
+   exactly like a pit rim of that depth. The two are the same geometry.
    **Every spatial query goes through the per-chunk cell index.** Props are
    bucketed into every chunk the square `prop.r` in each direction around them
    reaches (so a 78-tile gallery run is never missed), and inside each chunk into
@@ -443,7 +455,8 @@ agent are told what moved.
   `no room there` refusal, and a bogus `h` being ignored or clamped), plus the
   per-piece snap grid and the footprint edge at the end of the gate bridge. `world-test.ts` checks spawn, the world edge, town obstacles,
   diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
-  covers bilinear heights, the slope rule, terraform-then-walk, chunk-border
+  covers bilinear heights, the slope rule, jumping over and out of a dug pit, the
+  cliff face that cannot be walked up, terraform-then-walk, chunk-border
   sync, generation determinism, the encode round trip, and the protected
   footprint — that the road ends the protection, that the meadow beside it is
   editable, and that the bank stair is still covered.

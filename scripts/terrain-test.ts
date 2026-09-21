@@ -1,7 +1,7 @@
 // Run with: pnpm test (vitest), or pnpm exec vitest run scripts/terrain-test.ts
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { isWalkable, stepBody, surfaceHeight, terrainHeight, SLOPE_MAX } from '../shared/utils/maze'
+import { GRAVITY, JUMP_VELOCITY, isWalkable, isWalkableAt, moveWithCollision, stepBody, surfaceHeight, terrainHeight, SLOPE_MAX, STEP_MAX } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
 import {
   CHUNK_CORNERS,
@@ -103,6 +103,114 @@ test('slopes steeper than the cliff limit block movement', () => {
   assert.equal(isWalkable(world, gx - 1, gy - 1), false)
   // The far side of the plateau is untouched and still walkable.
   assert.equal(isWalkable(world, gx + 4, gy + 4), true)
+})
+
+/** Level ground with a pit in it: a size 3 brush lowered `lowers` times around
+ *  the corner `(gx, gy)`, so a 2 by 2 floor (tiles `gx - 1` and `gx`) with one
+ *  rim tile on every side (`gx - 2` and `gx + 1`). */
+function digPit(world: World, gx: number, gy: number, lowers: number) {
+  applyTerrain(world, { x: gx, y: gy, size: 21, mode: 'flatten' })
+  for (let i = 0; i < lowers; i++) applyTerrain(world, { x: gx, y: gy, size: 3, mode: 'lower' })
+  return { ground: cornerHeight(world, gx + 5, gy), floor: cornerHeight(world, gx, gy) }
+}
+
+const TICK = 1 / 20
+/** Walk a body along +x for `ticks` server ticks, jumping on the ticks listed. */
+function run(world: World, body: KinematicBody, speed: number, ticks: number, jumpOn: (tick: number, body: KinematicBody) => boolean = () => false) {
+  for (let i = 0; i < ticks; i++) {
+    if (body.grounded && jumpOn(i, body)) {
+      body.vz = JUMP_VELOCITY
+      body.grounded = false
+    }
+    stepBody(world, body, speed * TICK, 0, TICK)
+  }
+}
+
+test('a running jump clears a dug hole instead of stopping at its rim', () => {
+  const world = createWorld()
+  const gx = MEADOW.gx
+  const gy = MEADOW.gy
+  const { ground } = digPit(world, gx, gy, 6)
+  assert.equal(isWalkable(world, gx - 2, gy), false, 'the rim is past the slope limit')
+  // Without a jump the run ends on the pit floor, not in front of the rim.
+  const walker = bodyAt(gx - 6, gy + 0.5, ground)
+  run(world, walker, 6, 20)
+  assert.ok(walker.x > gx - 1 && walker.z < ground - 1, `walked off the rim and fell in, got x=${walker.x} z=${walker.z}`)
+  // Jumping a stride before the rim carries the body across.
+  const jumper = bodyAt(gx - 6, gy + 0.5, ground)
+  run(world, jumper, 6, 40, (_, body) => body.x >= gx - 2.9 && body.x < gx - 2.3)
+  assert.ok(jumper.x > gx + 2, `expected to land past the far rim, got x=${jumper.x}`)
+  assert.ok(Math.abs(jumper.z - ground) < 1e-9)
+  assert.equal(jumper.grounded, true)
+})
+
+test('a jump leaves a pit only when it reaches the rim', () => {
+  const peak = JUMP_VELOCITY * JUMP_VELOCITY / (2 * GRAVITY)
+  for (const lowers of [5, 12]) {
+    const world = createWorld()
+    const gx = MEADOW.gx
+    const gy = MEADOW.gy
+    const { ground, floor } = digPit(world, gx, gy, lowers)
+    const depth = ground - floor
+    const body = bodyAt(gx - 0.5, gy + 0.5, floor)
+    // Walking alone never gets out of either.
+    run(world, body, 3.2, 40)
+    assert.ok(body.x < gx + 1 && Math.abs(body.z - floor) < 1e-9, `depth ${depth}: the rim holds a walker`)
+    run(world, body, 3.2, 60, (_, b) => b.x < gx + 1)
+    if (depth - STEP_MAX < peak - 0.2) {
+      assert.ok(body.x > gx + 2 && Math.abs(body.z - ground) < 1e-9, `depth ${depth}: expected to jump out, got x=${body.x} z=${body.z}`)
+    }
+    else {
+      assert.ok(body.x < gx + 1 && body.z < ground - 1, `depth ${depth}: expected to stay in, got x=${body.x} z=${body.z}`)
+    }
+  }
+})
+
+test('a cliff cannot be walked up, from its foot or from its face', () => {
+  const world = createWorld()
+  const gx = MEADOW.gx
+  const gy = MEADOW.gy
+  applyTerrain(world, { x: gx, y: gy, size: 21, mode: 'flatten' })
+  const ground = cornerHeight(world, gx, gy)
+  // A plateau 3 high whose west face is one tile wide: too tall to jump.
+  for (let i = 0; i < 12; i++) applyTerrain(world, { x: gx + 3, y: gy, size: 5, mode: 'raise' })
+  const top = cornerHeight(world, gx + 3, gy)
+  assert.equal(isWalkable(world, gx, gy), false)
+  const foot = bodyAt(gx - 3, gy + 0.5, ground)
+  run(world, foot, 3.2, 60, () => true)
+  assert.ok(foot.x < gx && foot.z < ground + 2, `stopped at the foot, got x=${foot.x} z=${foot.z}`)
+  // Dropped onto the face, the body lands on the slope and stays a body: it
+  // cannot gain height by walking, and the way down is open.
+  const face = settle(world, gx + 0.5, gy + 0.5, top + 2)
+  assert.equal(face.grounded, true)
+  const landed = face.z
+  assert.ok(landed > ground + 1 && landed < top - 1)
+  run(world, face, 3.2, 40)
+  assert.ok(Math.abs(face.z - landed) < 1e-9 && Math.abs(face.x - (gx + 0.5)) < 1e-9, `walked uphill to x=${face.x} z=${face.z}`)
+  // Nor along the contour and then up: every uphill heading is refused.
+  for (let i = 0; i < 10; i++) stepBody(world, face, 0.1, 0.1, TICK)
+  assert.ok(face.z <= landed + 1e-9 && face.x < gx + 0.5 + 1e-9)
+  const down = settle(world, gx + 0.5, gy + 0.5, top + 2)
+  for (let i = 0; i < 40; i++) stepBody(world, down, -3.2 * TICK, 0, TICK)
+  assert.ok(down.x < gx && Math.abs(down.z - ground) < 1e-9, `expected to walk down to the foot, got x=${down.x} z=${down.z}`)
+  // From the top the face is a drop, not a wall.
+  const diver = bodyAt(gx + 3, gy + 0.5, top)
+  for (let i = 0; i < 60; i++) stepBody(world, diver, -3.2 * TICK, 0, TICK)
+  assert.ok(diver.x < gx && Math.abs(diver.z - ground) < 1e-9)
+})
+
+test('height never opens the world edge or a missing chunk', () => {
+  const world = createWorld()
+  assert.equal(isWalkableAt(world, WORLD_TILE_MIN - 1, 0, 1000), false)
+  assert.equal(isWalkableAt(world, WORLD_TILE_MAX, 0, 1000), false)
+  const streamed = createWorld({ generate: false })
+  assert.equal(isWalkableAt(streamed, MEADOW.gx, MEADOW.gy, 1000), false)
+  // And a caller that passes no height still gets the wall it always got.
+  const gx = MEADOW.gx
+  const gy = MEADOW.gy
+  digPit(world, gx, gy, 6)
+  assert.ok(moveWithCollision(world, gx - 3, gy + 0.5, 1, 0).x < gx - 2.3)
+  assert.ok(moveWithCollision(world, gx - 3, gy + 0.5, 1, 0, undefined, 100).x > gx - 2.1)
 })
 
 test('terraforming raises the ground a body then stands on', () => {
