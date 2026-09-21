@@ -323,13 +323,19 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
         <SandboxNotice v-if="world.persistent.value === false" />
       </header>
 
-      <!-- Top right: the minimap, then the feed below it on the edge wash. -->
-      <aside class="pointer-events-none absolute right-7 top-6 z-10 flex flex-col items-end">
+      <!-- Top right: the minimap, then the feed below it on the edge wash. Under
+           `md` the status bar needs the whole top row, so the map drops beneath
+           it (and beneath the sandbox chip when there is one) and the feed,
+           which is wider than a phone, is left out. -->
+      <aside
+        class="pointer-events-none absolute right-7 z-10 flex flex-col items-end md:top-6"
+        :class="world.persistent.value === false ? 'top-30' : 'top-19'"
+      >
         <MiniMap :game="game" />
       </aside>
       <WorldFeed
         :events="feed.events.value"
-        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97"
+        class="pointer-events-none absolute right-0 top-71.5 z-10 w-97 max-md:hidden"
       />
 
       <!-- Centre: the crosshair the build ray is cast through. Only while a
