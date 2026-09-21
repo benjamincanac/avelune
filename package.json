@@ -29,13 +29,13 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
-    "@iconify-json/lucide": "^1.2.133",
+    "@iconify-json/lucide": "^1.2.134",
     "@iconify-json/simple-icons": "^1.2.96",
     "@nuxt/ui": "^4.11.1",
     "@tresjs/core": "^5.9.0",
     "@tresjs/nuxt": "^5.7.0",
     "@upstash/redis": "^1.38.4",
-    "ai": "^7.0.105",
+    "ai": "^7.0.107",
     "h3": "2.0.1-rc.32",
     "nitro": "3.0.260610-beta",
     "nuxt": "npm:nuxt-nightly@5.0.0-29718546.252d77ed",
@@ -46,7 +46,7 @@
   "devDependencies": {
     "@nuxt/eslint-config": "^1.17.0",
     "@types/three": "^0.186.0",
-    "eslint": "^10.10.0",
+    "eslint": "^10.11.0",
     "jiti": "^2.7.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.1",
