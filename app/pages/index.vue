@@ -182,6 +182,11 @@ onMounted(async () => {
               />
             </Transition>
           </div>
+          <!-- CSS alone decides this one, so it is there at first paint. -->
+          <DesktopNotice
+            wide
+            class="mt-3"
+          />
         </main>
 
         <!-- Right: who is actually in there. The live data is the pitch on this

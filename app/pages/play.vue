@@ -284,6 +284,10 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
     ref="gameRoot"
     class="relative h-screen overflow-hidden bg-stage"
   >
+    <!-- A touch device gets this far and then cannot move. Over every view, so
+         it is said before a character is made rather than after. -->
+    <DesktopNotice />
+
     <!-- Character creation, for a visitor with no character cookie yet. -->
     <CharacterGate
       v-if="view === 'creating'"

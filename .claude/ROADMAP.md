@@ -49,6 +49,7 @@
 - [ ] Below ~1100px the handoff collapses the world feed to two rows and the roster to avatars only. The title screen stacks its clusters under `lg` instead
 - [ ] Move the Escape menu and the kicked overlay onto `UModal` with `:portal="false"`: dialog semantics, without teleporting out of the fullscreen game root the way a default portal would
 - [ ] Male and female read as the same size in the creator. The framing is faithful (posed head bone 1.604 against 1.522, so the male is 5.6% taller) but the female's Long hairstyle tops out near his scalp. The lever is the female rig's height or that hairstyle's volume, not the camera
+- [x] Touch devices are told before they try: `DesktopNotice` is a line under Play on the title screen and a veil over `/play` with a way back and a Continue anyway. It is shown by the `pointer-coarse` variant alone, so the prerendered page paints it with no hydration shift
 - [ ] At phone width the creator's options panel covers the character. Low priority while `/play` needs a keyboard
 
 ### Identity, onboarding & app shell
