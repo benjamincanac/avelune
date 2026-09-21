@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test, vi } from 'vitest'
-import { BoxGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, Texture } from 'three'
+import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Scene, Texture } from 'three'
 import { createTownMaterials } from '../app/utils/townMaterials'
 import { createChunkProps } from '../app/utils/chunkProps'
 import { createCourtyardScene } from '../app/utils/courtyardScene'
@@ -102,4 +102,54 @@ test('garden rebuilds and streamed chunks borrow the same live foliage material'
     geometry.dispose()
   }
   assert.equal(dispose.mock.calls.length, 1)
+})
+
+test('garden grass stops submitting faded instances and returns after moving its parent', () => {
+  const materials = createTownMaterials()
+  const courtyard = createCourtyardScene([], new Map(), materials)
+  let grass: InstancedMesh | undefined
+  courtyard.group.traverse((object) => {
+    if (object instanceof InstancedMesh && object.userData.grass) grass = object
+  })
+  try {
+    assert.ok(grass, 'fixture must draw garden grass')
+    courtyard.updateGrass(10000, 10000)
+    assert.equal(grass.count, 0)
+    courtyard.group.position.set(10000, 0, 10000)
+    const { centerX, centerZ } = grass.userData.grass
+    courtyard.updateGrass(10000 + centerX, 10000 + centerZ)
+    assert.ok(grass.count > 0, 'parent transforms must be refreshed before the render')
+  }
+  finally {
+    courtyard.dispose()
+    materials.dispose()
+  }
+})
+
+test('courtyard teardown empties and hides its attached root and disposes owned paving once', () => {
+  const materials = createTownMaterials()
+  const courtyard = createCourtyardScene([], new Map(), materials)
+  const scene = new Scene().add(courtyard.group)
+  const paving = courtyard.group.getObjectByName('Courtyard paving stones') as InstancedMesh
+  const geometryDisposed = vi.fn()
+  const materialDisposed = vi.fn()
+  const instancesDisposed = vi.fn()
+  const pavingMaterial = paving.material as MeshStandardMaterial
+  paving.geometry.addEventListener('dispose', geometryDisposed)
+  pavingMaterial.addEventListener('dispose', materialDisposed)
+  paving.addEventListener('dispose', instancesDisposed)
+  try {
+    courtyard.dispose()
+    courtyard.dispose()
+    assert.equal(courtyard.group.visible, false, 'retiring roots must stop rendering immediately')
+    assert.equal(courtyard.group.children.length, 0, 'no disposed scenery may remain drawable during Vue replacement')
+    assert.equal(courtyard.group.parent, scene, 'Vue retains ownership of root attachment')
+    assert.equal(geometryDisposed.mock.calls.length, 1)
+    assert.equal(materialDisposed.mock.calls.length, 1)
+    assert.equal(instancesDisposed.mock.calls.length, 1)
+  }
+  finally {
+    courtyard.dispose()
+    materials.dispose()
+  }
 })

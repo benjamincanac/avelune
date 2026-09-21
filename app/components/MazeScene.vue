@@ -875,7 +875,10 @@ onBeforeRender(({ delta }) => {
   critters?.update(dt, now, waterActors, camera.value?.position, rimSky.dayness)
   // Distant patches draw only the tufts that can still be standing there.
   const eye = camera.value?.position
-  if (eye) worldChunks.value?.updateGrass(eye.x, eye.z)
+  if (eye) {
+    worldChunks.value?.updateGrass(eye.x, eye.z)
+    courtyard.value?.updateGrass(eye.x, eye.z)
+  }
   // Shader clocks are `uniform float`: at epoch scale (~1.79e9) a float32's ULP
   // is 128 s, so wind and ripples would sit perfectly still. Wrap what reaches
   // a uniform; the fountain keeps absolute seconds because its particle sim

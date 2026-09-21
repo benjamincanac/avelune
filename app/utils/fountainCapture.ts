@@ -1,20 +1,20 @@
 import { Matrix4 } from 'three'
 import type { Camera } from 'three'
 
-/** Cache only an unchanged view: refraction samples live screen coordinates,
- * while Reflector retains its capture's texture matrix. A moved camera, changed
- * lens or moved pool therefore needs both textures refreshed immediately. */
+/** Reflection and refraction both retain their capture projection. Camera
+ * motion can therefore reuse a capture within its budget instead of redrawing
+ * the world on every mouse move (or tiny camera smoothing correction). */
 export function createFountainCaptureSchedule() {
-  const cameraWorld = new Matrix4()
+  const refractionMatrix = new Matrix4()
   const projection = new Matrix4()
   const surfaceWorld = new Matrix4()
   let capturedCamera: Camera | null = null
   let capturedAt = -Infinity
 
   return {
+    refractionMatrix,
     needsCapture(now: number, distanceSquared: number, camera: Camera, surface: Matrix4) {
       if (capturedCamera !== camera
-        || !cameraWorld.equals(camera.matrixWorld)
         || !projection.equals(camera.projectionMatrix)
         || !surfaceWorld.equals(surface)) return true
       const interval = distanceSquared <= 12 * 12 ? 1000 / 30 : 1000 / 10
@@ -25,7 +25,7 @@ export function createFountainCaptureSchedule() {
     captured(now: number, camera: Camera, surface: Matrix4) {
       capturedAt = now
       capturedCamera = camera
-      cameraWorld.copy(camera.matrixWorld)
+      refractionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
       projection.copy(camera.projectionMatrix)
       surfaceWorld.copy(surface)
     },

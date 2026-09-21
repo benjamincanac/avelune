@@ -322,13 +322,15 @@ export function createCourtyardSky(scene: Scene) {
   }
   const material = new ShaderMaterial({
     uniforms, fragmentShader,
-    vertexShader: 'varying vec3 vDirection; void main() { vDirection = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    side: BackSide, depthWrite: false, depthTest: false, fog: false,
+    // Draw at the far plane after opaque geometry: covered pixels can fail
+    // depth before running the volumetric cloud raymarch.
+    vertexShader: 'varying vec3 vDirection; void main() { vDirection = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w; }',
+    side: BackSide, depthWrite: false, depthTest: true, fog: false,
   })
   const geometry = new SphereGeometry(80, 32, 16)
   const dome = new Mesh(geometry, material)
   dome.name = 'courtyard-atmosphere'
-  dome.renderOrder = -10
+  dome.renderOrder = 1000
   dome.frustumCulled = false
   scene.add(dome, ambient, hemi)
 

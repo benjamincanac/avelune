@@ -10,13 +10,14 @@ import { COURTYARD, COURTYARD_ASSETS, FOUNTAIN, TOWN_GARDENS, TOWN_STREETS } fro
 import { createRng } from '#shared/utils/maze'
 import type { HubPropPlacement } from '#shared/utils/props'
 import type { TownMaterials } from './townMaterials'
-import { createGrassBank } from './courtyardLandscape'
+import { createGrassBank, updateGrassLod } from './courtyardLandscape'
 import type { GrassBlade } from './courtyardLandscape'
 import { createFountainWater } from './fountainWater'
 import { createCityMoat } from './cityMoat'
 import { createFortifiedGate } from './fortifications'
 import type { FountainInteractor } from './fountainWater'
 import { makeCourtyardSurface, makePlazaSurface } from './courtyardTextures'
+import { createPavingGeometry } from './pavingGeometry'
 
 /**
  * The pale flagstone the gate is paved with. Exported because the
@@ -41,6 +42,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
   group.add(moat.group)
   const plazaMap = makePlazaSurface()
   const stone = new MeshStandardMaterial({ color: '#b8c4c7', map: stoneMap, roughness: 0.95 })
+  stone.name = 'Courtyard stone'
   const paleStone = createPaleStone(materials, stoneMap)
   materials.apply(stone, 'stone', 1.2, 0.55)
   group.add(createFortifiedGate(stone, paleStone))
@@ -95,7 +97,8 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       stones.push({ x, z, shade: rng(), road, edge })
     }
   }
-  const paving = new InstancedMesh(new RoundedBoxGeometry(0.983, 0.045, 0.983, 2, 0.014), stone, stones.length)
+  const paving = new InstancedMesh(createPavingGeometry(), stone, stones.length)
+  paving.name = 'Courtyard paving stones'
   stones.forEach((s, i) => {
     dummy.position.set(s.x, -0.015, s.z)
     dummy.rotation.set(0, (rng() - 0.5) * 0.008, 0)
@@ -363,8 +366,12 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
     // Scaling time with height keeps gravity constant in world units.
     return { effect, timeScale: 1 / Math.sqrt(verticalScale), actors: [] as FountainInteractor[] }
   })
+  let disposed = false
   return {
     group,
+    updateGrass(cameraX: number, cameraZ: number) {
+      if (gardenGrass) updateGrassLod(gardenGrass, cameraX, cameraZ)
+    },
     /**
      * `time` is absolute server seconds, `shaderTime` the same clock wrapped to
      * stay inside float32's useful range. Anything that reaches a `uniform
@@ -394,6 +401,11 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       }
     },
     dispose() {
+      if (disposed) return
+      disposed = true
+      // Vue detaches/replaces the root on its next patch. Retire it immediately
+      // so that no render can reuse its disposed resources in the meantime.
+      group.visible = false
       for (const { effect } of fountains) {
         group.remove(effect.group)
         effect.dispose()
@@ -418,6 +430,7 @@ export function createCourtyardScene(placements: readonly HubPropPlacement[], te
       })
       for (const geometry of geometries) geometry.dispose()
       for (const material of materials) material.dispose()
+      group.clear()
     },
   }
 }

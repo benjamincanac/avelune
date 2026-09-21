@@ -61,7 +61,8 @@ world from the seed and the committed layout JSON, because it authors them.
   the shared pool and renderer; ignore asynchronous loads after unmount.
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
   stars, Milky Way and moon, outdoor lights, fog, rain, lightning and sky
-  environment. All animation follows the server clock, lightning included
+  environment. The sky dome draws after opaque geometry at far-plane depth,
+  allowing covered pixels to reject the cloud raymarch. All animation follows the server clock, lightning included
   (`courtyardLightning` hashes strikes off `now`, so clients agree). The moon
   stays opposite the sun because the night key light and its shadows come from
   there; its phase is only a terminator drawn on the disc. Stars and the galaxy
@@ -73,6 +74,10 @@ world from the seed and the committed layout JSON, because it authors them.
 - `app/utils/courtyardAssets.ts` creates the custom town templates, merges geometry
   by material and registers them for both instancing and editor selection. Shared
   dimensions come from `shared/utils/courtyard.ts`.
+- `app/utils/pavingGeometry.ts` owns the repeated stone's 44-triangle chamfered
+  box. Keep its dimensions, level top, closed surface and outward winding. A
+  subdivided rounded box costs 300 triangles per stone across thousands of
+  instances, then repeats that cost in every scene/shadow pass.
 - `app/utils/courtyardScene.ts` owns paving, gardens, the sparring circle, distant
   animated pennants and fountain placement. `fountainWater.ts` owns gravity driven
   continuous ballistic jets, droplets, impact splashes and the basin surface.
@@ -89,9 +94,10 @@ world from the seed and the committed layout JSON, because it authors them.
   against recursive reflection renders. Its Reflector target is 512 for a bowl
   wider than a unit radius and 256 for the rest, and is disposed with the pool.
   Keep normals correct under nonuniform scale. `fountainCapture.ts` limits captures
-  of an unchanged view to 30 Hz nearby / 10 Hz beyond 12 units. Camera identity,
-  transform, projection or pool transform changes force an immediate capture;
-  screen-space refraction and Reflector's texture matrix must describe the same view.
+  to 30 Hz nearby / 10 Hz beyond 12 units, including moving views. Camera identity,
+  projection or pool transform changes force an immediate capture. Refraction
+  stores the captured world-to-clip matrix alongside the image; sampling with
+  the live camera matrix would make cached imagery slide as the camera moves.
   Shared player collision uses the stepped basin and central pedestal from
   `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
   remote feet through each fountain inverse transform for cosmetic wakes; water
@@ -118,6 +124,9 @@ world from the seed and the committed layout JSON, because it authors them.
   graphics settings write (`setGrassDetail`), and `updateGrassLod` reads those same
   two objects: the count is trimmed in rank order and the shader shrinks by the same
   rank, so a CPU-side cut the shader did not make snaps tufts away at full size.
+  Both streamed and garden patches run this LOD. Fully faded patches submit zero
+  instances only when their padded world bounds are beyond the shader fade end;
+  update parent transforms first and retain the padding for wind and body pushes.
   `DoubleSide` flips the upward normal on back faces, so the fragment hook
   flips it back. Bodies bend blades away through `setGrassPushers(actors, x, z)`:
   the uniform is module-level, not per bank, because the chunk meadows and the
@@ -316,6 +325,9 @@ world from the seed and the committed layout JSON, because it authors them.
    their instance buffers; `createCourtyardScene` keeps its borrowing meshes in a
    `planting` group it removes before the generic scenery sweep, and never disposes
    those borrowed resources.
+   Courtyard disposal hides and empties its root before Vue replaces it, and is
+   idempotent. Leaving disposed children drawable during HMR can re-upload their
+   resources or render stale shader uniforms; Vue still owns root detachment.
 
 ## Known rendering gotchas (from ROADMAP)
 - CSM uses two cascades. Material scans follow `scene.userData.version`, updated

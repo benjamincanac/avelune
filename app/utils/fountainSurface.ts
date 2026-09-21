@@ -40,6 +40,7 @@ const shader = {
     tRefraction: { value: null },
     hasRefraction: { value: false },
     textureMatrix: { value: null },
+    refractionMatrix: { value: null },
     normalMap: { value: null },
     flow: { value: 0 },
     radius: { value: 1 },
@@ -48,6 +49,7 @@ const shader = {
   }]),
   vertexShader: /* glsl */ `
     uniform mat4 textureMatrix;
+    uniform mat4 refractionMatrix;
     attribute float foam;
     varying float vFoam;
     varying vec4 mirrorCoord;
@@ -67,7 +69,7 @@ const shader = {
       vFoam = foam;
       mirrorCoord = textureMatrix * vec4(position, 1.0);
       gl_Position = projectionMatrix * mvPosition;
-      screenCoord = gl_Position;
+      screenCoord = refractionMatrix * worldPosition;
       #include <beginnormal_vertex>
       #include <defaultnormal_vertex>
       vWorldNormal = inverseTransformDirection(transformedNormal, viewMatrix);
@@ -276,6 +278,7 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
   const reflect = mesh.onBeforeRender.bind(mesh)
   const hidden: Object3D[] = []
   const capture = createFountainCaptureSchedule()
+  material.uniforms.refractionMatrix!.value = capture.refractionMatrix
   const surfacePosition = new Vector3()
   let disposed = false
   mesh.onBeforeRender = (renderer, scene, camera, ...args) => {
@@ -287,10 +290,11 @@ export function createFountainSurface(sim: ReturnType<typeof createFountainSimul
     surfacePosition.setFromMatrixPosition(mesh.matrixWorld)
     const distanceSquared = surfacePosition.distanceToSquared(material.uniforms.eye!.value)
     // The ordinary render-list visibility test already excludes offscreen
-    // pools. Visible, stationary views capture at 30 Hz nearby / 10 Hz farther
-    // away. Moving the camera refreshes immediately to preserve screen-space
-    // refraction and Reflector's matching texture projection.
+    // pools. Both still and moving views capture at 30 Hz nearby / 10 Hz farther
+    // away. Reflection and refraction sample their saved capture projections;
+    // live camera motion must not bypass this budget.
     if (!capture.needsCapture(now, distanceSquared, camera, mesh.matrixWorld)) return
+    if (import.meta.dev) scene.userData.fountainCaptures = (scene.userData.fountainCaptures ?? 0) + (refractionTarget ? 2 : 1)
     const mirrorCamera = mesh.getReflectionCamera(camera)
     mirrorCamera.userData.fountainReflection = true
     scene.traverse((object) => {
