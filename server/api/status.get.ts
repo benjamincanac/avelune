@@ -1,6 +1,6 @@
 import { defineEventHandler } from 'h3'
 import { chunkStore, REALM } from '../utils/chunkStore'
-import { playerStats, recentEvents } from '../utils/game'
+import { liveStatus } from '../utils/live'
 
 /**
  * `GET /api/status` — the title screen's live surface, before any socket exists.
@@ -8,20 +8,42 @@ import { playerStats, recentEvents } from '../utils/game'
  * The title screen shows who is around, how busy the world has been and what
  * has just happened in it, all of which `welcome` and the world frames carry
  * over the socket — but the page is prerendered and has no socket, so it asks
- * for the same facts here. Polled every 10s while the page is up, so everything
- * on it is already computed: the roster size, the peak and hourly series the
- * game loop keeps as players come and go, and the world feed's ring buffer.
- * Nothing scans a chunk.
+ * for the same facts here. Polled every 10s while the page is up.
+ *
+ * Every number comes out of the store rather than out of this process, and that
+ * is the whole point: a region runs as many instances as it needs, the sockets
+ * are pinned to whichever accepted their upgrade, and this request lands
+ * wherever. Read from memory, the page would report the roster of whichever
+ * instance happened to answer. Nothing scans a chunk either way.
  */
-export default defineEventHandler(() => {
-  const stats = playerStats()
+/**
+ * Every visitor this instance serves shares one store read for this long.
+ *
+ * A read is a 14 command pipeline and the page polls every 10 seconds, so
+ * without it the bill scales with visitors rather than with instances. Short
+ * enough that nothing on the page reads as stale. Deliberately in process and
+ * not a CDN `max-age`: the page shows this request as its measured round trip,
+ * and an edge hit would make that number lie.
+ */
+const SHARED_FOR = 2_000
+let shared: { at: number, live: ReturnType<typeof liveStatus> } | undefined
+
+function sharedStatus() {
+  const now = Date.now()
+  if (!shared || now - shared.at >= SHARED_FOR) shared = { at: now, live: liveStatus() }
+  return shared.live
+}
+
+export default defineEventHandler(async () => {
+  const live = await sharedStatus()
   return {
-    players: stats.players,
-    peak: stats.peak,
-    series: stats.series,
+    players: live.players,
+    instances: live.instances,
+    today: live.today,
+    series: live.series,
     realm: REALM,
-    roster: stats.roster,
+    roster: live.roster,
     persistent: chunkStore().kind !== 'memory',
-    feed: recentEvents(),
+    feed: live.feed,
   }
 })

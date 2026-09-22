@@ -11,7 +11,8 @@ import type { WorldEvent } from '~/composables/useFeed'
  * Its job is to say "live and multiplayer" before a word of copy is read, so
  * everything the server reports — the roster, the feed, the counts, the round
  * trip — is first-class content here rather than a status bar. Nothing on it is
- * invented: the roster, peak and nine-hour series all come off `/api/status`,
+ * invented: the roster, the day's visitors and the nine-hour series all come
+ * off `/api/status`,
  * and the latency is this page's own measured round trip to it.
  */
 definePageMeta({
@@ -20,7 +21,7 @@ definePageMeta({
 
 interface Status {
   players: number
-  peak: number
+  today: number
   series: number[]
   realm: string
   roster: { name: string, minutes: number }[]
@@ -76,8 +77,18 @@ async function probe() {
 
 onMounted(async () => {
   void probe()
-  const timer = setInterval(probe, 10_000)
-  onBeforeUnmount(() => clearInterval(timer))
+  // Every probe is a read against the world store, so a tab nobody is looking
+  // at does not poll. Coming back probes at once rather than showing whatever
+  // was true when it was hidden.
+  const visibleProbe = () => {
+    if (!document.hidden) void probe()
+  }
+  const timer = setInterval(visibleProbe, 10_000)
+  document.addEventListener('visibilitychange', visibleProbe)
+  onBeforeUnmount(() => {
+    clearInterval(timer)
+    document.removeEventListener('visibilitychange', visibleProbe)
+  })
 
   try {
     const me = await $fetch('/api/auth')
@@ -208,7 +219,7 @@ onMounted(async () => {
           <div
             v-for="stat in [
               { value: String(status?.players ?? 0).padStart(2, '0'), label: 'In town now', unit: '', accent: false },
-              { value: String(status?.peak ?? 0).padStart(2, '0'), label: 'Peak today', unit: '', accent: false },
+              { value: String(status?.today ?? 0).padStart(2, '0'), label: 'Players today', unit: '', accent: false },
               { value: rtt == null ? '—' : String(rtt), label: 'Round trip', unit: ' ms', accent: true },
             ]"
             :key="stat.label"

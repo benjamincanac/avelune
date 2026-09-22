@@ -34,6 +34,71 @@ export interface ChunkWrite {
   expectedVersion: ExpectedVersion
 }
 
+/**
+ * One "who was here" bucket: a set of identity ids under `key`, kept `ttl`
+ * seconds past the window it covers so a reader that is a little behind still
+ * finds it. Counting a set is the only honest way to say how many *people* were
+ * here, as opposed to how many were here at once — the same player reconnecting
+ * four times is one id.
+ */
+export interface SeenBucket {
+  key: string
+  /** Seconds. */
+  ttl: number
+}
+
+/**
+ * Everything the live surface writes, in one round trip.
+ *
+ * Presence, the seen buckets and the feed are all small and all written on the
+ * same 5 second timer, so they travel as one pipeline rather than three
+ * requests: the title screen polls every 10 seconds and every instance flushes
+ * every 5, and three times that is three times the bill for no extra truth.
+ */
+export interface LiveWrite {
+  /** Presence rows to set, identity to encoded row. */
+  presence: readonly (readonly [string, string])[]
+  /** Rows to remove: players who left, plus rows an instance that vanished
+   *  never cleaned up after itself. */
+  drop: readonly string[]
+  /** The buckets each of `seenIds` belongs in right now. */
+  seen: readonly SeenBucket[]
+  seenIds: readonly string[]
+  /** Feed rows to push in front of the shared list, oldest first. */
+  events: readonly string[]
+  /** How many feed rows the list keeps. */
+  feedLimit: number
+  /** Turns of the sky this instance made since its last flush, at most one per
+   *  field. Empty leaves whatever the realm already holds. */
+  sky: readonly SkyTurn[]
+}
+
+export interface LiveRead {
+  /** Identity to encoded row, stale entries included — only the reader knows
+   *  what counts as stale. */
+  presence: Map<string, string>
+  /** One count per requested bucket, in the order they were asked for. */
+  seen: number[]
+  /** Feed rows, newest first. */
+  events: string[]
+  /** The newest turn of each half of the sky, encoded, or null if nobody has
+   *  turned that half. */
+  sky: Record<SkyField, string | null>
+}
+
+/** Weather and time of day are turned independently, so they are stored
+ *  independently: one field's turn must never carry a stale copy of the other. */
+export type SkyField = 'weather' | 'time'
+
+export interface SkyTurn {
+  field: SkyField
+  /** When the turn was made. The store keeps the highest, whatever order the
+   *  writes arrive in. */
+  at: number
+  /** The encoded turn, opaque to the store. */
+  value: string
+}
+
 export interface ChunkStore {
   /** Which implementation this is, for boot logging and for `world-admin`. */
   readonly kind: 'memory' | 'redis'
@@ -59,6 +124,12 @@ export interface ChunkStore {
   /** Last writer wins: a position is only ever written by the instance that
    *  holds the player's socket. */
   writePositions: (entries: readonly (readonly [string, string])[]) => Promise<void>
+  /** The whole live surface — presence, the seen counts and the feed — in one
+   *  round trip, because the title screen has no socket and asks for all of it
+   *  at once. */
+  readLive: (seen: readonly string[], feedLimit: number, withPresence?: boolean) => Promise<LiveRead>
+  /** ...and the write half, pipelined for the same reason. */
+  writeLive: (write: LiveWrite) => Promise<void>
 }
 
 /** The realm this process serves: every key below is scoped to it, so each
@@ -71,6 +142,31 @@ export const PIECES_KEY = `pieces:${REALM}`
 
 /** The hash every identity's last position lives in, per realm. */
 export const POSITIONS_KEY = `positions:${REALM}`
+
+/** The hash every live session in the realm announces itself in, per realm. */
+export const PRESENCE_KEY = `presence:${REALM}`
+
+/** The realm's shared world feed: a capped list, newest at the head. */
+export const FEED_KEY = `feed:${REALM}`
+
+/**
+ * The realm's forced weather, or its forced hour: one sorted set per field,
+ * scored by when the turn was made.
+ *
+ * A plain key would be last-*arrival*-wins, and an instance can hold a turn for
+ * up to a flush before it writes it, so an older turn could land on top of a
+ * newer one and leave the realm split. `ZADD` then trimming to the top member
+ * makes the ordering hold in the store, whatever order the writes arrive in.
+ */
+export function skyKey(field: SkyField): string {
+  return `sky:${REALM}:${field}`
+}
+
+/** The set of identities seen inside one window. `bucket` is a day or an hour;
+ *  the prefix keeps the two apart so an hour can never be read as a day. */
+export function seenKey(bucket: string): string {
+  return `seen:${REALM}:${bucket}`
+}
 
 /** Writes per pipelined request. A flush of a whole town's worth of edits is
  *  split into batches rather than sent as one 200-command pipeline. */
@@ -128,6 +224,10 @@ export class MemoryChunkStore implements ChunkStore {
   private readonly records = new Map<string, string>()
   private readonly pieces = new Map<string, number>()
   private readonly positions = new Map<string, string>()
+  private readonly presence = new Map<string, string>()
+  private readonly seen = new Map<string, Set<string>>()
+  private readonly feed: string[] = []
+  private readonly sky: Record<SkyField, { at: number, value: string } | null> = { weather: null, time: null }
 
   async get(cx: number, cy: number): Promise<StoredChunk | null> {
     return decodeRecord(this.records.get(chunkStoreKey(cx, cy)))
@@ -187,6 +287,40 @@ export class MemoryChunkStore implements ChunkStore {
 
   async writePositions(entries: readonly (readonly [string, string])[]): Promise<void> {
     for (const [id, value] of entries) this.positions.set(id, value)
+  }
+
+  async readLive(seen: readonly string[], feedLimit: number, withPresence = true): Promise<LiveRead> {
+    return {
+      presence: withPresence ? new Map(this.presence) : new Map(),
+      seen: seen.map(key => this.seen.get(key)?.size ?? 0),
+      events: this.feed.slice(0, feedLimit),
+      sky: { weather: this.sky.weather?.value ?? null, time: this.sky.time?.value ?? null },
+    }
+  }
+
+  async writeLive(write: LiveWrite): Promise<void> {
+    for (const [id, value] of write.presence) this.presence.set(id, value)
+    for (const id of write.drop) this.presence.delete(id)
+    if (write.seenIds.length) {
+      for (const bucket of write.seen) {
+        const set = this.seen.get(bucket.key) ?? new Set<string>()
+        this.seen.set(bucket.key, set)
+        for (const id of write.seenIds) set.add(id)
+      }
+    }
+    // No expiry here: a process that dies takes the whole map with it, which is
+    // exactly what local dev wants. A dev server left up for days holds one
+    // small set per hour, which is a few hundred bytes.
+    for (const event of write.events) this.feed.unshift(event)
+    if (this.feed.length > write.feedLimit) this.feed.length = write.feedLimit
+    // The highest `at` stays, and a tie keeps the greater member, which is
+    // exactly what trimming a sorted set to its top rank does in Redis.
+    for (const turn of write.sky) {
+      const held = this.sky[turn.field]
+      if (!held || turn.at > held.at || (turn.at === held.at && turn.value > held.value)) {
+        this.sky[turn.field] = { at: turn.at, value: turn.value }
+      }
+    }
   }
 }
 
@@ -340,6 +474,79 @@ export class RedisChunkStore implements ChunkStore {
     for (let at = 0; at < entries.length; at += FLUSH_BATCH) {
       await this.redis.hset(POSITIONS_KEY, Object.fromEntries(entries.slice(at, at + FLUSH_BATCH)))
     }
+  }
+
+  /** One pipeline: the presence hash, one `SCARD` per bucket asked for, and the
+   *  head of the feed list. `automaticDeserialization` is off, so `HGETALL`
+   *  arrives as the flat field/value array Redis actually sends. */
+  async readLive(seen: readonly string[], feedLimit: number, withPresence = true): Promise<LiveRead> {
+    const pipeline = this.redis.pipeline()
+    // The flush's read-back only wants the feed and the sky, and the presence
+    // hash is the biggest thing in here, so it can leave it out.
+    if (withPresence) pipeline.hgetall(PRESENCE_KEY)
+    for (const key of seen) pipeline.scard(key)
+    pipeline.lrange(FEED_KEY, 0, feedLimit - 1)
+    // The last member of each set by score is the newest turn.
+    pipeline.zrange(skyKey('weather'), -1, -1)
+    pipeline.zrange(skyKey('time'), -1, -1)
+    const results = await pipeline.exec<unknown[]>()
+
+    const at = withPresence ? 1 : 0
+    const presence = new Map<string, string>()
+    const raw = withPresence ? results?.[0] : undefined
+    if (Array.isArray(raw)) {
+      for (let i = 0; i + 1 < raw.length; i += 2) presence.set(String(raw[i]), String(raw[i + 1]))
+    }
+    const events = results?.[at + seen.length]
+    const top = (raw: unknown) => (Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : null)
+    return {
+      presence,
+      seen: seen.map((_, i) => {
+        const count = Number(results?.[at + i])
+        return Number.isFinite(count) ? count : 0
+      }),
+      events: Array.isArray(events) ? events.map(String) : [],
+      sky: { weather: top(results?.[at + seen.length + 1]), time: top(results?.[at + seen.length + 2]) },
+    }
+  }
+
+  /** The write half, in one pipeline for the same reason. `LPUSH` takes the
+   *  rows oldest first, which is what leaves the newest at the head. */
+  async writeLive(write: LiveWrite): Promise<void> {
+    const pipeline = this.redis.pipeline()
+    let sending = false
+    if (write.presence.length) {
+      pipeline.hset(PRESENCE_KEY, Object.fromEntries(write.presence))
+      sending = true
+    }
+    if (write.drop.length) {
+      pipeline.hdel(PRESENCE_KEY, ...write.drop)
+      sending = true
+    }
+    const [firstSeen, ...restSeen] = write.seenIds
+    if (firstSeen !== undefined) {
+      for (const bucket of write.seen) {
+        pipeline.sadd(bucket.key, firstSeen, ...restSeen)
+        // Pushed out on every write rather than set once: a bucket that is still
+        // being written to has not finished, whatever its key says.
+        pipeline.expire(bucket.key, bucket.ttl)
+        sending = true
+      }
+    }
+    if (write.events.length) {
+      pipeline.lpush(FEED_KEY, ...write.events)
+      pipeline.ltrim(FEED_KEY, 0, write.feedLimit - 1)
+      sending = true
+    }
+    for (const turn of write.sky) {
+      pipeline.zadd(skyKey(turn.field), { score: turn.at, member: turn.value })
+      // Keep only the top member: a stale turn arriving late is added and then
+      // trimmed straight back out.
+      pipeline.zremrangebyrank(skyKey(turn.field), 0, -2)
+      sending = true
+    }
+    if (!sending) return
+    await pipeline.exec()
   }
 }
 

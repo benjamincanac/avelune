@@ -84,36 +84,92 @@ bytes between it and clients.
   listeners the pairing already named. Never echo to the sender. `clearVoice` runs
   on a take-over *and* on disconnect, so no listener is left holding a dead
   talker id. Media never leaves this process for anywhere but a listener's socket.
-- `server/utils/transcribe.ts` + `server/api/voice/say.post.ts` — a push-to-talk
+- `server/utils/transcribe.ts` + `handleVoiceClip` in `game.ts` — a push-to-talk
   clip becomes one chat line. The clip is a second recording in a container (the
   live frames are bare Opus, and muxing them here would be real code for nothing),
-  transcribed through the Gateway on the boot-captured `nativeFetch` for the same
-  reason the Oracle is. The route is gated on the signed cookie *and* on a live
-  session with voice on (`hasLiveVoice`), capped by bytes and rate limited per
-  identity, because every call costs money on a public demo. The body is read
-  through a capped reader rather than `arrayBuffer()`, so an oversized upload is
-  abandoned mid-stream instead of being buffered whole and measured afterwards. The transcript goes
-  in through `speakForIdentity`, the exported wrapper around the same `sayChat` a
-  typed line uses, which is why the Oracle's classifier reads speech with no
-  change at all. The transcript is never logged and the clip is dropped after the
-  model call, with one exception: `AVELUNE_VOICE_DEBUG` in dev keeps the uploaded
-  clips under `.data/voice-debug/`, so a bad transcript can be replayed against
-  other models. Never in a build, and never by default, since that is somebody's
-  voice on disk.
+  arriving as a `kind=2` binary frame on the sender's own socket and transcribed
+  through the Gateway on the boot-captured `nativeFetch` for the same reason the
+  Oracle is. Nothing is looked up: the session is the one the bytes came in on,
+  so `session.voice` *is* the gate, and the per-identity allowance in
+  `server/utils/clips.ts` is spent by the process that holds the socket. Every
+  field of the frame is checked in `decodeClipUp` (container by index, language
+  as two ASCII letters or nothing, body under `MAX_CLIP_BYTES`) because all of it
+  came off the wire. The transcript goes straight into `sayChat`, the same
+  function a typed line uses, which is why the Oracle's classifier reads speech
+  with no change at all, and the client gets a `said` frame carrying the `seq` it
+  stamped on the clip. The transcript is never logged and the clip is dropped
+  after the model call, with one exception: `AVELUNE_VOICE_DEBUG` in dev keeps
+  the clips under `.data/voice-debug/`, so a bad transcript can be replayed
+  against other models. Never in a build, and never by default, since that is
+  somebody's voice on disk.
 - `server/api/*.ts` — `auth.get`, `auth.post`, `auth.delete`, `status.get`. The
   Oracle has no HTTP route: it runs in-process from the game loop
   (`server/utils/oracle.ts`, owned by the `oracle-ai` agent).
+- **A route may never need the caller's own session.** A socket is pinned to the
+  instance that accepted its upgrade; a plain request lands wherever. There used
+  to be a `POST /api/voice/say` that looked the caller up in `sessions`, and it
+  answered `409 not in the world` to players standing in it whenever it missed.
+  Anything that needs the session goes on the socket. Push-to-talk clips now do:
+  a `kind=2` binary frame handled in `game.ts` beside the audio relay, answered
+  with a `said` frame carrying the client's `seq`, spending the per-identity
+  allowance in `server/utils/clips.ts` (counted by the process holding the
+  socket, so nobody can spread clips across instances for a fresh one).
 - `GET /api/status` is the title screen's only source, because that page is
-  prerendered and has no socket. It answers `{ players, peak, series, realm,
-  roster, persistent, feed }`, all of it already computed: `notePlayers()` keeps
-  the day's peak and a nine-bucket hourly series as sessions come and go, and
-  `recordEvent()` keeps a six-row world feed (join, terraform, build, demolish)
-  worded exactly as the in-game feed words it, so the two surfaces can't drift.
-  Nothing on this route scans a chunk. Both are process-local by design — the
-  peak of a world that resets with the process is a fact about the process — and
-  the roster carries minutes in town rather than a ping, because latency is
-  measured by each client's own heartbeat and the server has no honest
-  per-player number to report.
+  prerendered and has no socket. It answers `{ players, instances, today,
+  series, realm, roster, persistent, feed }`, and **every one of those comes out of the store,
+  not out of this process** (`server/utils/live.ts`). A region runs as many
+  instances as it needs, a socket pins its player to whichever accepted the
+  upgrade, and this request is a plain `GET` that lands wherever — so module
+  state here reports the roster of whichever instance answered, and a "peak
+  today" that dropped to 1 whenever a colder one served the page. Three shapes,
+  scoped by realm beside the chunks:
+  - **Presence** (`presence:<realm>`, a hash) — one row per session each
+    instance holds, `joinedAt,lastSeen,instance,name` (the name last and
+    unescaped, so a comma in it cannot shift the fields in front), rewritten on
+    the same 5 s flush as the chunks. `lastSeen` is the session's, the time the
+    client last said anything, **never the flush time**: on Vercel a frozen
+    instance can be thawed by a later request and flush sessions whose sockets
+    closed while it slept, and a flush-time stamp made those ghosts look live. A row not refreshed within 30 s is from an instance that died;
+    readers ignore it and drop it. `players` and `roster` are the union.
+  - **Seen buckets** (`seen:<realm>:d<date>`, `seen:<realm>:h<hour>`, sets of
+    identity ids, TTL'd) — `today` and the nine-hour series. A *set*, because
+    the question is how many people, which a counter cannot answer: it is immune
+    to reconnects, to two instances writing at once and to the order they write
+    in, and inside its window it only ever grows.
+  - **The sky** (`sky:<realm>:weather` and `sky:<realm>:time`, one sorted set
+    each, members `at,mode` scored by `at`) — a *forced* weather or hour. Auto
+    agrees for free, since `skyNow` is a pure function of the clock, but somebody
+    asking the Oracle for rain used to set one instance's module variable and
+    rain on one instance's players. `publishSky(field, mode)` queues a turn, the
+    flush writes it with `ZADD` and trims the set to its top member, and a
+    strictly newer turn read back is adopted and broadcast through
+    `onRemoteSky`. Two things are load-bearing. The ordering is enforced in the
+    store, not on read, because an instance can hold a turn for up to a flush
+    before it writes, so a plain `SET` let an older turn land on a newer one and
+    split the realm. And the halves are separate fields, because a turn that
+    carried both let a change of hour on one instance undo rain on another.
+  - **The feed** (`feed:<realm>`, a capped list) — six rows, worded exactly as
+    the in-game feed words them so the two surfaces can't drift. A row still
+    inside its 6 s coalesce window is held on the instance that recorded it
+    rather than pushed, since rewriting the head of a shared list would need a
+    script; `recentEvents()` returns the pending rows in front of the shared
+    ones, so `welcome` is never missing what just happened here. Only the
+    *last* leave on an instance drains those held rows, since the tick stops with
+    it; a join or any other leave must not, or every arrival splits every
+    in-progress row in the town. The read-back after a flush has its own `try`
+    and never requeues: the write already landed, and putting its rows back
+    would push them twice.
+
+  Nothing on this route scans a chunk, and the whole read is one pipeline
+  (`ChunkStore.readLive`), as is the whole write (`writeLive`). The roster
+  carries minutes in town rather than a ping, because latency is measured by
+  each client's own heartbeat and the server has no honest per-player number to
+  report. It also answers `instances`, the number of distinct processes holding
+  the realm's sockets, taken from a stamp on every presence row. **One is the
+  assumption the whole design rests on**; above one, the realm has split and
+  players on different instances cannot see each other, because the sim is not
+  shared and deliberately is not (ROADMAP §1). That number exists so the
+  assumption is measured rather than assumed.
 - `server/api/editor/save.post.ts` + `server/utils/editorFiles.ts` — the
   **dev-only** save route (first line: `if (!import.meta.dev) throw createError({
   statusCode: 404 })`) the world editor POSTs its whole working doc to; validates

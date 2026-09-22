@@ -294,6 +294,83 @@ export const MAX_CLIP_MS = 10_000
 export const MAX_CLIP_BYTES = 256 * 1024
 
 /**
+ * A push-to-talk clip goes up the socket, not over HTTP.
+ *
+ * It used to be a `POST /api/voice/say`, and that could not work: the clip has
+ * to reach the *instance holding the sender's session*, because that is the only
+ * process that knows they have voice on and the only one whose `sayChat` their
+ * chat line can come out of. A plain request lands on whichever instance serves
+ * it, so the post answered "not in the world" to a player very much in it. The
+ * socket has no such problem: it is already pinned to the right process.
+ *
+ * `[u8 kind][u16 seq][u8 type][u8 langLen][lang…]` then the container bytes.
+ * `seq` is the client's own counter, echoed back on the `said` frame so a reply
+ * can be matched to the clip that earned it. Big endian, like the audio frames.
+ */
+export const CLIP_FRAME_KIND = 2
+
+/** Containers the recorder is allowed to have produced, by wire index. The
+ *  order is the format: never reorder it, only append. */
+export const CLIP_TYPES = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav'] as const
+
+/** `[u8 kind][u16 seq][u8 type][u8 langLen]`, then the language and the body. */
+export const CLIP_HEADER = 5
+
+/** A two letter code, or nothing. */
+export type ClipLanguage = string | undefined
+
+export interface ClipUp {
+  seq: number
+  /** A media type from `CLIP_TYPES`. */
+  type: string
+  language: ClipLanguage
+  body: Uint8Array
+}
+
+export function encodeClipUp(seq: number, type: string, language: ClipLanguage, body: Uint8Array): Uint8Array<ArrayBuffer> | null {
+  const typeIndex = CLIP_TYPES.indexOf(type as typeof CLIP_TYPES[number])
+  // Empty is refused here because `decodeClipUp` refuses it there: a frame the
+  // server will silently drop is one the client would wait out the whole clip
+  // timeout for.
+  if (typeIndex < 0 || !body.length || body.length > MAX_CLIP_BYTES) return null
+  const lang = language && /^[a-z]{2}$/.test(language) ? language : ''
+  const frame = new Uint8Array(CLIP_HEADER + lang.length + body.length)
+  frame[0] = CLIP_FRAME_KIND
+  frame[1] = (seq >> 8) & 0xff
+  frame[2] = seq & 0xff
+  frame[3] = typeIndex
+  frame[4] = lang.length
+  for (let i = 0; i < lang.length; i++) frame[CLIP_HEADER + i] = lang.charCodeAt(i)
+  frame.set(body, CLIP_HEADER + lang.length)
+  return frame
+}
+
+/**
+ * Read one clip frame, or null if it is not a usable one.
+ *
+ * Everything here came off the wire, so every field is checked rather than
+ * trusted: the type is an index into a fixed list, the language is two ASCII
+ * letters or nothing, and the body is capped the same way the old route capped
+ * it. A frame that fails any of those is not a clip.
+ */
+export function decodeClipUp(bytes: Uint8Array): ClipUp | null {
+  if (bytes.length <= CLIP_HEADER) return null
+  if (bytes[0] !== CLIP_FRAME_KIND) return null
+  const type = CLIP_TYPES[bytes[3]!]
+  if (!type) return null
+  const langLen = bytes[4]!
+  if (langLen !== 0 && langLen !== 2) return null
+  const body = bytes.subarray(CLIP_HEADER + langLen)
+  if (!body.length || body.length > MAX_CLIP_BYTES) return null
+  let language: ClipLanguage
+  if (langLen) {
+    language = String.fromCharCode(bytes[CLIP_HEADER]!, bytes[CLIP_HEADER + 1]!)
+    if (!/^[a-z]{2}$/.test(language)) return null
+  }
+  return { seq: (bytes[1]! << 8) | bytes[2]!, type, language, body }
+}
+
+/**
  * Things a speech to text model returns when it was handed silence.
  *
  * Every one of these is a real observed output on an empty or noise-only clip,

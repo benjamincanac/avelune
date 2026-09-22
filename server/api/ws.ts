@@ -1,5 +1,5 @@
 import { defineWebSocketHandler } from 'nitro'
-import { VOICE_FRAME_KIND } from '#shared/utils/voice'
+import { CLIP_FRAME_KIND, VOICE_FRAME_KIND } from '#shared/utils/voice'
 import type { Connection } from '../utils/game'
 import { registerConnection } from '../utils/game'
 import { loadPosition } from '../utils/positions'
@@ -62,7 +62,9 @@ export default defineWebSocketHandler({
       return
     }
     const bytes = message.uint8Array()
-    if (bytes[0] === VOICE_FRAME_KIND) {
+    // Two binary kinds ride this channel: live audio frames and finished
+    // push-to-talk clips. `handleBytes` tells them apart on the same byte.
+    if (bytes[0] === VOICE_FRAME_KIND || bytes[0] === CLIP_FRAME_KIND) {
       conn.handleBytes(bytes)
       return
     }
