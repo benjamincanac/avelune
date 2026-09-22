@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { TERRAFORM_STEP } from '../shared/utils/world'
-import { MemoryChunkStore, RedisChunkStore, chunkStoreKey } from '../server/utils/chunkStore'
+import { MemoryChunkStore, RedisChunkStore, chunkStoreKey, seenKey } from '../server/utils/chunkStore'
 import type { ChunkStore, StoredChunk } from '../server/utils/chunkStore'
 import { startUpstashFake } from './upstash-fake.mjs'
 import { startRealRedis } from './redis-rest.mjs'
@@ -75,6 +75,66 @@ async function roundTrip(store: ChunkStore) {
   await store.writePositions([['ann', '9.00,8.00,0.00,1.00']])
   assert.equal(await store.readPosition('ann'), '9.00,8.00,0.00,1.00')
   assert.equal(await store.readPosition('bo'), '5.00,6.00,1.50,3.14')
+
+  // The live surface: presence, the seen buckets and the feed, which the title
+  // screen reads without a socket and from whatever instance serves it.
+  const today = { key: seenKey('d2026-09-22'), ttl: 60 }
+  const hour = { key: seenKey('h1'), ttl: 60 }
+  const empty = await store.readLive([today.key], 6)
+  assert.deepEqual([...empty.presence], [], 'nobody is in town yet')
+  assert.deepEqual(empty.seen, [0], 'and nobody has been')
+  assert.deepEqual(empty.events, [], 'and nothing has happened')
+  assert.equal(empty.sky, null, 'and nobody has turned the sky')
+
+  // Two instances writing their own share of the realm, the way they do.
+  await store.writeLive({
+    presence: [['ann', '100,100,Ann']],
+    drop: [],
+    seen: [today, hour],
+    seenIds: ['ann'],
+    events: ['{"at":1,"name":"Ann","kind":"join","text":"entered the town"}'],
+    feedLimit: 3,
+    sky: null,
+  })
+  await store.writeLive({
+    presence: [['bo', '200,200,Bo']],
+    drop: [],
+    seen: [today, hour],
+    seenIds: ['bo'],
+    events: ['{"at":2,"name":"Bo","kind":"join","text":"entered the town"}'],
+    feedLimit: 3,
+    sky: '1000,rain,night',
+  })
+
+  const both = await store.readLive([today.key, hour.key], 6)
+  assert.deepEqual([...both.presence].sort(), [['ann', '100,100,Ann'], ['bo', '200,200,Bo']], 'the roster is the union of the instances')
+  assert.deepEqual(both.seen, [2, 2], 'two people have been here today, and in this hour')
+  assert.deepEqual(both.events.map(raw => JSON.parse(raw).name), ['Bo', 'Ann'], 'the feed is newest first')
+
+  // A set counts people, not connections: the same identity again is not a
+  // second visitor. This is the whole reason the buckets are sets.
+  await store.writeLive({ presence: [], drop: [], seen: [today], seenIds: ['ann', 'ann'], events: [], feedLimit: 3, sky: null })
+  assert.deepEqual((await store.readLive([today.key], 6)).seen, [2], 'a reconnect is the same person')
+
+  // A leaver's row goes, and the feed is capped rather than kept.
+  await store.writeLive({
+    presence: [],
+    drop: ['ann'],
+    seen: [],
+    seenIds: [],
+    events: ['{"at":3,"name":"Bo","kind":"build","text":"raised a wall"}', '{"at":4,"name":"Bo","kind":"dig","text":"dug a pit"}'],
+    feedLimit: 3,
+    sky: null,
+  })
+  const after = await store.readLive([today.key], 6)
+  assert.deepEqual([...after.presence.keys()], ['bo'], 'the row went with the player')
+  assert.deepEqual(after.events.map(raw => JSON.parse(raw).at), [4, 3, 2], 'the list is trimmed to the limit')
+  assert.deepEqual(after.seen, [2], 'leaving does not un-visit')
+  assert.equal(after.sky, '1000,rain,night', 'a null sky leaves the realm\'s alone')
+
+  // Nothing to say costs nothing to send.
+  await store.writeLive({ presence: [], drop: [], seen: [today], seenIds: [], events: [], feedLimit: 3, sky: null })
+  assert.deepEqual((await store.readLive([today.key], 6)).seen, [2], 'an idle instance writes nothing')
 }
 
 type ProbeResult = {

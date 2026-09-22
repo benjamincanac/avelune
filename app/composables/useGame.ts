@@ -396,7 +396,7 @@ export function useGame(): UseGame {
       reconnectDelay = 1000
       status.value = 'connected'
       startHeartbeat()
-      voice.attach({ sendVoice, sendVoiceFrame })
+      voice.attach({ sendVoice, sendVoiceFrame, sendClip })
     })
 
     connection.addEventListener('message', (event) => {
@@ -527,6 +527,12 @@ export function useGame(): UseGame {
    * first byte is what tells the server which kind of frame it received.
    */
   function sendVoiceFrame(frame: Uint8Array<ArrayBuffer>) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(frame)
+  }
+
+  /** A finished push-to-talk clip. Same channel, same send: the kind byte at
+   *  the front is what the server reads it apart by. */
+  function sendClip(frame: Uint8Array<ArrayBuffer>) {
     if (socket?.readyState === WebSocket.OPEN) socket.send(frame)
   }
 

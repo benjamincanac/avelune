@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import type { ServerMessage } from '#shared/types/game'
-import { encodeVoiceUp } from '#shared/utils/voice'
+import { encodeClipUp, encodeVoiceUp } from '#shared/utils/voice'
 import type { VoiceFrameDown, VoicePeerInfo } from '#shared/utils/voice'
 import type { AudioPoint, VoiceSink } from '~/utils/audio'
 import { createLevelMeter, createVoiceSink, setVoiceVolume, unlockAudio, voiceBus } from '~/utils/audio'
@@ -288,9 +288,9 @@ function closeMic(): void {
  * hint: measured on the model in use, English spoken under a French hint still
  * comes back as English.
  */
-function spokenLanguage(): Record<string, string> {
+function spokenLanguage(): string | undefined {
   const code = (typeof navigator === 'undefined' ? '' : navigator.language).slice(0, 2).toLowerCase()
-  return /^[a-z]{2}$/.test(code) ? { 'x-voice-language': code } : {}
+  return /^[a-z]{2}$/.test(code) ? code : undefined
 }
 
 /** One encoded frame, straight onto the socket. */
@@ -413,23 +413,71 @@ async function uploadClip(): Promise<void> {
     }, 4000)
     return
   }
+  await sendClip(blob)
+}
+
+/* -------------------------------------------------------------------------- */
+/* Clips                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Clips waiting on their `said` frame, by the sequence stamped on the way out.
+ *  A socket that drops takes the answer with it, so each one is also timed out
+ *  rather than left holding the HUD in `sending` forever. */
+const awaitingClip = new Map<number, (answer: { ok: boolean, text: string }) => void>()
+let clipSeq = 0
+
+/** Long enough for a model call on a ten second clip, short enough that a lost
+ *  socket does not read as a hung one. */
+const CLIP_TIMEOUT = 20_000
+
+/**
+ * Put one recorded utterance on the socket and wait for what the server made of
+ * it.
+ *
+ * The clip used to be a `POST /api/voice/say`. It could not stay one: the
+ * process that has to handle it is the one holding this socket, and a request
+ * lands on whichever instance serves it, so the post answered "not in the
+ * world" to a player standing in it. On the socket there is nothing to look up.
+ */
+async function sendClip(blob: Blob): Promise<void> {
+  const type = blob.type.split(';')[0] || 'audio/webm'
+  const body = new Uint8Array(await blob.arrayBuffer())
+  const seq = clipSeq = (clipSeq + 1) % 0x10000
+  const frame = encodeClipUp(seq, type, spokenLanguage(), body)
+  if (!net || !frame) {
+    lastTranscript = null
+    say.value = 'failed'
+    return
+  }
+
   say.value = 'sending'
   const started = Date.now()
-  try {
-    const answer = await $fetch<{ ok: boolean, text?: string }>('/api/voice/say', {
-      method: 'POST',
-      body: blob,
-      headers: { 'content-type': blob.type.split(';')[0] ?? 'audio/webm', ...spokenLanguage() },
+  net.sendClip(frame)
+
+  const answer = await new Promise<{ ok: boolean, text: string } | null>((resolve) => {
+    const timer = setTimeout(() => {
+      awaitingClip.delete(seq)
+      resolve(null)
+    }, CLIP_TIMEOUT)
+    awaitingClip.set(seq, (result) => {
+      clearTimeout(timer)
+      awaitingClip.delete(seq)
+      resolve(result)
     })
-    lastTranscript = answer.text ?? ''
-    lastTranscriptMs = Date.now() - started
-    say.value = answer.ok ? 'idle' : 'failed'
-  }
-  catch {
-    // Refused, rate limited, or the model is down. All the same to a player.
-    lastTranscript = null
-    lastTranscriptMs = Date.now() - started
-    say.value = 'failed'
+  })
+
+  lastTranscriptMs = Date.now() - started
+  // Refused, rate limited, the model is down, or the socket went. All the same
+  // to a player.
+  lastTranscript = answer?.ok ? answer.text : null
+  say.value = answer?.ok ? 'idle' : 'failed'
+}
+
+/** Nothing is coming back for anything still in flight. */
+function dropAwaitingClips(): void {
+  for (const [seq, resolve] of awaitingClip) {
+    awaitingClip.delete(seq)
+    resolve({ ok: false, text: '' })
   }
 }
 
@@ -557,6 +605,10 @@ function stopMeters(): void {
 export interface VoiceNet {
   sendVoice: (on: boolean) => void
   sendVoiceFrame: (frame: Uint8Array<ArrayBuffer>) => void
+  /** A finished push-to-talk clip, on the same binary channel. It goes up the
+   *  socket rather than over HTTP because only the instance holding this
+   *  session can turn it into a chat line. */
+  sendClip: (frame: Uint8Array<ArrayBuffer>) => void
 }
 
 let net: VoiceNet | null = null
@@ -718,10 +770,16 @@ export function useVoice(): UseVoice {
             peers.value = peers.value.filter(p => p.id !== msg.id)
           }
           break
+        case 'said':
+          // The answer to a clip this client sent, matched by the sequence it
+          // stamped on the frame.
+          awaitingClip.get(msg.seq)?.({ ok: msg.ok, text: msg.text })
+          break
         case 'welcome':
           // A fresh session: whatever was paired belonged to the old one, and the
           // talker ids it used mean nothing now.
           reset()
+          dropAwaitingClips()
           void resumeOptIn()
           break
       }
@@ -758,22 +816,7 @@ export function useVoice(): UseVoice {
 
     async sayClip(blob) {
       if (!import.meta.dev) return
-      say.value = 'sending'
-      const started = Date.now()
-      try {
-        const answer = await $fetch<{ ok: boolean, text?: string }>('/api/voice/say', {
-          method: 'POST',
-          body: blob,
-          headers: { 'content-type': blob.type.split(';')[0] || 'audio/webm', ...spokenLanguage() },
-        })
-        lastTranscript = answer.text ?? ''
-        say.value = answer.ok ? 'idle' : 'failed'
-      }
-      catch {
-        lastTranscript = null
-        say.value = 'failed'
-      }
-      lastTranscriptMs = Date.now() - started
+      await sendClip(blob)
     },
   }
 }

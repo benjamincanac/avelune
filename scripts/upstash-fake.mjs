@@ -2,8 +2,14 @@
 //
 // It speaks just enough of the protocol for `RedisChunkStore`: the single
 // command endpoint, the `/pipeline` batch endpoint, bearer auth, the base64
-// response encoding the client asks for by default, and the six commands the
-// store sends — GET, MGET, DEL, SCAN, PING and the one EVAL script.
+// response encoding the client asks for by default, and the commands the store
+// sends — the chunk half (GET, MGET, DEL, SCAN, PING and the one EVAL script),
+// the hashes behind piece budgets, positions and presence, the sets behind the
+// "who was here" buckets, and the list behind the world feed.
+//
+// Expiry is not simulated. Nothing in the store depends on a key going away on
+// time, only on it going away eventually, and a test that waited ten hours to
+// prove it would be no test at all.
 //
 // The script is not interpreted. It is matched against the store's compare-and-set
 // source and its semantics are reimplemented here, so this proves the store's
@@ -59,7 +65,7 @@ function isCasScript(script) {
   return true
 }
 
-function run(data, hashes, command) {
+function run(data, hashes, sets, lists, command) {
   const [name, ...args] = command
   switch (String(name).toLowerCase()) {
     case 'hgetall': {
@@ -78,6 +84,49 @@ function run(data, hashes, command) {
     }
     case 'hget':
       return hashes.get(args[0])?.get(args[1]) ?? null
+    case 'hdel': {
+      const hash = hashes.get(args[0])
+      if (!hash) return 0
+      let removed = 0
+      for (const field of args.slice(1)) {
+        if (hash.delete(field)) removed++
+      }
+      return removed
+    }
+    case 'sadd': {
+      const set = sets.get(args[0]) ?? new Set()
+      sets.set(args[0], set)
+      let added = 0
+      for (const member of args.slice(1)) {
+        if (!set.has(String(member))) {
+          set.add(String(member))
+          added++
+        }
+      }
+      return added
+    }
+    case 'scard':
+      return sets.get(args[0])?.size ?? 0
+    case 'expire':
+      // Accepted and ignored; see the note at the top.
+      return (sets.has(args[0]) || lists.has(args[0]) || hashes.has(args[0]) || data.has(args[0])) ? 1 : 0
+    case 'lpush': {
+      const list = lists.get(args[0]) ?? []
+      lists.set(args[0], list)
+      // Redis pushes each value in turn, so the last argument ends up first.
+      for (const value of args.slice(1)) list.unshift(String(value))
+      return list.length
+    }
+    case 'ltrim': {
+      const list = lists.get(args[0]) ?? []
+      lists.set(args[0], list.slice(Number(args[1]), Number(args[2]) + 1))
+      return 'OK'
+    }
+    case 'lrange': {
+      const list = lists.get(args[0]) ?? []
+      const stop = Number(args[2])
+      return list.slice(Number(args[1]), stop < 0 ? undefined : stop + 1)
+    }
     case 'hset': {
       const hash = hashes.get(args[0]) ?? new Map()
       hashes.set(args[0], hash)
@@ -138,6 +187,8 @@ function run(data, hashes, command) {
 export async function startUpstashFake({ token = 'fake-token', port = 0 } = {}) {
   const data = new Map()
   const hashes = new Map()
+  const sets = new Map()
+  const lists = new Map()
   let requests = 0
 
   const server = createServer((req, res) => {
@@ -162,7 +213,7 @@ export async function startUpstashFake({ token = 'fake-token', port = 0 } = {}) 
       const base64 = String(req.headers['upstash-encoding'] ?? '') === 'base64'
       const one = (command) => {
         try {
-          const result = run(data, hashes, command)
+          const result = run(data, hashes, sets, lists, command)
           return { result: base64 ? encode(result) : result }
         }
         catch (error) {
@@ -184,6 +235,8 @@ export async function startUpstashFake({ token = 'fake-token', port = 0 } = {}) 
     token,
     data,
     hashes,
+    sets,
+    lists,
     /** HTTP round trips served so far, so a test can assert on batching. */
     get requests() {
       return requests

@@ -1,4 +1,4 @@
-import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode, WorldEvent } from '#shared/types/game'
+import type { ClientMessage, MoveInput, Player, PlayerState, ServerMessage, TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { MAX_CHAT_LENGTH, ORACLE_ID, ORACLE_NAME } from '#shared/types/game'
 import {
   DASH_COOLDOWN,
@@ -14,14 +14,19 @@ import type { Chunk, SurfaceType } from '#shared/utils/world'
 import { DEED_KIND, kitLabel } from '#shared/utils/kit'
 import { EDITS_PER_SECOND, checkDemolish, checkTerraform, isKitKind, refusalText, resolveBuild } from '#shared/utils/building'
 import {
+  CLIP_FRAME_KIND,
   VOICE_FRAMES_PER_SECOND,
   VOICE_FRAME_BURST,
   VOICE_PAIR_EVERY,
   createBucket,
+  decodeClipUp,
   decodeVoiceUp,
   encodeVoiceDown,
+  isUsableTranscript,
+  matchesSpokenScript,
   selectVoicePairs,
   spendToken,
+  tidyTranscript,
 } from '#shared/utils/voice'
 import type { TokenBucket, VoiceBody, VoicePeerInfo } from '#shared/utils/voice'
 import {
@@ -42,6 +47,10 @@ import {
 import { addDeed, addPiece, deedCount, pieceCount, removeDeed, removePiece } from './pieces'
 import { REALM, chunkStore } from './chunkStore'
 import { flushPositions, notePosition } from './positions'
+import { flushLive, noteJoin, noteLeave, onRemoteSky, publishSky, recentEvents, recordEvent } from './live'
+import { allowClip } from './clips'
+import { transcribeClip, transcriptionConfigured } from './transcribe'
+import type { LiveSession } from './live'
 import type { SavedPosition } from './positions'
 import type { Identity } from './session'
 import { FORTIFICATIONS } from '#shared/utils/courtyard'
@@ -142,15 +151,45 @@ let timeOfDay: TimeOfDayMode = 'auto'
  * dev commands below reach them too, so a harness can fix the sky without a
  * model.
  */
+/**
+ * Turn the sky, here and in the rest of the realm.
+ *
+ * `publishSky` puts it in the store on the next flush and `onRemoteSky` below
+ * brings back a turn somebody made on another instance, so the two halves are
+ * the same path: the module state moves and this instance's players are told.
+ * Without it, asking the Oracle for rain rained on one instance.
+ */
 function setWeather(mode: WeatherMode) {
   weather = mode
   broadcast({ t: 'weather', mode })
+  publishSky({ weather, timeOfDay })
 }
 
 function setTimeOfDay(mode: TimeOfDayMode) {
   timeOfDay = mode
   broadcast({ t: 'time', mode })
+  publishSky({ weather, timeOfDay })
 }
+
+/** The store is outside the trust boundary the same way the wire is, so a mode
+ *  that came back from it is checked rather than cast. */
+const WEATHER_MODES: readonly WeatherMode[] = ['auto', 'clear', 'overcast', 'rain']
+const TIME_MODES: readonly TimeOfDayMode[] = ['auto', 'dawn', 'day', 'sunset', 'night']
+
+/** A turn from another instance: adopt it and tell our players, but do not
+ *  publish it back, which would be this instance claiming somebody else's. */
+onRemoteSky((sky) => {
+  const mode = WEATHER_MODES.find(m => m === sky.weather)
+  if (mode && mode !== weather) {
+    weather = mode
+    broadcast({ t: 'weather', mode })
+  }
+  const hour = TIME_MODES.find(m => m === sky.timeOfDay)
+  if (hour && hour !== timeOfDay) {
+    timeOfDay = hour
+    broadcast({ t: 'time', mode: hour })
+  }
+})
 
 /**
  * Whether the dev-only chat commands are live.
@@ -291,6 +330,10 @@ function tick() {
   if (tickCount % FLUSH_EVERY === 0) {
     for (const { player } of sessions.values()) notePosition(player.id, player)
     void flushDirtyChunks(sessions.values())
+    // Presence, the day's visitors and the world feed ride the same timer, in
+    // one pipeline of their own: the title screen reads them from the store
+    // because it has no socket and may not even be served by this instance.
+    void flushLive(liveRoster())
   }
 }
 
@@ -379,6 +422,12 @@ function stopLoop() {
     // idle for hours, so the last player's edits go out with them.
     void flushDirtyChunks()
   }
+}
+
+/** This instance's share of the realm's presence: one row per session it holds.
+ *  Every instance writes its own, and the title screen reads the union. */
+function liveRoster(): LiveSession[] {
+  return [...sessions.values()].map(({ player, joinedAt }) => ({ id: player.id, name: player.name, joinedAt }))
 }
 
 /** Wrap an untrusted heading into [-PI, PI], or reject it. */
@@ -561,6 +610,56 @@ function relayVoiceFrame(session: Session, bytes: Uint8Array) {
 }
 
 /**
+ * One push-to-talk clip, arriving on the sender's own socket.
+ *
+ * This used to be `POST /api/voice/say`, and it could not work: the clip has to
+ * be handled by the process holding the session, and a plain request lands on
+ * whichever instance serves it. A clip that missed answered "not in the world"
+ * to a player standing in it. Here there is nothing to look up. The session is
+ * the one the bytes came in on, its `voice` flag is the check the route had to
+ * make by hand, and `sayChat` is the same function a typed line goes through,
+ * which is why the Oracle reads speech with no change.
+ *
+ * Nothing is stored. The audio is held for the length of one model call and
+ * then dropped, and the transcript is never logged: it goes in the chat, which
+ * is the only place a player's words belong. The clip does leave the deployment
+ * for that call, to a model with no zero data retention on the Gateway (see
+ * `./transcribe.ts`), which is why the menu says so before anybody speaks.
+ */
+async function handleVoiceClip(session: Session, bytes: Uint8Array) {
+  const clip = decodeClipUp(bytes)
+  if (!clip) return
+  const answer = (ok: boolean, text: string, reason?: string) =>
+    session.send(JSON.stringify({ t: 'said', seq: clip.seq, ok, text, reason } satisfies ServerMessage))
+
+  // A clip can only have come from somebody holding the key in the arena.
+  if (!session.voice) return answer(false, '', 'voice off')
+  if (!transcriptionConfigured()) return answer(false, '', 'not configured')
+  if (!allowClip(session.player.id, clip.body.length, Date.now())) return answer(false, '', 'too many clips')
+
+  // Dev only, and only when asked for: keep the clip so a bad transcript can be
+  // replayed against other models. Never in a build, and never by default,
+  // since this is somebody's voice on disk.
+  if (import.meta.dev && process.env.AVELUNE_VOICE_DEBUG) {
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir('.data/voice-debug', { recursive: true })
+    await writeFile(`.data/voice-debug/${Date.now()}.${clip.type.split('/')[1] ?? 'bin'}`, clip.body)
+  }
+
+  const raw = await transcribeClip(clip.body, clip.type, clip.language)
+  if (raw == null) return answer(false, '', 'could not transcribe')
+  const text = tidyTranscript(raw)
+  // Silence comes back as an empty string or as one of a handful of things
+  // these models reliably hallucinate. Posting one would put words in a
+  // player's mouth.
+  if (!isUsableTranscript(text) || !matchesSpokenScript(text, clip.language)) return answer(true, '')
+  // The socket may have gone in the time the model took.
+  if (sessions.get(session.player.id) !== session) return
+  if (!sayChat(session, text, true)) return answer(false, '', 'slow down')
+  answer(true, text)
+}
+
+/**
  * Take a player out of the mesh: their own set goes empty, and every peer that
  * held a pair with them is told immediately rather than at the next pass.
  *
@@ -697,110 +796,6 @@ export interface ArenaState {
  * few times a minute at most, so paying once per tool call is far cheaper than
  * keeping counters warm 20 times a second.
  */
-/* -------------------------------------------------------------------------- */
-/* The live surface: peak, history and the world feed                          */
-/* -------------------------------------------------------------------------- */
-
-/** The feed surfaces show three rows; a few spare cover a burst of activity. */
-const FEED_LIMIT = 6
-const FEED_COALESCE = 6_000
-
-const worldFeed: WorldEvent[] = []
-
-function recordEvent(name: string, kind: string, text: string) {
-  const at = Date.now()
-  const head = worldFeed[0]
-  if (head && head.name === name && head.kind === kind && at - head.at < FEED_COALESCE) {
-    head.at = at
-    head.text = text
-    return
-  }
-  worldFeed.unshift({ at, name, text, kind })
-  if (worldFeed.length > FEED_LIMIT) worldFeed.length = FEED_LIMIT
-}
-
-/** Newest first, for the landing page — which has no socket to watch. */
-export function recentEvents(): WorldEvent[] {
-  return worldFeed
-}
-
-/**
- * Roster history, kept only well enough to say something true on the title
- * screen: the highest count seen today, and the highest in each of the last
- * nine hours. Both are process-local — nothing is persisted, because the peak
- * of a world that resets with the process is a fact about the process.
- */
-const SERIES_HOURS = 9
-const HOUR = 3_600_000
-
-const series: number[] = Array.from({ length: SERIES_HOURS }, () => 0)
-let seriesHour = -1
-let peakDay = ''
-let peak = 0
-
-/**
- * Bring the window up to now: roll the hourly buckets forward, zero-filling any
- * hour nobody was here for, and clear the peak when the day turns.
- *
- * Called on every read as well as on every join, because a world with one
- * long-lived session has no churn to drive it — it would otherwise serve
- * yesterday's peak under a "today" label and an eleven-hour-old bucket under
- * "last 9h".
- */
-function rollWindow(now: number) {
-  const hour = Math.floor(now / HOUR)
-  if (seriesHour < 0) {
-    seriesHour = hour
-  }
-  else if (hour > seriesHour) {
-    const shift = Math.min(hour - seriesHour, SERIES_HOURS)
-    series.splice(0, shift)
-    while (series.length < SERIES_HOURS) series.push(0)
-    seriesHour = hour
-  }
-  const day = new Date(now).toISOString().slice(0, 10)
-  if (day !== peakDay) {
-    peakDay = day
-    peak = 0
-  }
-}
-
-function notePlayers(n: number) {
-  rollWindow(Date.now())
-  if (n > peak) peak = n
-  const last = SERIES_HOURS - 1
-  if (n > series[last]!) series[last] = n
-}
-
-/** A roster row for the title screen, which has no socket to ask. Minutes in
- *  town rather than a ping: latency is measured by the client's own heartbeat,
- *  so the server has no honest per-player number to report. */
-export interface RosterEntry {
-  name: string
-  minutes: number
-}
-
-/** The panel holds five rows before it starts scrolling; send six. */
-const ROSTER_LIMIT = 6
-
-/** Everything the title screen's stat blocks, sparkline and roster need. */
-export function playerStats(): { players: number, peak: number, series: number[], roster: RosterEntry[] } {
-  const now = Date.now()
-  // Reading is also the only thing that happens in a quiet world, so it has to
-  // both roll the window and fold the live roster into the current hour.
-  rollWindow(now)
-  notePlayers(sessions.size)
-  return {
-    players: sessions.size,
-    peak,
-    series: [...series],
-    roster: [...sessions.values()]
-      .sort((a, b) => a.joinedAt - b.joinedAt)
-      .slice(0, ROSTER_LIMIT)
-      .map(session => ({ name: session.player.name, minutes: Math.floor((now - session.joinedAt) / 60_000) })),
-  }
-}
-
 export function snapshot(): ArenaState {
   const now = Date.now()
 
@@ -988,18 +983,6 @@ function sayChat(session: Session, text: string, spoken = false): boolean {
  * someone holding the push-to-talk key in the arena. An identity with no session
  * gets nothing, rather than a line appearing from a player who left.
  */
-export function speakForIdentity(id: string, text: string): boolean {
-  const session = sessions.get(id)
-  if (!session || !session.voice) return false
-  return sayChat(session, text, true)
-}
-
-/** Whether this identity is in the world with voice on. The transcription route
- *  checks it before spending money on a clip. */
-export function hasLiveVoice(id: string): boolean {
-  return sessions.get(id)?.voice === true
-}
-
 /**
  * Let the Oracle hear a chat line.
  *
@@ -1224,7 +1207,7 @@ export function registerConnection(
     // spread over the whole world, and the client only ever holds 25 chunks.
     pieces: pieceCount(player.id),
     deeds: deedCount(player.id),
-    feed: worldFeed,
+    feed: recentEvents(),
   } satisfies ServerMessage))
   // The ground before anything standing on it: the spawn neighbourhood goes out
   // on the same tick as the welcome, so no `state` can ever name a player on a
@@ -1232,13 +1215,16 @@ export function registerConnection(
   syncChunks(session, player.x, player.y, true)
   broadcast({ t: 'join', player }, player.id)
   recordEvent(player.name, 'join', resume ? 'returned to the world' : 'entered the town')
-  notePlayers(sessions.size)
+  noteJoin({ id: player.id, name: player.name, joinedAt: session.joinedAt }, liveRoster())
 
   return {
     player,
     handleBytes(bytes) {
       session.lastSeen = Date.now()
-      relayVoiceFrame(session, bytes)
+      // Two binary kinds on the one channel: live audio frames, and the whole
+      // container of a finished push-to-talk clip.
+      if (bytes[0] === CLIP_FRAME_KIND) void handleVoiceClip(session, bytes)
+      else relayVoiceFrame(session, bytes)
     },
     handleMessage(raw) {
       let msg: ClientMessage
@@ -1427,7 +1413,7 @@ export function registerConnection(
         void flushPositions()
         sessions.delete(player.id)
         broadcast({ t: 'leave', id: player.id })
-        notePlayers(sessions.size)
+        noteLeave(player.id, liveRoster())
       }
       releaseViewer(session)
       stopLoop()

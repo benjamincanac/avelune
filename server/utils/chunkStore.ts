@@ -34,6 +34,57 @@ export interface ChunkWrite {
   expectedVersion: ExpectedVersion
 }
 
+/**
+ * One "who was here" bucket: a set of identity ids under `key`, kept `ttl`
+ * seconds past the window it covers so a reader that is a little behind still
+ * finds it. Counting a set is the only honest way to say how many *people* were
+ * here, as opposed to how many were here at once — the same player reconnecting
+ * four times is one id.
+ */
+export interface SeenBucket {
+  key: string
+  /** Seconds. */
+  ttl: number
+}
+
+/**
+ * Everything the live surface writes, in one round trip.
+ *
+ * Presence, the seen buckets and the feed are all small and all written on the
+ * same 5 second timer, so they travel as one pipeline rather than three
+ * requests: the title screen polls every 10 seconds and every instance flushes
+ * every 5, and three times that is three times the bill for no extra truth.
+ */
+export interface LiveWrite {
+  /** Presence rows to set, identity to encoded row. */
+  presence: readonly (readonly [string, string])[]
+  /** Rows to remove: players who left, plus rows an instance that vanished
+   *  never cleaned up after itself. */
+  drop: readonly string[]
+  /** The buckets each of `seenIds` belongs in right now. */
+  seen: readonly SeenBucket[]
+  seenIds: readonly string[]
+  /** Feed rows to push in front of the shared list, oldest first. */
+  events: readonly string[]
+  /** How many feed rows the list keeps. */
+  feedLimit: number
+  /** The forced sky, when this instance is the one that just turned it. `null`
+   *  leaves whatever the realm already holds. */
+  sky: string | null
+}
+
+export interface LiveRead {
+  /** Identity to encoded row, stale entries included — only the reader knows
+   *  what counts as stale. */
+  presence: Map<string, string>
+  /** One count per requested bucket, in the order they were asked for. */
+  seen: number[]
+  /** Feed rows, newest first. */
+  events: string[]
+  /** The realm's forced sky, or null if nobody has turned it. */
+  sky: string | null
+}
+
 export interface ChunkStore {
   /** Which implementation this is, for boot logging and for `world-admin`. */
   readonly kind: 'memory' | 'redis'
@@ -59,6 +110,12 @@ export interface ChunkStore {
   /** Last writer wins: a position is only ever written by the instance that
    *  holds the player's socket. */
   writePositions: (entries: readonly (readonly [string, string])[]) => Promise<void>
+  /** The whole live surface — presence, the seen counts and the feed — in one
+   *  round trip, because the title screen has no socket and asks for all of it
+   *  at once. */
+  readLive: (seen: readonly string[], feedLimit: number) => Promise<LiveRead>
+  /** ...and the write half, pipelined for the same reason. */
+  writeLive: (write: LiveWrite) => Promise<void>
 }
 
 /** The realm this process serves: every key below is scoped to it, so each
@@ -71,6 +128,23 @@ export const PIECES_KEY = `pieces:${REALM}`
 
 /** The hash every identity's last position lives in, per realm. */
 export const POSITIONS_KEY = `positions:${REALM}`
+
+/** The hash every live session in the realm announces itself in, per realm. */
+export const PRESENCE_KEY = `presence:${REALM}`
+
+/** The realm's shared world feed: a capped list, newest at the head. */
+export const FEED_KEY = `feed:${REALM}`
+
+/** The realm's forced weather and hour. One small string, read on the same
+ *  timer as everything else, because a sky is a fact about the world and not
+ *  about the instance whose player asked the Oracle to turn it. */
+export const SKY_KEY = `sky:${REALM}`
+
+/** The set of identities seen inside one window. `bucket` is a day or an hour;
+ *  the prefix keeps the two apart so an hour can never be read as a day. */
+export function seenKey(bucket: string): string {
+  return `seen:${REALM}:${bucket}`
+}
 
 /** Writes per pipelined request. A flush of a whole town's worth of edits is
  *  split into batches rather than sent as one 200-command pipeline. */
@@ -128,6 +202,10 @@ export class MemoryChunkStore implements ChunkStore {
   private readonly records = new Map<string, string>()
   private readonly pieces = new Map<string, number>()
   private readonly positions = new Map<string, string>()
+  private readonly presence = new Map<string, string>()
+  private readonly seen = new Map<string, Set<string>>()
+  private readonly feed: string[] = []
+  private sky: string | null = null
 
   async get(cx: number, cy: number): Promise<StoredChunk | null> {
     return decodeRecord(this.records.get(chunkStoreKey(cx, cy)))
@@ -187,6 +265,33 @@ export class MemoryChunkStore implements ChunkStore {
 
   async writePositions(entries: readonly (readonly [string, string])[]): Promise<void> {
     for (const [id, value] of entries) this.positions.set(id, value)
+  }
+
+  async readLive(seen: readonly string[], feedLimit: number): Promise<LiveRead> {
+    return {
+      presence: new Map(this.presence),
+      seen: seen.map(key => this.seen.get(key)?.size ?? 0),
+      events: this.feed.slice(0, feedLimit),
+      sky: this.sky,
+    }
+  }
+
+  async writeLive(write: LiveWrite): Promise<void> {
+    for (const [id, value] of write.presence) this.presence.set(id, value)
+    for (const id of write.drop) this.presence.delete(id)
+    if (write.seenIds.length) {
+      for (const bucket of write.seen) {
+        const set = this.seen.get(bucket.key) ?? new Set<string>()
+        this.seen.set(bucket.key, set)
+        for (const id of write.seenIds) set.add(id)
+      }
+    }
+    // No expiry here: a process that dies takes the whole map with it, which is
+    // exactly what local dev wants. A dev server left up for days holds one
+    // small set per hour, which is a few hundred bytes.
+    for (const event of write.events) this.feed.unshift(event)
+    if (this.feed.length > write.feedLimit) this.feed.length = write.feedLimit
+    if (write.sky !== null) this.sky = write.sky
   }
 }
 
@@ -340,6 +445,71 @@ export class RedisChunkStore implements ChunkStore {
     for (let at = 0; at < entries.length; at += FLUSH_BATCH) {
       await this.redis.hset(POSITIONS_KEY, Object.fromEntries(entries.slice(at, at + FLUSH_BATCH)))
     }
+  }
+
+  /** One pipeline: the presence hash, one `SCARD` per bucket asked for, and the
+   *  head of the feed list. `automaticDeserialization` is off, so `HGETALL`
+   *  arrives as the flat field/value array Redis actually sends. */
+  async readLive(seen: readonly string[], feedLimit: number): Promise<LiveRead> {
+    const pipeline = this.redis.pipeline()
+    pipeline.hgetall(PRESENCE_KEY)
+    for (const key of seen) pipeline.scard(key)
+    pipeline.lrange(FEED_KEY, 0, feedLimit - 1)
+    pipeline.get(SKY_KEY)
+    const results = await pipeline.exec<unknown[]>()
+
+    const presence = new Map<string, string>()
+    const raw = results?.[0]
+    if (Array.isArray(raw)) {
+      for (let i = 0; i + 1 < raw.length; i += 2) presence.set(String(raw[i]), String(raw[i + 1]))
+    }
+    const events = results?.[seen.length + 1]
+    const sky = results?.[seen.length + 2]
+    return {
+      presence,
+      seen: seen.map((_, i) => {
+        const count = Number(results?.[i + 1])
+        return Number.isFinite(count) ? count : 0
+      }),
+      events: Array.isArray(events) ? events.map(String) : [],
+      sky: typeof sky === 'string' ? sky : null,
+    }
+  }
+
+  /** The write half, in one pipeline for the same reason. `LPUSH` takes the
+   *  rows oldest first, which is what leaves the newest at the head. */
+  async writeLive(write: LiveWrite): Promise<void> {
+    const pipeline = this.redis.pipeline()
+    let sending = false
+    if (write.presence.length) {
+      pipeline.hset(PRESENCE_KEY, Object.fromEntries(write.presence))
+      sending = true
+    }
+    if (write.drop.length) {
+      pipeline.hdel(PRESENCE_KEY, ...write.drop)
+      sending = true
+    }
+    const [firstSeen, ...restSeen] = write.seenIds
+    if (firstSeen !== undefined) {
+      for (const bucket of write.seen) {
+        pipeline.sadd(bucket.key, firstSeen, ...restSeen)
+        // Pushed out on every write rather than set once: a bucket that is still
+        // being written to has not finished, whatever its key says.
+        pipeline.expire(bucket.key, bucket.ttl)
+        sending = true
+      }
+    }
+    if (write.events.length) {
+      pipeline.lpush(FEED_KEY, ...write.events)
+      pipeline.ltrim(FEED_KEY, 0, write.feedLimit - 1)
+      sending = true
+    }
+    if (write.sky !== null) {
+      pipeline.set(SKY_KEY, write.sky)
+      sending = true
+    }
+    if (!sending) return
+    await pipeline.exec()
   }
 }
 
