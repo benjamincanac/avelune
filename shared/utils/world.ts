@@ -11,6 +11,8 @@
  * The authored town is a *protected footprint*: the moat's outer square plus a
  * margin, and the landing of the gate bridge. Its pieces are seeded from
  * the committed JSON at boot and player edits never reach those tiles. The
+ * approach in front of the bridge (`GATE_APPROACH`) is locked to edits too,
+ * though it is generated ground like any other and renders as such. The
  * chunks the footprint touches (`isTownChunk`) are created up front and never
  * evicted, but the ground in them outside the footprint is ordinary editable
  * terrain.
@@ -160,7 +162,9 @@ export const WORLD_TILE_MAX = (WORLD_BOUNDS.maxCx + 1) * CHUNK_SIZE
  * The tiles player edits may never touch, inclusive on both ends: the moat's
  * outer square plus `TOWN_MARGIN`, the bank stair with the same margin, and
  * exactly the tiles under the gate bridge's landing. It hugs the geometry on
- * purpose: the first tile past the bridge is where a player starts a road.
+ * purpose: it is what the town *draws*, and sinking or paving a tile the town
+ * does not draw would leave a trench beside the road. Keeping the way in clear
+ * is a separate rectangle, `GATE_APPROACH`, which no renderer reads.
  */
 export const PROTECTED_FOOTPRINT = [
   {
@@ -216,6 +220,51 @@ export function isProtectedBox(minX: number, minY: number, maxX: number, maxY: n
     return true
   }
   return false
+}
+
+/** How far the gate approach flares past the bridge deck on each side, and how
+ *  far it runs past the spawn, in tiles. */
+export const GATE_APPROACH_MARGIN = 4
+
+/**
+ * The apron of open ground between the bridge's landing and the spawn.
+ *
+ * Nothing is authored here — it is generated meadow and it renders as meadow.
+ * It is closed to *edits* alone, because the bridge is the only way in: one
+ * wall across its mouth, or one trench dug in front of it, would shut the town
+ * to everybody. The strip is the deck's width flared by `GATE_APPROACH_MARGIN`
+ * on each side and runs from the far end of the landing to the same margin past
+ * the spawn, so a player who has just arrived always has ground underfoot and a
+ * clear line to the gate.
+ */
+export const GATE_APPROACH = {
+  minX: FORTIFICATIONS.gateX - FORTIFICATIONS.bridgeWidth / 2 - GATE_APPROACH_MARGIN,
+  maxX: FORTIFICATIONS.gateX + FORTIFICATIONS.bridgeWidth / 2 - 1 + GATE_APPROACH_MARGIN,
+  minY: FORTIFICATIONS.bridgeEnd,
+  maxY: FORTIFICATIONS.spawn.y + GATE_APPROACH_MARGIN,
+} as const
+
+/** Why an edit is refused here, or `null` where the ground is the player's to
+ *  change. Two reasons, because they are two different promises: the town is
+ *  authored and never changes, the approach is ordinary ground that has to stay
+ *  crossable. */
+export type EditLock = 'town' | 'gate'
+
+/** The lock on one tile. Terraform, build and demolish all read this, and a
+ *  brush is refused if any corner it writes lands in a locked tile. */
+export function editLock(x: number, y: number): EditLock | null {
+  if (isProtectedTile(x, y)) return 'town'
+  if (x >= GATE_APPROACH.minX && x <= GATE_APPROACH.maxX
+    && y >= GATE_APPROACH.minY && y <= GATE_APPROACH.maxY) return 'gate'
+  return null
+}
+
+/** The lock on a half-open world-space box, for the claim rules. */
+export function editLockBox(minX: number, minY: number, maxX: number, maxY: number): EditLock | null {
+  if (isProtectedBox(minX, minY, maxX, maxY)) return 'town'
+  const a = GATE_APPROACH
+  if (maxX > a.minX && minX <= a.maxX && maxY > a.minY && minY <= a.maxY) return 'gate'
+  return null
 }
 
 /** Every chunk `isTownChunk` accepts. The town is a handful of chunks, so this

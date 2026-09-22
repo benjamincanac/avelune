@@ -21,11 +21,19 @@ import {
   WORLD_TILE_MAX,
   WORLD_TILE_MIN,
   deedsInBox,
-  isProtectedBox,
-  isProtectedTile,
+  editLock,
+  editLockBox,
   propsInBox,
 } from './world'
-import type { SurfaceType, TerraformMode, World } from './world'
+import type { EditLock, SurfaceType, TerraformMode, World } from './world'
+
+/** What a player is told when they aim at ground that is not theirs to change.
+ *  The town is authored and permanent; the gate approach is ordinary meadow
+ *  held open so nobody can wall the only way in. */
+const LOCK_REFUSAL: Record<EditLock, string> = {
+  town: 'the town is protected',
+  gate: 'the way into town must stay clear',
+}
 
 /** How far from a player an edit may land, in tiles. */
 export const EDIT_REACH = 6
@@ -529,7 +537,8 @@ export function checkTerraform(world: World, request: TerraformRequest, actor: E
   for (let cy = e.minY; cy <= e.maxY; cy++) {
     for (let cx = e.minX; cx <= e.maxX; cx++) {
       if (!inWorld(cx, cy)) return REFUSE('outside the world')
-      if (isProtectedTile(cx, cy)) return REFUSE('the town is protected')
+      const lock = editLock(cx, cy)
+      if (lock) return REFUSE(LOCK_REFUSAL[lock])
       if (!Number.isFinite(terrainHeight(world, cx, cy))) return REFUSE('that ground is not loaded')
     }
   }
@@ -555,7 +564,8 @@ export function checkDeedPlacement(world: World, deed: { x: number, y: number },
     return REFUSE(DEED_LIMIT === 1 ? 'you already hold a plot' : `you already hold ${DEED_LIMIT} plots`)
   }
   const plot = plotBounds(deed)
-  if (isProtectedBox(plot.minX, plot.minY, plot.maxX, plot.maxY)) return REFUSE('the town is protected')
+  const lock = editLockBox(plot.minX, plot.minY, plot.maxX, plot.maxY)
+  if (lock) return REFUSE(LOCK_REFUSAL[lock])
   const neighbour = foreignClaim(world, plot, owner)
   if (neighbour) return REFUSE_CLAIM(neighbour)
   // `propsInBox` answers by index cell, which is eight tiles wide: a neighbour's
@@ -599,7 +609,8 @@ export function resolveBuild(
   const pose = snapPlacement(kind, x, y, rot)
   if (!withinReach(actor, pose.x, pose.y)) return { ok: false, reason: 'too far away' }
   if (!inWorld(pose.x, pose.y)) return { ok: false, reason: 'outside the world' }
-  if (isProtectedTile(pose.x, pose.y)) return { ok: false, reason: 'the town is protected' }
+  const lock = editLock(pose.x, pose.y)
+  if (lock) return { ok: false, reason: LOCK_REFUSAL[lock] }
   const placement: WorldPlacement = { ...pose, kind, scale: 1, id: context.id, owner: context.owner }
   const prop = propFromPlacement(placement)
   const footprint = propBounds(prop)
@@ -629,7 +640,10 @@ export function resolveBuild(
  *  only its owner may clear anything, a generated tree included — otherwise a
  *  stranger could log your garden without touching a thing you built. */
 export function checkDemolish(world: World, placement: WorldPlacement, actor: EditActor, playerId: string): EditVerdict {
-  if (isProtectedTile(placement.x, placement.y)) return REFUSE('the town is protected')
+  // Only the town refuses a demolish. The gate approach is closed to building,
+  // not to clearing: anything standing in it is in the way by definition, and
+  // a piece raised there before the rule existed has to be removable.
+  if (editLock(placement.x, placement.y) === 'town') return REFUSE(LOCK_REFUSAL.town)
   if (!withinReach(actor, placement.x, placement.y)) return REFUSE('too far away')
   if (!canRemove(placement, playerId)) return REFUSE('that is not yours')
   const deed = deedAt(world, placement.x, placement.y)

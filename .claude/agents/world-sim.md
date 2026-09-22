@@ -305,10 +305,20 @@ independently.
    `PROTECTED_FOOTPRINT` in `world.ts` hugs the geometry: the moat's outer
    square plus a 1-tile `TOWN_MARGIN` (`[22, 121]`), the bank stair with the
    same margin, and exactly the tiles under the bridge's landing (`x` `[68, 75]`,
-   `y` `[121, 122]`), so the first tile beside or past the bridge is buildable. `isProtectedTile` tests it
-   and is what `checkTerraform` / `resolveBuild` / `checkDemolish` refuse on — a
-   brush is refused if any corner it writes lands inside — so building starts
-   the tile after the bridge ends instead of thirty tiles later.
+   `y` `[121, 122]`). It is what the town *draws*: `isProtectedTile` gives those
+   tiles the `path` surface, sinks their corners by `TOWN_CLEARANCE` and keeps
+   props off them, so widening it would trench the meadow beside the road.
+   **What an edit may touch is the wider question, and `editLock` answers it.**
+   It returns `'town'` inside the footprint, `'gate'` inside `GATE_APPROACH` —
+   the deck's width flared by `GATE_APPROACH_MARGIN` (4) on each side, running
+   from the bridge's far end past the spawn (`x` `[64, 79]`, `y` `[123, 133]`) —
+   and `null` everywhere else. `checkTerraform` / `resolveBuild` /
+   `checkDeedPlacement` refuse on either (a brush is refused if any corner it
+   writes lands inside); `checkDemolish` refuses only `'town'`, because a piece
+   standing in the approach is in the way by definition and has to be
+   removable. The approach is generated meadow that renders as meadow — no
+   renderer reads it — and it exists because the bridge is the only way in, so
+   one wall or one trench across its mouth would shut the town to everybody.
    `isTownChunk(cx, cy)` is the coarser fact: a chunk overlapping the footprint,
    seeded from the town JSON by `seedTown`, created up front and never evicted.
    Its tiles outside the footprint are ordinary editable ground.
@@ -453,13 +463,16 @@ agent are told what moved.
   stack-versus-overlap verdicts `resolveBuild` returns, the aim height (which
   storey a crate lands on, a ground-floor wall put back in its slot, the
   `no room there` refusal, and a bogus `h` being ignored or clamped), plus the
-  per-piece snap grid and the footprint edge at the end of the gate bridge. `world-test.ts` checks spawn, the world edge, town obstacles,
+  per-piece snap grid, the footprint edge at the end of the gate bridge, and
+  the gate approach refusing builds, digs and deeds while still allowing a
+  demolish. `world-test.ts` checks spawn, the world edge, town obstacles,
   diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
   covers bilinear heights, the slope rule, jumping over and out of a dug pit, the
   cliff face that cannot be walked up, terraform-then-walk, chunk-border
   sync, generation determinism, the encode round trip, and the protected
-  footprint — that the road ends the protection, that the meadow beside it is
-  editable, and that the bank stair is still covered.
+  footprint — that the road ends the drawn footprint while `editLock` keeps the
+  approach and the spawn shut to edits, that the meadow past it is editable, and
+  that the bank stair is still covered.
   `scripts/moat-test.ts`, `scripts/index-test.ts` and
   `scripts/character-animation-test.ts` also build a `World` and are run the
   same way; `index-test.ts` is the one that covers the per-chunk cell index and

@@ -16,7 +16,9 @@ import {
   cornerHeight,
   createWorld,
   decodeChunk,
+  editLock,
   encodeChunk,
+  GATE_APPROACH,
   generateChunk,
   installChunk,
   isProtectedTile,
@@ -373,6 +375,15 @@ test('protection is a tile footprint that stops right after the gate bridge', ()
   for (let z = MOAT_STAIRS.zStart; z <= MOAT_STAIRS.zEnd; z++) {
     assert.equal(isProtectedTile(MOAT_STAIRS.x, z), true, `the bank stair is exposed at ${z}`)
   }
+  // The footprint is what the town *draws*; the edit lock is the wider promise.
+  // The tile past the bridge is meadow and renders as meadow, and it still
+  // refuses an edit, because the way in has to stay crossable.
+  assert.equal(editLock(f.gateX, f.bridgeEnd - 1), 'town')
+  assert.equal(editLock(f.gateX, f.bridgeEnd), 'gate')
+  assert.equal(editLock(f.spawn.x, f.spawn.y), 'gate')
+  assert.equal(editLock(f.gateX, GATE_APPROACH.maxY + 1), null)
+  assert.equal(editLock(GATE_APPROACH.maxX + 1, f.bridgeEnd), null)
+  assert.equal(isProtectedTile(f.spawn.x, f.spawn.y), false)
   // The chunk predicate is the coarse one: it holds the town's seeded pieces,
   // and the bridge's landing keeps it inside the moat square's chunks.
   assert.equal(isTownChunk(2, 3), true)

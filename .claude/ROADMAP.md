@@ -10,7 +10,7 @@
 
 ### Open world (plan: `.claude/OPEN-WORLD.md`)
 - [x] Chunked `World` (32×32 chunks of 32 tiles, 1024² world, corner heightmap + surface raster + placements) replaces the flat 144² plan; physics reads the 3×3 chunk neighbourhood, slope rule for cliffs, world edge is a wall (`shared/utils/world.ts`, `maze.ts`, `terrain.ts`)
-- [x] The town is a protected region at its old coordinates: flat, seeded from the committed JSON, refuses edits; the dev editor is unchanged
+- [x] The town is a protected region at its old coordinates: flat, seeded from the committed JSON, refuses edits; the strip between the gate bridge and the spawn (`GATE_APPROACH`) refuses builds, digs and deeds too, so the only way in cannot be walled off; the dev editor is unchanged
 - [x] Terrain chunk meshes, per-chunk instanced props, deterministic meadow-with-copses vegetation as removable wild props (`app/utils/terrainChunk.ts`, `chunkProps.ts`, `shared/utils/vegetation.ts`)
 - [x] Streaming: `welcome.world`, `chunk`/`unchunk` for the 5×5 around each player, `terrain`/`place`/`remove` deltas, `state` filtered to 192 tiles (`server/utils/world.ts`, `app/composables/useWorld.ts`)
 - [x] Terraform (raise/lower/flatten/paint, brush 1..3) and build (13-piece kit on a 2 unit grid, stacking, ramps, ownership, 500 piece budget) with every rule in `shared/utils/building.ts` and enforced server-side; pointer-locked crosshair targeting, hotbar, ghost preview

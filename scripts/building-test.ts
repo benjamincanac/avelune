@@ -11,7 +11,7 @@ import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, isEdgeKind, overlappi
 import { propFromPlacement } from '../shared/utils/props'
 import { KIT_ASSETS } from '../shared/utils/kit'
 import { generateVegetation, isWildTree } from '../shared/utils/vegetation'
-import { CHUNK_SIZE, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, createWorld } from '../shared/utils/world'
+import { CHUNK_SIZE, GATE_APPROACH, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { worldTerrainHeight } from '../shared/utils/terrain'
 import { FORTIFICATIONS } from '../shared/utils/courtyard'
@@ -500,14 +500,15 @@ test('building stops at the end of the gate bridge, not a chunk later', () => {
   const world = createWorld()
   const f = FORTIFICATIONS
   const onRoad = { x: f.gateX, y: f.bridgeEnd - 1 }
-  const past = { x: f.gateX, y: f.bridgeEnd + 3 }
+  // Past the bridge *and* clear of the approach the bridge lands on.
+  const past = { x: GATE_APPROACH.maxX + 2, y: f.bridgeEnd + 3 }
 
   const refused = resolveBuild(world, { kind: 'Kit_Crate', ...onRoad, rot: 0 }, onRoad, { owner: 'builder', id: 'r1', pieces: 0 })
   assert.equal(refused.ok, false)
   assert.equal(refused.ok === false && refused.reason, 'the town is protected')
 
   const allowed = resolveBuild(world, { kind: 'Kit_Crate', ...past, rot: 0 }, past, { owner: 'builder', id: 'r2', pieces: 0 })
-  assert.ok(allowed.ok, `a build past the bridge was refused: ${allowed.ok === false && allowed.reason}`)
+  assert.ok(allowed.ok, `a build beside the approach was refused: ${allowed.ok === false && allowed.reason}`)
 
   // Well inside the old protected chunk band, but clear of the footprint.
   const beside = { x: 30, y: 150 }
@@ -521,6 +522,35 @@ test('building stops at the end of the gate bridge, not a chunk later', () => {
   const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.bridgeEnd - 1 }
   assert.equal(checkTerraform(world, { x: edge.x, y: edge.y, mode: 'raise', size: 1 }, edge).ok, true)
   assert.equal(checkTerraform(world, { x: edge.x - 1, y: edge.y, mode: 'raise', size: 3 }, edge).ok, false)
+})
+
+test('the ground in front of the gate cannot be built on, dug out or claimed', () => {
+  const world = createWorld()
+  const f = FORTIFICATIONS
+  // Straight off the end of the bridge, where one wall would shut the town.
+  const mouth = { x: f.gateX, y: f.bridgeEnd + 1 }
+  const built = resolveBuild(world, { kind: 'Kit_Wall', ...mouth, rot: 0 }, mouth, { owner: 'builder', id: 'g1', pieces: 0 })
+  assert.equal(built.ok, false)
+  assert.equal(built.ok === false && built.reason, 'the way into town must stay clear')
+  // And a trench in front of it is the same block by other means.
+  assert.equal(checkTerraform(world, { ...mouth, mode: 'lower', size: 1 }, mouth).ok, false)
+  // The spawn stands inside the strip, so nobody can dig out the tile players
+  // arrive on, and the flare is wider than the deck.
+  assert.equal(checkTerraform(world, { ...f.spawn, mode: 'lower', size: 1 }, f.spawn).ok, false)
+  const flank = { x: f.gateX + f.bridgeWidth / 2 + 2, y: f.bridgeEnd + 2 }
+  assert.equal(resolveBuild(world, { kind: 'Kit_Wall', ...flank, rot: 0 }, flank, { owner: 'builder', id: 'g2', pieces: 0 }).ok, false)
+  // A deed would fence the road just as well, so a plot overlapping it is out.
+  const deed = { x: GATE_APPROACH.maxX - 1, y: GATE_APPROACH.maxY - 1 }
+  const claimed = resolveBuild(world, { kind: 'Kit_Deed', ...deed, rot: 0 }, deed, { owner: 'builder', id: 'g3', pieces: 0, deeds: 0 })
+  assert.equal(claimed.ok, false)
+  assert.equal(claimed.ok === false && claimed.reason, 'the way into town must stay clear')
+  // Clearing it is still allowed: a piece standing here is in the way.
+  const stray = { x: mouth.x, y: mouth.y, z: 0, kind: 'Kit_Wall', scale: 1, id: 'g4', owner: 'builder' }
+  assert.equal(checkDemolish(world, stray, mouth, 'builder').ok, true)
+  // Two tiles past the strip the meadow is a player's again.
+  const clear = { x: f.gateX, y: GATE_APPROACH.maxY + 2 }
+  assert.ok(resolveBuild(world, { kind: 'Kit_Wall', ...clear, rot: 0 }, clear, { owner: 'builder', id: 'g5', pieces: 0 }).ok)
+  assert.equal(checkTerraform(world, { ...clear, mode: 'lower', size: 1 }, clear).ok, true)
 })
 
 test('a flatten needs a brush wider than the corner it levels to', () => {
