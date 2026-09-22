@@ -360,6 +360,9 @@ test('a push-to-talk clip rides the socket, and every field of it is checked', (
   // Refusals. Every one of these came off the wire, so none of it is trusted.
   assert.equal(encodeClipUp(1, 'audio/aiff', undefined, body), null, 'a container we never asked the recorder for')
   assert.equal(encodeClipUp(1, 'audio/webm', undefined, new Uint8Array(MAX_CLIP_BYTES + 1)), null, 'past the byte cap')
+  // Encode refuses what decode refuses, so a clip can never be sent that the
+  // server will silently drop and the client will wait out the timeout for.
+  assert.equal(encodeClipUp(1, 'audio/webm', undefined, new Uint8Array(0)), null, 'an empty recording is not a clip')
   assert.equal(decodeClipUp(new Uint8Array([CLIP_FRAME_KIND, 0, 0, 0, 0])), null, 'a header with no clip behind it')
   assert.equal(decodeClipUp(new Uint8Array([VOICE_FRAME_KIND, 0, 0, 0, 0, 9, 9])), null, 'an audio frame is not a clip')
   const badType = Uint8Array.from(frame)

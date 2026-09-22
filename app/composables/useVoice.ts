@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import type { ServerMessage } from '#shared/types/game'
-import { encodeClipUp, encodeVoiceUp } from '#shared/utils/voice'
+import { MAX_CLIP_BYTES, encodeClipUp, encodeVoiceUp } from '#shared/utils/voice'
 import type { VoiceFrameDown, VoicePeerInfo } from '#shared/utils/voice'
 import type { AudioPoint, VoiceSink } from '~/utils/audio'
 import { createLevelMeter, createVoiceSink, setVoiceVolume, unlockAudio, voiceBus } from '~/utils/audio'
@@ -441,6 +441,13 @@ const CLIP_TIMEOUT = 20_000
  */
 async function sendClip(blob: Blob): Promise<void> {
   const type = blob.type.split(';')[0] || 'audio/webm'
+  // Measured before the blob is read, so an oversized recording is refused
+  // without pulling a quarter of a megabyte into an array first.
+  if (blob.size > MAX_CLIP_BYTES) {
+    lastTranscript = null
+    say.value = 'failed'
+    return
+  }
   const body = new Uint8Array(await blob.arrayBuffer())
   const seq = clipSeq = (clipSeq + 1) % 0x10000
   const frame = encodeClipUp(seq, type, spokenLanguage(), body)
@@ -467,6 +474,10 @@ async function sendClip(blob: Blob): Promise<void> {
   })
 
   lastTranscriptMs = Date.now() - started
+  // Two clips can be in flight if somebody taps the key twice, and the model
+  // does not answer in order. Only the newest one owns the readout, or a slow
+  // first answer lands on top of a fresh second one.
+  if (seq !== clipSeq) return
   // Refused, rate limited, the model is down, or the socket went. All the same
   // to a player.
   lastTranscript = answer?.ok ? answer.text : null

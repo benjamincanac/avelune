@@ -329,7 +329,10 @@ export interface ClipUp {
 
 export function encodeClipUp(seq: number, type: string, language: ClipLanguage, body: Uint8Array): Uint8Array<ArrayBuffer> | null {
   const typeIndex = CLIP_TYPES.indexOf(type as typeof CLIP_TYPES[number])
-  if (typeIndex < 0 || body.length > MAX_CLIP_BYTES) return null
+  // Empty is refused here because `decodeClipUp` refuses it there: a frame the
+  // server will silently drop is one the client would wait out the whole clip
+  // timeout for.
+  if (typeIndex < 0 || !body.length || body.length > MAX_CLIP_BYTES) return null
   const lang = language && /^[a-z]{2}$/.test(language) ? language : ''
   const frame = new Uint8Array(CLIP_HEADER + lang.length + body.length)
   frame[0] = CLIP_FRAME_KIND

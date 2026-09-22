@@ -115,8 +115,8 @@ bytes between it and clients.
   allowance in `server/utils/clips.ts` (counted by the process holding the
   socket, so nobody can spread clips across instances for a fresh one).
 - `GET /api/status` is the title screen's only source, because that page is
-  prerendered and has no socket. It answers `{ players, today, series, realm,
-  roster, persistent, feed }`, and **every one of those comes out of the store,
+  prerendered and has no socket. It answers `{ players, instances, today,
+  series, realm, roster, persistent, feed }`, and **every one of those comes out of the store,
   not out of this process** (`server/utils/live.ts`). A region runs as many
   instances as it needs, a socket pins its player to whichever accepted the
   upgrade, and this request is a plain `GET` that lands wherever — so module
@@ -124,8 +124,9 @@ bytes between it and clients.
   today" that dropped to 1 whenever a colder one served the page. Three shapes,
   scoped by realm beside the chunks:
   - **Presence** (`presence:<realm>`, a hash) — one row per session each
-    instance holds, `joinedAt,lastSeen,name`, rewritten on the same 5 s flush as
-    the chunks. A row not refreshed within 30 s is from an instance that died;
+    instance holds, `joinedAt,lastSeen,instance,name` (the name last and
+    unescaped, so a comma in it cannot shift the fields in front), rewritten on
+    the same 5 s flush as the chunks. A row not refreshed within 30 s is from an instance that died;
     readers ignore it and drop it. `players` and `roster` are the union.
   - **Seen buckets** (`seen:<realm>:d<date>`, `seen:<realm>:h<hour>`, sets of
     identity ids, TTL'd) — `today` and the nine-hour series. A *set*, because
