@@ -5,7 +5,8 @@
 // response encoding the client asks for by default, and the commands the store
 // sends — the chunk half (GET, MGET, DEL, SCAN, PING and the one EVAL script),
 // the hashes behind piece budgets, positions and presence, the sets behind the
-// "who was here" buckets, and the list behind the world feed.
+// "who was here" buckets, the list behind the world feed, and the sorted sets
+// that keep the newest turn of the sky whatever order the writes arrive in.
 //
 // Expiry is not simulated. Nothing in the store depends on a key going away on
 // time, only on it going away eventually, and a test that waited ten hours to
@@ -65,7 +66,19 @@ function isCasScript(script) {
   return true
 }
 
-function run(data, hashes, sets, lists, command) {
+/** A sorted set's members, lowest score first, ties by member as Redis does. */
+function ranked(zset) {
+  return [...zset].sort(([a, sa], [b, sb]) => sa - sb || (a < b ? -1 : a > b ? 1 : 0)).map(([member]) => member)
+}
+
+/** Redis rank arithmetic: negative indices count from the end, inclusive stop. */
+function rankRange(length, start, stop) {
+  const from = start < 0 ? Math.max(0, length + start) : start
+  const to = stop < 0 ? length + stop : Math.min(stop, length - 1)
+  return [from, to]
+}
+
+function run(data, hashes, sets, lists, zsets, command) {
   const [name, ...args] = command
   switch (String(name).toLowerCase()) {
     case 'hgetall': {
@@ -121,6 +134,35 @@ function run(data, hashes, sets, lists, command) {
       const list = lists.get(args[0]) ?? []
       lists.set(args[0], list.slice(Number(args[1]), Number(args[2]) + 1))
       return 'OK'
+    }
+    case 'zadd': {
+      const zset = zsets.get(args[0]) ?? new Map()
+      zsets.set(args[0], zset)
+      let added = 0
+      for (let i = 1; i + 1 < args.length; i += 2) {
+        if (!zset.has(String(args[i + 1]))) added++
+        zset.set(String(args[i + 1]), Number(args[i]))
+      }
+      return added
+    }
+    case 'zremrangebyrank': {
+      const zset = zsets.get(args[0])
+      if (!zset) return 0
+      const order = ranked(zset)
+      const [from, to] = rankRange(order.length, Number(args[1]), Number(args[2]))
+      let removed = 0
+      for (let i = from; i <= to; i++) {
+        zset.delete(order[i])
+        removed++
+      }
+      return removed
+    }
+    case 'zrange': {
+      const zset = zsets.get(args[0])
+      if (!zset) return []
+      const order = ranked(zset)
+      const [from, to] = rankRange(order.length, Number(args[1]), Number(args[2]))
+      return from > to ? [] : order.slice(from, to + 1)
     }
     case 'lrange': {
       const list = lists.get(args[0]) ?? []
@@ -189,6 +231,7 @@ export async function startUpstashFake({ token = 'fake-token', port = 0 } = {}) 
   const hashes = new Map()
   const sets = new Map()
   const lists = new Map()
+  const zsets = new Map()
   let requests = 0
 
   const server = createServer((req, res) => {
@@ -213,7 +256,7 @@ export async function startUpstashFake({ token = 'fake-token', port = 0 } = {}) 
       const base64 = String(req.headers['upstash-encoding'] ?? '') === 'base64'
       const one = (command) => {
         try {
-          const result = run(data, hashes, sets, lists, command)
+          const result = run(data, hashes, sets, lists, zsets, command)
           return { result: base64 ? encode(result) : result }
         }
         catch (error) {
@@ -237,6 +280,7 @@ export async function startUpstashFake({ token = 'fake-token', port = 0 } = {}) 
     hashes,
     sets,
     lists,
+    zsets,
     /** HTTP round trips served so far, so a test can assert on batching. */
     get requests() {
       return requests

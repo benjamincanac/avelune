@@ -133,19 +133,29 @@ bytes between it and clients.
     the question is how many people, which a counter cannot answer: it is immune
     to reconnects, to two instances writing at once and to the order they write
     in, and inside its window it only ever grows.
-  - **The sky** (`sky:<realm>`, `at,weather,timeOfDay`) — a *forced* weather or
-    hour. Auto agrees for free, since `skyNow` is a pure function of the clock,
-    but somebody asking the Oracle for rain used to set one instance's module
-    variable and rain on one instance's players. `publishSky` writes it, the
-    flush reads it back, and a strictly newer turn is adopted and broadcast
-    through `onRemoteSky`. Last writer wins on the timestamp; a turn takes a
-    flush to cross, which for weather is nothing.
+  - **The sky** (`sky:<realm>:weather` and `sky:<realm>:time`, one sorted set
+    each, members `at,mode` scored by `at`) — a *forced* weather or hour. Auto
+    agrees for free, since `skyNow` is a pure function of the clock, but somebody
+    asking the Oracle for rain used to set one instance's module variable and
+    rain on one instance's players. `publishSky(field, mode)` queues a turn, the
+    flush writes it with `ZADD` and trims the set to its top member, and a
+    strictly newer turn read back is adopted and broadcast through
+    `onRemoteSky`. Two things are load-bearing. The ordering is enforced in the
+    store, not on read, because an instance can hold a turn for up to a flush
+    before it writes, so a plain `SET` let an older turn land on a newer one and
+    split the realm. And the halves are separate fields, because a turn that
+    carried both let a change of hour on one instance undo rain on another.
   - **The feed** (`feed:<realm>`, a capped list) — six rows, worded exactly as
     the in-game feed words them so the two surfaces can't drift. A row still
     inside its 6 s coalesce window is held on the instance that recorded it
     rather than pushed, since rewriting the head of a shared list would need a
     script; `recentEvents()` returns the pending rows in front of the shared
-    ones, so `welcome` is never missing what just happened here.
+    ones, so `welcome` is never missing what just happened here. Only the
+    *last* leave on an instance drains those held rows, since the tick stops with
+    it; a join or any other leave must not, or every arrival splits every
+    in-progress row in the town. The read-back after a flush has its own `try`
+    and never requeues: the write already landed, and putting its rows back
+    would push them twice.
 
   Nothing on this route scans a chunk, and the whole read is one pipeline
   (`ChunkStore.readLive`), as is the whole write (`writeLive`). The roster

@@ -1,6 +1,6 @@
 import type { WorldEvent } from '#shared/types/game'
 import { chunkStore, seenKey } from './chunkStore'
-import type { SeenBucket } from './chunkStore'
+import type { SeenBucket, SkyField, SkyTurn } from './chunkStore'
 
 /**
  * The live surface the title screen reads: who is in the realm, how many people
@@ -209,46 +209,50 @@ function decodeEvent(raw: string): WorldEvent | null {
  * instance's players, and everybody else kept their clear sky.
  *
  * So a turn is written here and read back on the same 5 second timer as
- * everything else. Last writer wins on the timestamp, which is all two people
- * turning the sky at once deserves, and an instance that sees a newer one than
- * its own adopts it and tells its players. The cost of the agreement is that a
- * change takes a flush to cross, which for weather is nothing.
+ * everything else, and an instance that sees a newer one than its own adopts
+ * it and tells its players. Newest wins on the timestamp, and the store is what
+ * enforces it (`skyKey` in `chunkStore.ts`): an instance can sit on a turn for
+ * up to a flush, so arrival order is not turn order. Weather and time of day are
+ * two separate fields for the same reason, since carrying both on every turn
+ * would let a change of hour on one instance undo rain asked for on another.
+ * The cost of the agreement is that a change takes a flush to cross, which for
+ * weather is nothing.
  */
-export interface Sky {
-  weather: string
-  timeOfDay: string
+
+/** `<at>,<mode>`. */
+function encodeTurn(at: number, mode: string): string {
+  return `${at},${mode}`
 }
 
-/** `<at>,<weather>,<timeOfDay>`. */
-function encodeSky(at: number, sky: Sky): string {
-  return `${at},${sky.weather},${sky.timeOfDay}`
-}
-
-function decodeSky(raw: string | null): { at: number, sky: Sky } | null {
+function decodeTurn(raw: string | null): { at: number, mode: string } | null {
   if (!raw) return null
-  const [at, weather, timeOfDay] = raw.split(',')
-  const when = Number(at)
-  if (!Number.isFinite(when) || !weather || !timeOfDay) return null
-  return { at: when, sky: { weather, timeOfDay } }
+  const comma = raw.indexOf(',')
+  const at = Number(raw.slice(0, comma))
+  const mode = raw.slice(comma + 1)
+  if (comma < 0 || !Number.isFinite(at) || !mode) return null
+  return { at, mode }
 }
 
-/** When the sky this instance is showing was decided. */
-let skyAt = 0
-/** A turn this instance owes the realm, set until the next flush carries it. */
-let skyPending: string | null = null
-/** What `game.ts` wants done when another instance turned the sky. */
-let adoptSky: ((sky: Sky) => void) | undefined
+const SKY_FIELDS: readonly SkyField[] = ['weather', 'time']
 
-/** `game.ts` registers what to do with a sky it did not turn: set the module
+/** When each half of the sky this instance is showing was decided. */
+const skyAt: Record<SkyField, number> = { weather: 0, time: 0 }
+/** Turns this instance owes the realm, one per field, until a flush carries them. */
+const skyPending: Record<SkyField, SkyTurn | null> = { weather: null, time: null }
+/** What `game.ts` wants done when another instance turned the sky. */
+let adoptSky: ((field: SkyField, mode: string) => void) | undefined
+
+/** `game.ts` registers what to do with a turn it did not make: set the module
  *  state and broadcast, exactly as a local `/weather` would. */
-export function onRemoteSky(handler: (sky: Sky) => void) {
+export function onRemoteSky(handler: (field: SkyField, mode: string) => void) {
   adoptSky = handler
 }
 
-/** This instance just turned the sky. Publish it on the next flush. */
-export function publishSky(sky: Sky) {
-  skyAt = Date.now()
-  skyPending = encodeSky(skyAt, sky)
+/** This instance just turned one half of the sky. Publish it on the next flush. */
+export function publishSky(field: SkyField, mode: string) {
+  const at = Date.now()
+  skyAt[field] = at
+  skyPending[field] = { field, at, value: encodeTurn(at, mode) }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -263,17 +267,21 @@ const leaving = new Set<string>()
 let localRoster: LiveSession[] = []
 
 /** A player just arrived. Their row and their id go out immediately rather than
- *  on the next timer, so the title screen shows them within a poll. */
+ *  on the next timer, so the title screen shows them within a poll. Feed rows
+ *  still inside their window stay put: the tick is running, and draining them
+ *  here would split every in-progress row in the town on every arrival. */
 export function noteJoin(session: LiveSession, roster: Iterable<LiveSession>) {
   leaving.delete(session.id)
-  void flushLive(roster, true)
+  void flushLive(roster)
 }
 
-/** ...and left. The row has to go now: nothing else will run if they were the
- *  last player on this instance, because the tick stops with them. */
+/** ...and left. The row has to go now. Only the last player on this instance
+ *  drains the feed too, because the tick stops with them and nothing else will
+ *  ever push what is left. */
 export function noteLeave(id: string, roster: Iterable<LiveSession>) {
   leaving.add(id)
-  void flushLive(roster, true)
+  const sessions = [...roster]
+  void flushLive(sessions, sessions.length === 0)
 }
 
 /**
@@ -290,8 +298,8 @@ let chain: Promise<void> = Promise.resolve()
  * Push this instance's share of the live surface, and take the shared feed back.
  *
  * `drainAll` sends even the feed rows that are still inside their coalesce
- * window, for a join or a leave, for the same reason. A failed write puts
- * everything back: a dropped `leave` is a ghost too.
+ * window, for the last leave on this instance, for the same reason. A failed
+ * write puts everything back: a dropped `leave` is a ghost too.
  */
 export function flushLive(roster: Iterable<LiveSession>, drainAll = false): Promise<void> {
   const sessions = [...roster]
@@ -306,8 +314,8 @@ async function write(sessions: readonly LiveSession[], drainAll: boolean): Promi
   const events = pending.splice(0, settled < 0 ? pending.length : settled)
   const drop = [...leaving]
   leaving.clear()
-  const sky = skyPending
-  skyPending = null
+  const sky = SKY_FIELDS.flatMap(field => skyPending[field] ?? [])
+  for (const field of SKY_FIELDS) skyPending[field] = null
 
   try {
     await chunkStore().writeLive({
@@ -321,24 +329,40 @@ async function write(sessions: readonly LiveSession[], drainAll: boolean): Promi
       feedLimit: FEED_LIMIT,
       sky,
     })
-    // Take the shared list back on every flush, not only when this instance had
-    // a row of its own to push: `welcome.feed` is built from it, and a quiet
-    // instance is exactly the one whose copy would otherwise be oldest. The sky
-    // rides back on the same read.
-    const read = await chunkStore().readLive([], FEED_LIMIT)
-    shared = read.events.map(decodeEvent).filter((event): event is WorldEvent => !!event)
-    const turned = decodeSky(read.sky)
-    // Strictly newer, so this instance never re-adopts the turn it just wrote.
-    if (turned && turned.at > skyAt) {
-      skyAt = turned.at
-      adoptSky?.(turned.sky)
-    }
   }
   catch (error) {
     console.error('[world] live flush failed', error)
     pending.unshift(...events)
     for (const id of drop) leaving.add(id)
-    if (sky && !skyPending) skyPending = sky
+    // A newer turn made while this one was in flight supersedes it.
+    for (const turn of sky) skyPending[turn.field] ??= turn
+    return
+  }
+
+  // Take the shared list back on every flush, not only when this instance had
+  // a row of its own to push: `welcome.feed` is built from it, and a quiet
+  // instance is exactly the one whose copy would otherwise be oldest. The sky
+  // rides back on the same read.
+  //
+  // Its own `try`, deliberately. The write has landed by now, so a failed read
+  // must not put anything back: the next flush would push the same feed rows a
+  // second time. It just leaves the shared copy as it was until next time.
+  let read
+  try {
+    read = await chunkStore().readLive([], FEED_LIMIT)
+  }
+  catch (error) {
+    console.error('[world] live read-back failed', error)
+    return
+  }
+  shared = read.events.map(decodeEvent).filter((event): event is WorldEvent => !!event)
+  for (const field of SKY_FIELDS) {
+    const turned = decodeTurn(read.sky[field])
+    // Strictly newer, so this instance never re-adopts the turn it just wrote.
+    if (turned && turned.at > skyAt[field]) {
+      skyAt[field] = turned.at
+      adoptSky?.(field, turned.mode)
+    }
   }
 }
 
@@ -395,7 +419,7 @@ export async function liveStatus(): Promise<LiveStatus> {
   }
   if (stale.length) {
     void chunkStore()
-      .writeLive({ presence: [], drop: stale, seen: [], seenIds: [], events: [], feedLimit: FEED_LIMIT, sky: null })
+      .writeLive({ presence: [], drop: stale, seen: [], seenIds: [], events: [], feedLimit: FEED_LIMIT, sky: [] })
       .catch(() => {})
   }
 

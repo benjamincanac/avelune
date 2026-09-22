@@ -84,7 +84,7 @@ async function roundTrip(store: ChunkStore) {
   assert.deepEqual([...empty.presence], [], 'nobody is in town yet')
   assert.deepEqual(empty.seen, [0], 'and nobody has been')
   assert.deepEqual(empty.events, [], 'and nothing has happened')
-  assert.equal(empty.sky, null, 'and nobody has turned the sky')
+  assert.deepEqual(empty.sky, { weather: null, time: null }, 'and nobody has turned the sky')
 
   // Two instances writing their own share of the realm, the way they do.
   await store.writeLive({
@@ -94,7 +94,7 @@ async function roundTrip(store: ChunkStore) {
     seenIds: ['ann'],
     events: ['{"at":1,"name":"Ann","kind":"join","text":"entered the town"}'],
     feedLimit: 3,
-    sky: null,
+    sky: [],
   })
   await store.writeLive({
     presence: [['bo', '200,200,Bo']],
@@ -103,7 +103,7 @@ async function roundTrip(store: ChunkStore) {
     seenIds: ['bo'],
     events: ['{"at":2,"name":"Bo","kind":"join","text":"entered the town"}'],
     feedLimit: 3,
-    sky: '1000,rain,night',
+    sky: [{ field: 'weather', at: 1000, value: '1000,rain' }],
   })
 
   const both = await store.readLive([today.key, hour.key], 6)
@@ -113,7 +113,7 @@ async function roundTrip(store: ChunkStore) {
 
   // A set counts people, not connections: the same identity again is not a
   // second visitor. This is the whole reason the buckets are sets.
-  await store.writeLive({ presence: [], drop: [], seen: [today], seenIds: ['ann', 'ann'], events: [], feedLimit: 3, sky: null })
+  await store.writeLive({ presence: [], drop: [], seen: [today], seenIds: ['ann', 'ann'], events: [], feedLimit: 3, sky: [] })
   assert.deepEqual((await store.readLive([today.key], 6)).seen, [2], 'a reconnect is the same person')
 
   // A leaver's row goes, and the feed is capped rather than kept.
@@ -124,16 +124,26 @@ async function roundTrip(store: ChunkStore) {
     seenIds: [],
     events: ['{"at":3,"name":"Bo","kind":"build","text":"raised a wall"}', '{"at":4,"name":"Bo","kind":"dig","text":"dug a pit"}'],
     feedLimit: 3,
-    sky: null,
+    sky: [],
   })
   const after = await store.readLive([today.key], 6)
   assert.deepEqual([...after.presence.keys()], ['bo'], 'the row went with the player')
   assert.deepEqual(after.events.map(raw => JSON.parse(raw).at), [4, 3, 2], 'the list is trimmed to the limit')
   assert.deepEqual(after.seen, [2], 'leaving does not un-visit')
-  assert.equal(after.sky, '1000,rain,night', 'a null sky leaves the realm\'s alone')
+  assert.deepEqual(after.sky, { weather: '1000,rain', time: null }, 'no turn leaves the realm\'s sky alone')
+
+  // Newest turn wins in the store, whatever order the writes land in: an
+  // instance can hold a turn for a whole flush before sending it.
+  await store.writeLive({ presence: [], drop: [], seen: [], seenIds: [], events: [], feedLimit: 3, sky: [{ field: 'weather', at: 3000, value: '3000,clear' }] })
+  await store.writeLive({ presence: [], drop: [], seen: [], seenIds: [], events: [], feedLimit: 3, sky: [{ field: 'weather', at: 2000, value: '2000,overcast' }] })
+  assert.equal((await store.readLive([], 3)).sky.weather, '3000,clear', 'a late, older turn does not overwrite a newer one')
+
+  // And the two halves are independent: turning the hour leaves the weather.
+  await store.writeLive({ presence: [], drop: [], seen: [], seenIds: [], events: [], feedLimit: 3, sky: [{ field: 'time', at: 4000, value: '4000,night' }] })
+  assert.deepEqual((await store.readLive([], 3)).sky, { weather: '3000,clear', time: '4000,night' }, 'a change of hour carries no weather')
 
   // Nothing to say costs nothing to send.
-  await store.writeLive({ presence: [], drop: [], seen: [today], seenIds: [], events: [], feedLimit: 3, sky: null })
+  await store.writeLive({ presence: [], drop: [], seen: [today], seenIds: [], events: [], feedLimit: 3, sky: [] })
   assert.deepEqual((await store.readLive([today.key], 6)).seen, [2], 'an idle instance writes nothing')
 }
 

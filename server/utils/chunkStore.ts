@@ -68,9 +68,9 @@ export interface LiveWrite {
   events: readonly string[]
   /** How many feed rows the list keeps. */
   feedLimit: number
-  /** The forced sky, when this instance is the one that just turned it. `null`
-   *  leaves whatever the realm already holds. */
-  sky: string | null
+  /** Turns of the sky this instance made since its last flush, at most one per
+   *  field. Empty leaves whatever the realm already holds. */
+  sky: readonly SkyTurn[]
 }
 
 export interface LiveRead {
@@ -81,8 +81,22 @@ export interface LiveRead {
   seen: number[]
   /** Feed rows, newest first. */
   events: string[]
-  /** The realm's forced sky, or null if nobody has turned it. */
-  sky: string | null
+  /** The newest turn of each half of the sky, encoded, or null if nobody has
+   *  turned that half. */
+  sky: Record<SkyField, string | null>
+}
+
+/** Weather and time of day are turned independently, so they are stored
+ *  independently: one field's turn must never carry a stale copy of the other. */
+export type SkyField = 'weather' | 'time'
+
+export interface SkyTurn {
+  field: SkyField
+  /** When the turn was made. The store keeps the highest, whatever order the
+   *  writes arrive in. */
+  at: number
+  /** The encoded turn, opaque to the store. */
+  value: string
 }
 
 export interface ChunkStore {
@@ -135,10 +149,18 @@ export const PRESENCE_KEY = `presence:${REALM}`
 /** The realm's shared world feed: a capped list, newest at the head. */
 export const FEED_KEY = `feed:${REALM}`
 
-/** The realm's forced weather and hour. One small string, read on the same
- *  timer as everything else, because a sky is a fact about the world and not
- *  about the instance whose player asked the Oracle to turn it. */
-export const SKY_KEY = `sky:${REALM}`
+/**
+ * The realm's forced weather, or its forced hour: one sorted set per field,
+ * scored by when the turn was made.
+ *
+ * A plain key would be last-*arrival*-wins, and an instance can hold a turn for
+ * up to a flush before it writes it, so an older turn could land on top of a
+ * newer one and leave the realm split. `ZADD` then trimming to the top member
+ * makes the ordering hold in the store, whatever order the writes arrive in.
+ */
+export function skyKey(field: SkyField): string {
+  return `sky:${REALM}:${field}`
+}
 
 /** The set of identities seen inside one window. `bucket` is a day or an hour;
  *  the prefix keeps the two apart so an hour can never be read as a day. */
@@ -205,7 +227,7 @@ export class MemoryChunkStore implements ChunkStore {
   private readonly presence = new Map<string, string>()
   private readonly seen = new Map<string, Set<string>>()
   private readonly feed: string[] = []
-  private sky: string | null = null
+  private readonly sky: Record<SkyField, { at: number, value: string } | null> = { weather: null, time: null }
 
   async get(cx: number, cy: number): Promise<StoredChunk | null> {
     return decodeRecord(this.records.get(chunkStoreKey(cx, cy)))
@@ -272,7 +294,7 @@ export class MemoryChunkStore implements ChunkStore {
       presence: new Map(this.presence),
       seen: seen.map(key => this.seen.get(key)?.size ?? 0),
       events: this.feed.slice(0, feedLimit),
-      sky: this.sky,
+      sky: { weather: this.sky.weather?.value ?? null, time: this.sky.time?.value ?? null },
     }
   }
 
@@ -291,7 +313,11 @@ export class MemoryChunkStore implements ChunkStore {
     // small set per hour, which is a few hundred bytes.
     for (const event of write.events) this.feed.unshift(event)
     if (this.feed.length > write.feedLimit) this.feed.length = write.feedLimit
-    if (write.sky !== null) this.sky = write.sky
+    // The highest `at` stays, which is what the sorted set does in Redis.
+    for (const turn of write.sky) {
+      const held = this.sky[turn.field]
+      if (!held || turn.at >= held.at) this.sky[turn.field] = { at: turn.at, value: turn.value }
+    }
   }
 }
 
@@ -455,7 +481,9 @@ export class RedisChunkStore implements ChunkStore {
     pipeline.hgetall(PRESENCE_KEY)
     for (const key of seen) pipeline.scard(key)
     pipeline.lrange(FEED_KEY, 0, feedLimit - 1)
-    pipeline.get(SKY_KEY)
+    // The last member of each set by score is the newest turn.
+    pipeline.zrange(skyKey('weather'), -1, -1)
+    pipeline.zrange(skyKey('time'), -1, -1)
     const results = await pipeline.exec<unknown[]>()
 
     const presence = new Map<string, string>()
@@ -464,7 +492,7 @@ export class RedisChunkStore implements ChunkStore {
       for (let i = 0; i + 1 < raw.length; i += 2) presence.set(String(raw[i]), String(raw[i + 1]))
     }
     const events = results?.[seen.length + 1]
-    const sky = results?.[seen.length + 2]
+    const top = (raw: unknown) => (Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : null)
     return {
       presence,
       seen: seen.map((_, i) => {
@@ -472,7 +500,7 @@ export class RedisChunkStore implements ChunkStore {
         return Number.isFinite(count) ? count : 0
       }),
       events: Array.isArray(events) ? events.map(String) : [],
-      sky: typeof sky === 'string' ? sky : null,
+      sky: { weather: top(results?.[seen.length + 2]), time: top(results?.[seen.length + 3]) },
     }
   }
 
@@ -504,8 +532,11 @@ export class RedisChunkStore implements ChunkStore {
       pipeline.ltrim(FEED_KEY, 0, write.feedLimit - 1)
       sending = true
     }
-    if (write.sky !== null) {
-      pipeline.set(SKY_KEY, write.sky)
+    for (const turn of write.sky) {
+      pipeline.zadd(skyKey(turn.field), { score: turn.at, member: turn.value })
+      // Keep only the top member: a stale turn arriving late is added and then
+      // trimmed straight back out.
+      pipeline.zremrangebyrank(skyKey(turn.field), 0, -2)
       sending = true
     }
     if (!sending) return

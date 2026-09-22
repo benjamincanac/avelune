@@ -162,13 +162,13 @@ let timeOfDay: TimeOfDayMode = 'auto'
 function setWeather(mode: WeatherMode) {
   weather = mode
   broadcast({ t: 'weather', mode })
-  publishSky({ weather, timeOfDay })
+  publishSky('weather', mode)
 }
 
 function setTimeOfDay(mode: TimeOfDayMode) {
   timeOfDay = mode
   broadcast({ t: 'time', mode })
-  publishSky({ weather, timeOfDay })
+  publishSky('time', mode)
 }
 
 /** The store is outside the trust boundary the same way the wire is, so a mode
@@ -178,13 +178,16 @@ const TIME_MODES: readonly TimeOfDayMode[] = ['auto', 'dawn', 'day', 'sunset', '
 
 /** A turn from another instance: adopt it and tell our players, but do not
  *  publish it back, which would be this instance claiming somebody else's. */
-onRemoteSky((sky) => {
-  const mode = WEATHER_MODES.find(m => m === sky.weather)
-  if (mode && mode !== weather) {
-    weather = mode
-    broadcast({ t: 'weather', mode })
+onRemoteSky((field, value) => {
+  if (field === 'weather') {
+    const mode = WEATHER_MODES.find(m => m === value)
+    if (mode && mode !== weather) {
+      weather = mode
+      broadcast({ t: 'weather', mode })
+    }
+    return
   }
-  const hour = TIME_MODES.find(m => m === sky.timeOfDay)
+  const hour = TIME_MODES.find(m => m === value)
   if (hour && hour !== timeOfDay) {
     timeOfDay = hour
     broadcast({ t: 'time', mode: hour })

@@ -46,7 +46,7 @@ function foreign(store: ChunkStore, id: string, name: string, joinedAt: number, 
     seenIds: [id],
     events: [],
     feedLimit: 6,
-    sky: null,
+    sky: [],
   })
 }
 
@@ -83,24 +83,41 @@ test('the roster is the realm, not the instance that answers', async () => {
 
 test('a sky one instance turns is the realm\'s sky', async () => {
   const { store, flushLive, publishSky, onRemoteSky } = await boot()
-  const seen: { weather: string, timeOfDay: string }[] = []
-  onRemoteSky(sky => seen.push(sky))
+  const seen: [string, string][] = []
+  onRemoteSky((field, mode) => seen.push([field, mode]))
+  /** A turn as another instance would have written it. */
+  const turn = (field: 'weather' | 'time', at: number, mode: string) =>
+    store.writeLive({ presence: [], drop: [], seen: [], seenIds: [], events: [], feedLimit: 6, sky: [{ field, at, value: `${at},${mode}` }] })
 
   // This instance turns it: published, and not handed back to ourselves.
-  publishSky({ weather: 'rain', timeOfDay: 'night' })
+  publishSky('weather', 'rain')
   await flushLive([])
   assert.deepEqual(seen, [], 'nobody adopts their own turn')
-  assert.equal((await store.readLive([], 6)).sky?.split(',').slice(1).join(','), 'rain,night')
+  assert.equal((await store.readLive([], 6)).sky.weather, `${NOON},rain`)
 
   // Another instance turns it after us, so ours gives way on the next flush.
-  await store.writeLive({ presence: [], drop: [], seen: [], seenIds: [], events: [], feedLimit: 6, sky: `${Date.now() + 1000},clear,dawn` })
+  await turn('weather', NOON + 1000, 'clear')
   await flushLive([])
-  assert.deepEqual(seen, [{ weather: 'clear', timeOfDay: 'dawn' }], 'the newer turn wins')
+  assert.deepEqual(seen, [['weather', 'clear']], 'the newer turn wins')
 
-  // An older one does not, however long it sits there.
-  await store.writeLive({ presence: [], drop: [], seen: [], seenIds: [], events: [], feedLimit: 6, sky: `${NOON - 60_000},overcast,sunset` })
+  // An older one does not, however long it sits there, and however late it
+  // arrives: the store keeps the newest, so a turn another instance sat on for
+  // a flush cannot land on top of this one.
+  await turn('weather', NOON - 60_000, 'overcast')
   await flushLive([])
   assert.equal(seen.length, 1, 'a stale turn is not a turn')
+
+  // A change of hour elsewhere is only a change of hour. It used to carry that
+  // instance's copy of the weather with it, and undo rain asked for here.
+  publishSky('weather', 'rain')
+  vi.setSystemTime(NOON + 5000)
+  publishSky('weather', 'rain')
+  await flushLive([])
+  await turn('time', NOON + 6000, 'night')
+  await flushLive([])
+  assert.deepEqual(seen.at(-1), ['time', 'night'], 'the hour was adopted')
+  assert.equal(seen.filter(([field]) => field === 'weather').length, 1, 'and the rain was left alone')
+  assert.equal((await store.readLive([], 6)).sky.weather, `${NOON + 5000},rain`)
 })
 
 test('players today counts people, not sessions, and never falls back', async () => {
@@ -196,4 +213,50 @@ test('the feed is shared, and a row still coalescing is held back but never hidd
     const feed = (await liveStatus()).feed
     assert.deepEqual(feed.map(event => event.kind), ['leave', 'build'], 'newest first')
   })
+})
+
+test('an arrival does not split a row that is still coalescing', async () => {
+  const { flushLive, liveStatus, noteJoin, noteLeave, recordEvent } = await boot()
+  const ann = session('ann', 'Ann', NOON)
+  const bo = session('bo', 'Bo', NOON)
+  recordEvent('Ann', 'terrain:raise', 'raised land at 1, 1')
+
+  // Somebody joins mid-dig, and somebody who is not the last one leaves.
+  noteJoin(bo, [ann, bo])
+  noteLeave('bo', [ann])
+  await flushLive([ann])
+  assert.deepEqual((await liveStatus()).feed, [], 'the row is still inside its window, so it stays here')
+
+  // Which is what lets the next click fold into it rather than start another.
+  vi.setSystemTime(NOON + 2000)
+  recordEvent('Ann', 'terrain:raise', 'raised land at 2, 1')
+  vi.setSystemTime(NOON + 10_000)
+  await flushLive([ann])
+  const feed = (await liveStatus()).feed
+  assert.deepEqual(feed.map(event => event.text), ['raised land at 2, 1'], 'one row for one run of digging')
+})
+
+test('a read-back that fails does not push the same rows twice', async () => {
+  const { store, flushLive, liveStatus, recordEvent } = await boot()
+  const ann = session('ann', 'Ann', NOON)
+  recordEvent('Ann', 'build', 'raised a wall')
+  vi.setSystemTime(NOON + 10_000)
+
+  // The write lands; the read after it does not.
+  const readLive = store.readLive.bind(store)
+  let failed = false
+  store.readLive = async (...args) => {
+    if (!failed) {
+      failed = true
+      throw new Error('read-back down')
+    }
+    return readLive(...args)
+  }
+  const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+  await flushLive([ann])
+  await flushLive([ann])
+  quiet.mockRestore()
+
+  assert.ok(failed, 'the read-back really did fail once')
+  assert.deepEqual((await liveStatus()).feed.map(event => event.text), ['raised a wall'], 'one row, not two')
 })
