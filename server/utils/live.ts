@@ -78,6 +78,16 @@ export interface LiveSession {
   id: string
   name: string
   joinedAt: number
+  /**
+   * When the client last said anything. This, not the flush time, is what a
+   * presence row carries, because a row can be rewritten by a process that no
+   * longer knows the truth: on Vercel an instance whose sockets have all gone
+   * can be frozen before it handles the closes, and when a later request thaws
+   * it, its tick rewrites rows for players who left. Stamped with the flush
+   * time those ghosts looked fresh. Stamped with the client's own heartbeat
+   * (every 5 s) they stay stale and the 30 s sweep drops them.
+   */
+  lastSeen: number
 }
 
 /* -------------------------------------------------------------------------- */
@@ -323,9 +333,10 @@ async function write(sessions: readonly LiveSession[], drainAll: boolean): Promi
 
   try {
     await chunkStore().writeLive({
-      // A row is rewritten every flush whether or not anything about it changed:
-      // its `lastSeen` is the whole point, and an untouched row goes stale.
-      presence: sessions.map(s => [s.id, encodePresence(s.joinedAt, now, s.name)] as const),
+      // A row is rewritten every flush whether or not anything about it changed,
+      // carrying the client's own `lastSeen` (see `LiveSession`), so a row
+      // whose client has gone quiet goes stale however often it is rewritten.
+      presence: sessions.map(s => [s.id, encodePresence(s.joinedAt, s.lastSeen, s.name)] as const),
       drop,
       seen: currentBuckets(now),
       seenIds: sessions.map(s => s.id),
@@ -389,7 +400,7 @@ function fallback(now: number): LiveStatus {
     instances: localRoster.length ? 1 : 0,
     today: localRoster.length,
     series: Array.from({ length: SERIES_HOURS }, () => 0),
-    roster: rosterFrom(localRoster.map(s => ({ joinedAt: s.joinedAt, lastSeen: now, instance: INSTANCE, name: s.name })), now),
+    roster: rosterFrom(localRoster.map(s => ({ joinedAt: s.joinedAt, lastSeen: s.lastSeen, instance: INSTANCE, name: s.name })), now),
     feed: recentEvents(),
   }
 }

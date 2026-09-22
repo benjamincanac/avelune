@@ -126,7 +126,10 @@ bytes between it and clients.
   - **Presence** (`presence:<realm>`, a hash) — one row per session each
     instance holds, `joinedAt,lastSeen,instance,name` (the name last and
     unescaped, so a comma in it cannot shift the fields in front), rewritten on
-    the same 5 s flush as the chunks. A row not refreshed within 30 s is from an instance that died;
+    the same 5 s flush as the chunks. `lastSeen` is the session's, the time the
+    client last said anything, **never the flush time**: on Vercel a frozen
+    instance can be thawed by a later request and flush sessions whose sockets
+    closed while it slept, and a flush-time stamp made those ghosts look live. A row not refreshed within 30 s is from an instance that died;
     readers ignore it and drop it. `players` and `roster` are the union.
   - **Seen buckets** (`seen:<realm>:d<date>`, `seen:<realm>:h<hour>`, sets of
     identity ids, TTL'd) — `today` and the nine-hour series. A *set*, because

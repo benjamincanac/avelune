@@ -430,7 +430,7 @@ function stopLoop() {
 /** This instance's share of the realm's presence: one row per session it holds.
  *  Every instance writes its own, and the title screen reads the union. */
 function liveRoster(): LiveSession[] {
-  return [...sessions.values()].map(({ player, joinedAt }) => ({ id: player.id, name: player.name, joinedAt }))
+  return [...sessions.values()].map(({ player, joinedAt, lastSeen }) => ({ id: player.id, name: player.name, joinedAt, lastSeen }))
 }
 
 /** Wrap an untrusted heading into [-PI, PI], or reject it. */
@@ -1218,7 +1218,7 @@ export function registerConnection(
   syncChunks(session, player.x, player.y, true)
   broadcast({ t: 'join', player }, player.id)
   recordEvent(player.name, 'join', resume ? 'returned to the world' : 'entered the town')
-  noteJoin({ id: player.id, name: player.name, joinedAt: session.joinedAt }, liveRoster())
+  noteJoin({ id: player.id, name: player.name, joinedAt: session.joinedAt, lastSeen: session.lastSeen }, liveRoster())
 
   return {
     player,

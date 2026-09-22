@@ -31,8 +31,9 @@ async function boot(): Promise<{ store: ChunkStore } & typeof import('../server/
   return { store, ...await import('../server/utils/live') }
 }
 
-function session(id: string, name: string, joinedAt: number): LiveSession {
-  return { id, name, joinedAt }
+/** `lastSeen` defaults to now: a session whose client just spoke. */
+function session(id: string, name: string, joinedAt: number, lastSeen = Date.now()): LiveSession {
+  return { id, name, joinedAt, lastSeen }
 }
 
 /** A presence row and a visit as another instance would have written them.
@@ -272,4 +273,19 @@ test('a read-back that fails does not push the same rows twice', async () => {
 
   assert.ok(failed, 'the read-back really did fail once')
   assert.deepEqual((await liveStatus()).feed.map(event => event.text), ['raised a wall'], 'one row, not two')
+})
+
+test('a thawed instance rewriting rows for players who left does not bring them back', async () => {
+  const { flushLive, liveStatus } = await boot()
+  // Seen on Vercel: an instance whose sockets all closed was frozen before it
+  // handled the closes, then a later request woke it and its tick flushed the
+  // sessions it still held. The row it writes carries the client's last word,
+  // not the flush time, so a player who went quiet a minute ago stays gone.
+  const live = session('ann', 'Ann', NOON - 120_000, NOON - 1000)
+  const ghost = session('bo', 'Bo', NOON - 120_000, NOON - 60_000)
+  await flushLive([live, ghost])
+
+  const status = await liveStatus()
+  assert.equal(status.players, 1, 'the ghost is not in town')
+  assert.deepEqual(status.roster.map(row => row.name), ['Ann'])
 })
