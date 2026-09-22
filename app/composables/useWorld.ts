@@ -101,18 +101,6 @@ export function useWorld(): UseWorld {
     for (const fn of set) fn(cx, cy)
   }
 
-  // A toast is the whole of the reject surface: the edit simply didn't happen,
-  // and the reason is one short line the server already phrased for a player.
-  const toast = useToast()
-  let lastReject = 0
-  function reject(reason: string) {
-    // The server can refuse a held-down brush eight times a second; one toast
-    // per second is plenty to read.
-    if (Date.now() - lastReject < 1000) return
-    lastReject = Date.now()
-    toast.add({ title: reason, icon: 'i-lucide-hand', color: 'warning', duration: 2500 })
-  }
-
   /**
    * A whole chunk landed. `installChunk` is the shared code that buckets its
    * long pieces outward into the neighbours we already hold and adopts theirs
@@ -183,8 +171,8 @@ export function useWorld(): UseWorld {
         else emit(listeners.props, msg.cx, msg.cy)
         return true
       }
+      // A refused edit simply didn't happen; nothing to show.
       case 'reject':
-        reject(msg.reason)
         return true
     }
     return false
