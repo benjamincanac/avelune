@@ -118,6 +118,19 @@ test('a sky one instance turns is the realm\'s sky', async () => {
   assert.deepEqual(seen.at(-1), ['time', 'night'], 'the hour was adopted')
   assert.equal(seen.filter(([field]) => field === 'weather').length, 1, 'and the rain was left alone')
   assert.equal((await store.readLive([], 6)).sky.weather, `${NOON + 5000},rain`)
+
+  // Two instances turning it in the same millisecond: the store keeps one, and
+  // the one it did not keep gives way instead of leaving the realm split.
+  vi.setSystemTime(NOON + 20_000)
+  publishSky('weather', 'clear')
+  await flushLive([])
+  await turn('weather', NOON + 20_000, 'rain')
+  await flushLive([])
+  assert.equal((await store.readLive([], 6)).sky.weather, `${NOON + 20_000},rain`, 'the store kept one of the tied turns')
+  assert.deepEqual(seen.at(-1), ['weather', 'rain'], 'and the instance whose turn it did not keep adopted it')
+  const settled = seen.length
+  await flushLive([])
+  assert.equal(seen.length, settled, 'once, not on every flush after')
 })
 
 test('players today counts people, not sessions, and never falls back', async () => {

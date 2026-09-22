@@ -235,8 +235,10 @@ function decodeTurn(raw: string | null): { at: number, mode: string } | null {
 
 const SKY_FIELDS: readonly SkyField[] = ['weather', 'time']
 
-/** When each half of the sky this instance is showing was decided. */
+/** When each half of the sky this instance is showing was decided, and the
+ *  encoded turn itself, which is what settles a tie on `at`. */
 const skyAt: Record<SkyField, number> = { weather: 0, time: 0 }
+const skyShown: Record<SkyField, string | null> = { weather: null, time: null }
 /** Turns this instance owes the realm, one per field, until a flush carries them. */
 const skyPending: Record<SkyField, SkyTurn | null> = { weather: null, time: null }
 /** What `game.ts` wants done when another instance turned the sky. */
@@ -251,8 +253,10 @@ export function onRemoteSky(handler: (field: SkyField, mode: string) => void) {
 /** This instance just turned one half of the sky. Publish it on the next flush. */
 export function publishSky(field: SkyField, mode: string) {
   const at = Date.now()
+  const value = encodeTurn(at, mode)
   skyAt[field] = at
-  skyPending[field] = { field, at, value: encodeTurn(at, mode) }
+  skyShown[field] = value
+  skyPending[field] = { field, at, value }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -357,10 +361,18 @@ async function write(sessions: readonly LiveSession[], drainAll: boolean): Promi
   }
   shared = read.events.map(decodeEvent).filter((event): event is WorldEvent => !!event)
   for (const field of SKY_FIELDS) {
-    const turned = decodeTurn(read.sky[field])
-    // Strictly newer, so this instance never re-adopts the turn it just wrote.
-    if (turned && turned.at > skyAt[field]) {
+    const raw = read.sky[field]
+    const turned = decodeTurn(raw)
+    if (!turned) continue
+    // Newer wins. On a tie, two instances turned it in the same millisecond and
+    // the store kept one of them; the one it did not keep has to give way, or
+    // the realm stays split. Our own turn read back is neither, so it is never
+    // re-adopted.
+    const newer = turned.at > skyAt[field]
+    const lostTie = turned.at === skyAt[field] && raw !== skyShown[field]
+    if (newer || lostTie) {
       skyAt[field] = turned.at
+      skyShown[field] = raw
       adoptSky?.(field, turned.mode)
     }
   }

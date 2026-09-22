@@ -313,10 +313,13 @@ export class MemoryChunkStore implements ChunkStore {
     // small set per hour, which is a few hundred bytes.
     for (const event of write.events) this.feed.unshift(event)
     if (this.feed.length > write.feedLimit) this.feed.length = write.feedLimit
-    // The highest `at` stays, which is what the sorted set does in Redis.
+    // The highest `at` stays, and a tie keeps the greater member, which is
+    // exactly what trimming a sorted set to its top rank does in Redis.
     for (const turn of write.sky) {
       const held = this.sky[turn.field]
-      if (!held || turn.at >= held.at) this.sky[turn.field] = { at: turn.at, value: turn.value }
+      if (!held || turn.at > held.at || (turn.at === held.at && turn.value > held.value)) {
+        this.sky[turn.field] = { at: turn.at, value: turn.value }
+      }
     }
   }
 }
