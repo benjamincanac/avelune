@@ -292,10 +292,10 @@ export function noteJoin(session: LiveSession, roster: Iterable<LiveSession>) {
 /** ...and left. The row has to go now. Only the last player on this instance
  *  drains the feed too, because the tick stops with them and nothing else will
  *  ever push what is left. */
-export function noteLeave(id: string, roster: Iterable<LiveSession>) {
+export function noteLeave(id: string, roster: Iterable<LiveSession>): Promise<void> {
   leaving.add(id)
   const sessions = [...roster]
-  void flushLive(sessions, sessions.length === 0)
+  return flushLive(sessions, sessions.length === 0)
 }
 
 /**

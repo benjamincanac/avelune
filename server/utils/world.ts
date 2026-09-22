@@ -21,6 +21,7 @@ import { generateVegetation } from '#shared/utils/vegetation'
 import { brushExtent } from '#shared/utils/building'
 import type { WorldPlacement } from '#shared/utils/props'
 import { chunkStore } from './chunkStore'
+import { flushGate } from './flushGate'
 import { flushPieceCounts } from './pieces'
 import { flushPositions } from './positions'
 import type { ChunkWrite, ExpectedVersion, StoredChunk } from './chunkStore'
@@ -319,8 +320,6 @@ async function reconcile(chunk: Chunk, viewers: Iterable<ChunkViewer>) {
   resendChunk(viewers, chunk)
 }
 
-let flushing = false
-
 /**
  * Write-behind flush, on a 5 second timer and again on shutdown.
  *
@@ -340,9 +339,12 @@ export async function flushDirtyChunks(viewers: Iterable<ChunkViewer> = []): Pro
   return written
 }
 
-async function writeDirtyChunks(viewers: Iterable<ChunkViewer>): Promise<number> {
-  if (flushing || !dirty.size) return 0
-  flushing = true
+/** One batch of dirty chunks. A call that lands mid-flush waits for it and
+ *  runs once more (see `flushGate.ts`), so the last player's edits are in the
+ *  flush their leave holds its invocation open on. */
+const writeDirtyChunks = flushGate(drainDirtyChunks, () => dirty.size > 0)
+
+async function drainDirtyChunks(viewers: Iterable<ChunkViewer>): Promise<number> {
   const batch: Chunk[] = []
   for (const chunk of dirty) {
     if (batch.length >= FLUSH_LIMIT) break
@@ -369,9 +371,6 @@ async function writeDirtyChunks(viewers: Iterable<ChunkViewer>): Promise<number>
     console.error('[world] chunk flush failed', error)
     for (const chunk of batch) dirty.add(chunk)
     return 0
-  }
-  finally {
-    flushing = false
   }
 }
 
