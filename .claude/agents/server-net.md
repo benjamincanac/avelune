@@ -32,7 +32,12 @@ bytes between it and clients.
   the next request thawed back into presence. The hold is taken in `open`,
   while still inside the upgrade's invocation, because by `close` that request
   context may be gone; `disconnect` returns a promise of its writes and
-  `teardown` releases the hold when it settles.
+  `teardown` releases the hold when it settles. That promise is only honest
+  because the flushes it waits on go through `flushGate`: a call that lands
+  mid-flush waits for the running one and then makes one more pass, since the
+  running one took its snapshot before the leave noted anything. The old
+  "already flushing, return 0" guard released the hold with the last position
+  unwritten.
 - `server/utils/world.ts` — the chunk service: the one `WORLD`, the async
   `loadChunk`/`loadChunks` (read the store, else generate terrain and seed
   `generateVegetation` once), the dirty set with its `flushDirtyChunks`
