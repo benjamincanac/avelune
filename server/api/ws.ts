@@ -2,6 +2,7 @@ import { defineWebSocketHandler } from 'nitro'
 import { CLIP_FRAME_KIND, VOICE_FRAME_KIND } from '#shared/utils/voice'
 import type { Connection } from '../utils/game'
 import { registerConnection } from '../utils/game'
+import { holdInvocation } from '../utils/invocation'
 import { loadPosition } from '../utils/positions'
 import { sameOriginUpgrade, verifyCookieHeader } from '../utils/session'
 
@@ -22,6 +23,23 @@ const conns = new Map<string, Connection>()
  *  the read removes the peer, so the read comes back to nobody and registers
  *  nothing. */
 const opening = new Set<string>()
+/** Each socket's hold on its invocation, released once its teardown is written.
+ *  A socket that closes during `open` releases on the spot. */
+const holds = new Map<string, () => void>()
+
+/** Tear a peer down once, however many of `close` and `error` fire for it. */
+function teardown(peerId: string) {
+  opening.delete(peerId)
+  const conn = conns.get(peerId)
+  conns.delete(peerId)
+  const release = holds.get(peerId)
+  holds.delete(peerId)
+  if (!conn) {
+    release?.()
+    return
+  }
+  void conn.disconnect().finally(() => release?.())
+}
 
 export default defineWebSocketHandler({
   async open(peer) {
@@ -37,6 +55,9 @@ export default defineWebSocketHandler({
       peer.close()
       return
     }
+    // Still inside the upgrade's invocation here, which is the only place the
+    // hold can be taken: see `server/utils/invocation.ts`.
+    holds.set(peer.id, holdInvocation())
     opening.add(peer.id)
     const saved = await loadPosition(identity.id)
     if (!opening.delete(peer.id)) return
@@ -71,16 +92,10 @@ export default defineWebSocketHandler({
     conn.handleMessage(message.text())
   },
   close(peer) {
-    opening.delete(peer.id)
-    const conn = conns.get(peer.id)
-    conns.delete(peer.id)
-    conn?.disconnect()
+    teardown(peer.id)
   },
   error(peer, error) {
     console.error('[game] ws error', peer.id, error)
-    opening.delete(peer.id)
-    const conn = conns.get(peer.id)
-    conns.delete(peer.id)
-    conn?.disconnect()
+    teardown(peer.id)
   },
 })

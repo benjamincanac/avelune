@@ -22,7 +22,17 @@ bytes between it and clients.
   brain itself belongs to `oracle-ai`.
 - `server/api/ws.ts` — `defineWebSocketHandler` (Nitro v3 native crossws,
   identical in dev and on Vercel — no Vercel-specific upgrade bridge). Bridges
-  peer open/message/close into the game world.
+  peer open/message/close into the game world. **Every socket holds its
+  invocation open until its teardown is written** (`holdInvocation` in
+  `server/utils/invocation.ts`, over `waitUntil` from `@vercel/functions`).
+  Vercel may freeze the process as soon as a socket's invocation looks done,
+  which is the moment it closes, and everything a leave writes is async: without
+  the hold, the last player's chunk edits, position and presence row froze
+  mid-write, and an instance could be frozen still holding dead sessions that
+  the next request thawed back into presence. The hold is taken in `open`,
+  while still inside the upgrade's invocation, because by `close` that request
+  context may be gone; `disconnect` returns a promise of its writes and
+  `teardown` releases the hold when it settles.
 - `server/utils/world.ts` — the chunk service: the one `WORLD`, the async
   `loadChunk`/`loadChunks` (read the store, else generate terrain and seed
   `generateVegetation` once), the dirty set with its `flushDirtyChunks`

@@ -417,13 +417,15 @@ function startLoop() {
   loop ??= setInterval(TICK_LOG ? timedTick : tick, TICK_MS)
 }
 
-function stopLoop() {
+/** Stop the tick if nobody is left. Returns the final flush when there is one,
+ *  so the last leave can hold its invocation open until the edits are written. */
+function stopLoop(): Promise<number> | undefined {
   if (loop && sessions.size === 0) {
     clearInterval(loop)
     loop = undefined
     // The tick was the only thing draining the dirty set. An empty town can sit
     // idle for hours, so the last player's edits go out with them.
-    void flushDirtyChunks()
+    return flushDirtyChunks()
   }
 }
 
@@ -691,7 +693,10 @@ export interface Connection {
   /** One binary frame. Voice audio is the only thing that arrives this way, and
    *  it is forwarded on receipt rather than on the tick. */
   handleBytes: (bytes: Uint8Array) => void
-  disconnect: () => void
+  /** Tear the session down. Resolves once everything the leave writes has
+   *  settled, because the socket's invocation is held open until it does (see
+   *  `server/utils/invocation.ts`). */
+  disconnect: () => Promise<void>
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1411,15 +1416,21 @@ export function registerConnection(
       // tear down its replacement's pairs. The takeover already cleared this one.
       if (sessions.get(player.id) === session) clearVoice(session)
       else session.voice = false
+      // Everything the leave writes, so the caller can hold the socket's
+      // invocation open until it has landed rather than let the platform freeze
+      // it mid-write.
+      const writes: Promise<unknown>[] = []
       if (sessions.get(player.id) === session) {
         notePosition(player.id, player)
-        void flushPositions()
+        writes.push(flushPositions())
         sessions.delete(player.id)
         broadcast({ t: 'leave', id: player.id })
-        noteLeave(player.id, liveRoster())
+        writes.push(noteLeave(player.id, liveRoster()))
       }
       releaseViewer(session)
-      stopLoop()
+      const final = stopLoop()
+      if (final) writes.push(final)
+      return Promise.allSettled(writes).then(() => {})
     },
   }
 }
