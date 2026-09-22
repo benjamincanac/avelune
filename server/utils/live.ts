@@ -349,7 +349,7 @@ async function write(sessions: readonly LiveSession[], drainAll: boolean): Promi
   // second time. It just leaves the shared copy as it was until next time.
   let read
   try {
-    read = await chunkStore().readLive([], FEED_LIMIT)
+    read = await chunkStore().readLive([], FEED_LIMIT, false)
   }
   catch (error) {
     console.error('[world] live read-back failed', error)

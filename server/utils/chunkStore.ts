@@ -127,7 +127,7 @@ export interface ChunkStore {
   /** The whole live surface — presence, the seen counts and the feed — in one
    *  round trip, because the title screen has no socket and asks for all of it
    *  at once. */
-  readLive: (seen: readonly string[], feedLimit: number) => Promise<LiveRead>
+  readLive: (seen: readonly string[], feedLimit: number, withPresence?: boolean) => Promise<LiveRead>
   /** ...and the write half, pipelined for the same reason. */
   writeLive: (write: LiveWrite) => Promise<void>
 }
@@ -289,9 +289,9 @@ export class MemoryChunkStore implements ChunkStore {
     for (const [id, value] of entries) this.positions.set(id, value)
   }
 
-  async readLive(seen: readonly string[], feedLimit: number): Promise<LiveRead> {
+  async readLive(seen: readonly string[], feedLimit: number, withPresence = true): Promise<LiveRead> {
     return {
-      presence: new Map(this.presence),
+      presence: withPresence ? new Map(this.presence) : new Map(),
       seen: seen.map(key => this.seen.get(key)?.size ?? 0),
       events: this.feed.slice(0, feedLimit),
       sky: { weather: this.sky.weather?.value ?? null, time: this.sky.time?.value ?? null },
@@ -476,9 +476,11 @@ export class RedisChunkStore implements ChunkStore {
   /** One pipeline: the presence hash, one `SCARD` per bucket asked for, and the
    *  head of the feed list. `automaticDeserialization` is off, so `HGETALL`
    *  arrives as the flat field/value array Redis actually sends. */
-  async readLive(seen: readonly string[], feedLimit: number): Promise<LiveRead> {
+  async readLive(seen: readonly string[], feedLimit: number, withPresence = true): Promise<LiveRead> {
     const pipeline = this.redis.pipeline()
-    pipeline.hgetall(PRESENCE_KEY)
+    // The flush's read-back only wants the feed and the sky, and the presence
+    // hash is the biggest thing in here, so it can leave it out.
+    if (withPresence) pipeline.hgetall(PRESENCE_KEY)
     for (const key of seen) pipeline.scard(key)
     pipeline.lrange(FEED_KEY, 0, feedLimit - 1)
     // The last member of each set by score is the newest turn.
@@ -486,21 +488,22 @@ export class RedisChunkStore implements ChunkStore {
     pipeline.zrange(skyKey('time'), -1, -1)
     const results = await pipeline.exec<unknown[]>()
 
+    const at = withPresence ? 1 : 0
     const presence = new Map<string, string>()
-    const raw = results?.[0]
+    const raw = withPresence ? results?.[0] : undefined
     if (Array.isArray(raw)) {
       for (let i = 0; i + 1 < raw.length; i += 2) presence.set(String(raw[i]), String(raw[i + 1]))
     }
-    const events = results?.[seen.length + 1]
+    const events = results?.[at + seen.length]
     const top = (raw: unknown) => (Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : null)
     return {
       presence,
       seen: seen.map((_, i) => {
-        const count = Number(results?.[i + 1])
+        const count = Number(results?.[at + i])
         return Number.isFinite(count) ? count : 0
       }),
       events: Array.isArray(events) ? events.map(String) : [],
-      sky: { weather: top(results?.[seen.length + 2]), time: top(results?.[seen.length + 3]) },
+      sky: { weather: top(results?.[at + seen.length + 1]), time: top(results?.[at + seen.length + 2]) },
     }
   }
 

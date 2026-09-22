@@ -108,6 +108,10 @@ async function roundTrip(store: ChunkStore) {
 
   const both = await store.readLive([today.key, hour.key], 6)
   assert.deepEqual([...both.presence].sort(), [['ann', '100,100,Ann'], ['bo', '200,200,Bo']], 'the roster is the union of the instances')
+  const lean = await store.readLive([today.key], 6, false)
+  assert.deepEqual([...lean.presence], [], 'a read that does not want presence does not get it')
+  assert.deepEqual(lean.seen, [2], 'and every other field still lines up')
+  assert.equal(lean.events.length, 2)
   assert.deepEqual(both.seen, [2, 2], 'two people have been here today, and in this hour')
   assert.deepEqual(both.events.map(raw => JSON.parse(raw).name), ['Bo', 'Ann'], 'the feed is newest first')
 

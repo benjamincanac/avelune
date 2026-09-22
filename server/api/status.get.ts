@@ -16,8 +16,26 @@ import { liveStatus } from '../utils/live'
  * wherever. Read from memory, the page would report the roster of whichever
  * instance happened to answer. Nothing scans a chunk either way.
  */
+/**
+ * Every visitor this instance serves shares one store read for this long.
+ *
+ * A read is a 14 command pipeline and the page polls every 10 seconds, so
+ * without it the bill scales with visitors rather than with instances. Short
+ * enough that nothing on the page reads as stale. Deliberately in process and
+ * not a CDN `max-age`: the page shows this request as its measured round trip,
+ * and an edge hit would make that number lie.
+ */
+const SHARED_FOR = 2_000
+let shared: { at: number, live: ReturnType<typeof liveStatus> } | undefined
+
+function sharedStatus() {
+  const now = Date.now()
+  if (!shared || now - shared.at >= SHARED_FOR) shared = { at: now, live: liveStatus() }
+  return shared.live
+}
+
 export default defineEventHandler(async () => {
-  const live = await liveStatus()
+  const live = await sharedStatus()
   return {
     players: live.players,
     instances: live.instances,

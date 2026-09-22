@@ -77,8 +77,18 @@ async function probe() {
 
 onMounted(async () => {
   void probe()
-  const timer = setInterval(probe, 10_000)
-  onBeforeUnmount(() => clearInterval(timer))
+  // Every probe is a read against the world store, so a tab nobody is looking
+  // at does not poll. Coming back probes at once rather than showing whatever
+  // was true when it was hidden.
+  const visibleProbe = () => {
+    if (!document.hidden) void probe()
+  }
+  const timer = setInterval(visibleProbe, 10_000)
+  document.addEventListener('visibilitychange', visibleProbe)
+  onBeforeUnmount(() => {
+    clearInterval(timer)
+    document.removeEventListener('visibilitychange', visibleProbe)
+  })
 
   try {
     const me = await $fetch('/api/auth')
