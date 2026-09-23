@@ -127,7 +127,18 @@ files the game loads, and the scripts that do it.
   courtyard one so the town overlay picks the pieces up by material name. Every
   painted material needs its own roughness: COLOR_0 carries base colour, so
   materials sharing a roughness are byte-identical and `optimize`'s dedup
-  collapses their names into one.
+  collapses their names into one. **No two members may share a face plane
+  where they overlap**, inside a piece or across two pieces that meet: the depth
+  buffer cannot order them and the face flickers as the camera moves. The wall
+  panels are built to that rule. Plaster stops 5 cm inside the ends and under the
+  top. The posts own the frame face and stop 1 cm under the plate. Plate and
+  sills stop at ±(1 - HD), so a perpendicular neighbour covers the corner. Rails
+  sit back `FD` and braces `BD` behind the posts. Where two identical pieces
+  overlap at a grid corner (wall and fence posts), no offset can separate them,
+  so their tops slope along the run (`sloped_post`): two posts turned 90° then
+  meet on intersecting planes. Trim that has to sit proud of a face may
+  overhang the footprint by at most 5 mm. A rebuild can leave unrelated
+  GLBs byte-different, so restore anything you did not mean to change.
 - `scripts/bake-ramparts.ts` is a spent one-off (`pnpm exec jiti
   scripts/bake-ramparts.ts`) that turned the rampart gallery, its two stair
   flights and its rails from generated geometry into authored placements in
