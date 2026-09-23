@@ -9,7 +9,7 @@ Roadmap / status is [.claude/ROADMAP.md](.claude/ROADMAP.md) — the source of t
 - `pnpm dev` — dev server (port 3000 is occupied on this machine; use the preview harness / autoPort)
 - `pnpm typecheck` — `nuxt typecheck` (vue-tsc)
 - `pnpm lint` / `pnpm lint:fix` — ESLint
-- `pnpm test` — vitest: every `scripts/*-test.ts` suite (shared physics, terrain, world, building, chunk-store, the live surface, the per-chunk index, characters and their animations, moat, ramparts, fountain, voice, the upgrade's origin gate, the socket's hold on its invocation, audio, graphics presets, icon names)
+- `pnpm test` — vitest: every `scripts/*-test.ts` suite (shared physics, terrain, world, building, build targeting, chunk-store, the live surface, the per-chunk index, characters and their animations, moat, ramparts, fountain, voice, the upgrade's origin gate, the socket's hold on its invocation, audio, graphics presets, icon names)
 - `node scripts/ws-test.mjs ws://localhost:<port>/api/ws` — protocol test (two clients create characters over `/api/auth`, then assert `welcome`/`chunk`/`state`/`terrain`/`remove`/`chat`/`pong`/`leave`/`kicked` frames)
 - `pnpm exec jiti scripts/spawn-bots.mjs --url http://localhost:<port> --count 30 --dig` — load test; `AVELUNE_TICK_LOG=1` on the server logs tick timings
 - Blender is headless: `"/Applications/Blender.app/Contents/MacOS/Blender" --background --python scripts/<x>.py -- <args>`

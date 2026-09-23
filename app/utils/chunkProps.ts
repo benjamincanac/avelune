@@ -1,7 +1,10 @@
 import { BufferAttribute, BufferGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, Object3D } from 'three'
 import type { MeshStandardMaterial } from 'three'
-import { CHUNK_CORNERS, CHUNK_SIZE, HEIGHT_STEP, SURFACE, isProtectedTile } from '#shared/utils/world'
-import type { Chunk } from '#shared/utils/world'
+import { CHUNK_CORNERS, CHUNK_SIZE, HEIGHT_STEP, SURFACE, isProtectedTile, propsInBox } from '#shared/utils/world'
+import type { Chunk, World } from '#shared/utils/world'
+import { isEdgeKind, isKitKind } from '#shared/utils/building'
+import { KIT_ASSETS } from '#shared/utils/kit'
+import type { KitKind } from '#shared/utils/kit'
 import { smoothstep } from '#shared/utils/terrain'
 import { biomeAt } from '#shared/utils/biome'
 import type { Biome } from '#shared/utils/biome'
@@ -116,8 +119,9 @@ export function createChunkProps(options: ChunkPropsOptions) {
 
   return {
     instantiateModule,
-    /** Everything this chunk owns, as one group per kind. */
-    build(chunk: Chunk): Group {
+    /** Everything this chunk owns, as one group per kind. `cover` keeps the
+     *  flowers and undergrowth out from under a player's floors. */
+    build(chunk: Chunk, cover?: GroundCover): Group {
       const group = new Group()
       group.name = `props ${chunk.cx},${chunk.cy}`
       const byKind = new Map<string, WorldPlacement[]>()
@@ -132,7 +136,7 @@ export function createChunkProps(options: ChunkPropsOptions) {
         list.push(placement)
         byKind.set(placement.kind, list)
       }
-      for (const detail of chunkScatter(chunk, options.seed)) {
+      for (const detail of chunkScatter(chunk, options.seed, cover)) {
         const list = byKind.get(detail.kind) ?? []
         list.push(detail as WorldPlacement)
         byKind.set(detail.kind, list)
@@ -314,6 +318,52 @@ function localSlope(chunk: Chunk, lx: number, ly: number): number {
   return Math.hypot(h10 - h00 + h11 - h01, h01 - h00 + h11 - h10) * 0.5 * HEIGHT_STEP
 }
 
+/** How far above the ground a piece still smothers what grows under it. The
+ *  tallest tufts stand about this high; a slab hung any higher is a ceiling,
+ *  and the meadow under a raised deck is left alone. */
+const COVER_CLEARANCE = 0.6
+
+/** Kit pieces that lie on the ground rather than stand on it: panels, the
+ *  torch and the deed post are thin enough for grass to grow round. */
+function coversGround(kind: string): boolean {
+  return isKitKind(kind) && !isEdgeKind(kind) && kind !== 'Kit_Torch' && kind !== 'Kit_Deed'
+}
+
+/** The footprints of the pieces lying on a chunk's ground, as world-space
+ *  boxes with the height each one's base sits at. */
+export type GroundCover = readonly (readonly [minX: number, maxX: number, minY: number, maxY: number, base: number])[]
+
+/**
+ * What a player has laid over this chunk's ground: floors, paths, stairs and
+ * crates. Read from the world's cell index rather than the chunk's own
+ * placements, because a 2 tile slab on a chunk border belongs to one chunk and
+ * covers grass in both. The footprint is the kit's, not the collision box: a
+ * path has no collision at all.
+ */
+export function groundCover(world: World, chunk: Chunk): GroundCover {
+  const minX = chunk.cx * CHUNK_SIZE
+  const minY = chunk.cy * CHUNK_SIZE
+  const cover: [number, number, number, number, number][] = []
+  for (const prop of propsInBox(world, minX - 2, minY - 2, minX + CHUNK_SIZE + 2, minY + CHUNK_SIZE + 2)) {
+    if (!coversGround(prop.kind)) continue
+    const asset = KIT_ASSETS[prop.kind as KitKind]
+    const turned = Math.abs(Math.sin(prop.rot)) > 0.5
+    const ax = (turned ? asset.depth : asset.width) / 2
+    const ay = (turned ? asset.width : asset.depth) / 2
+    cover.push([prop.x - ax, prop.x + ax, prop.y - ay, prop.y + ay, prop.base ?? prop.z ?? 0])
+  }
+  return cover
+}
+
+/** Whether a tuft rooted at (x, y) on ground `h` is under a piece. */
+function isCovered(cover: GroundCover | undefined, x: number, y: number, h: number): boolean {
+  if (!cover) return false
+  for (const [minX, maxX, minY, maxY, base] of cover) {
+    if (x > minX && x < maxX && y > minY && y < maxY && base - h < COVER_CLEARANCE) return true
+  }
+  return false
+}
+
 /** Candidate tufts per chunk, before the ground thins them. The grass bank
  *  draws only the share that can be seen at a patch's distance, so this is the
  *  density underfoot, not the cost of every mounted chunk. */
@@ -343,7 +393,7 @@ const BIOME_SWARD: Record<Biome, readonly [number, number]> = {
   mountain: [0.24, 0.6],
 }
 
-export function chunkGrassBlades(chunk: Chunk, seed: number): GrassBlade[] {
+export function chunkGrassBlades(chunk: Chunk, seed: number, cover?: GroundCover): GrassBlade[] {
   const blades: GrassBlade[] = []
   const originX = chunk.cx * CHUNK_SIZE
   const originY = chunk.cy * CHUNK_SIZE
@@ -353,13 +403,15 @@ export function chunkGrassBlades(chunk: Chunk, seed: number): GrassBlade[] {
     if (!isGrassTile(chunk, Math.floor(lx), Math.floor(ly))) continue
     const x = originX + lx
     const z = originY + ly
-    const cover = meadowCover(x, z, localSlope(chunk, lx, ly))
+    const y = localHeight(chunk, lx, ly)
+    if (isCovered(cover, x, z, y)) continue
+    const sward = meadowCover(x, z, localSlope(chunk, lx, ly))
     const [density, drying] = BIOME_SWARD[biomeAt(seed, x, z)]
     if (drying > 0) {
-      cover.lush *= 1 - drying
-      cover.straw = Math.min(1, cover.straw + drying * 0.6)
+      sward.lush *= 1 - drying
+      sward.straw = Math.min(1, sward.straw + drying * 0.6)
     }
-    const growth = density * (0.7 + cover.lush * 0.3) * (1 - cover.straw * 0.5) * (1 - smoothstep(0.15, 0.5, cover.bare))
+    const growth = density * (0.7 + sward.lush * 0.3) * (1 - sward.straw * 0.5) * (1 - smoothstep(0.15, 0.5, sward.bare))
     if (hash(chunk.cx, chunk.cy, n * 5 + 3) > growth) continue
     // Mostly shin-high cover with the odd taller clump, so the meadow reads as
     // a carpet the players wade through rather than a field of seedlings.
@@ -368,11 +420,11 @@ export function chunkGrassBlades(chunk: Chunk, seed: number): GrassBlade[] {
     blades.push({
       x,
       z,
-      y: localHeight(chunk, lx, ly),
-      size: (tall ? 1.5 + roll * 5 : 0.8 + roll * 0.5) * (0.75 + cover.lush * 0.35),
+      y,
+      size: (tall ? 1.5 + roll * 5 : 0.8 + roll * 0.5) * (0.75 + sward.lush * 0.35),
       angle: hash(chunk.cx, chunk.cy, n * 5 + 5) * Math.PI * 2,
-      lush: cover.lush,
-      straw: cover.straw,
+      lush: sward.lush,
+      straw: sward.straw,
     })
   }
   return blades
@@ -426,7 +478,7 @@ const SCATTER_SCALE: Record<string, readonly [number, number]> = {
  * The flower pass keeps its own candidate sequence and its own drift gate, so a
  * meadow chunk scatters exactly what it always did.
  */
-export function chunkScatter(chunk: Chunk, seed: number): HubPropPlacement[] {
+export function chunkScatter(chunk: Chunk, seed: number, cover?: GroundCover): HubPropPlacement[] {
   const out: HubPropPlacement[] = []
   const originX = chunk.cx * CHUNK_SIZE
   const originY = chunk.cy * CHUNK_SIZE
@@ -438,8 +490,10 @@ export function chunkScatter(chunk: Chunk, seed: number): HubPropPlacement[] {
     const z = originY + ly
     if (biomeAt(seed, x, z) !== 'meadow') continue
     if (Math.sin(x * 0.14 + Math.sin(z * 0.19)) + Math.cos(z * 0.16 - x * 0.035) < 0.1) continue
+    const h = localHeight(chunk, lx, ly)
+    if (isCovered(cover, x, z, h)) continue
     const roll = hash(chunk.cx, chunk.cy, n * 3 + 903)
-    out.push({ kind: roll < 0.5 ? 'flowers1' : 'flowers2', x, y: z, rot: roll * Math.PI * 2, scale: 0.28 + roll * 0.24, z: localHeight(chunk, lx, ly) })
+    out.push({ kind: roll < 0.5 ? 'flowers1' : 'flowers2', x, y: z, rot: roll * Math.PI * 2, scale: 0.28 + roll * 0.24, z: h })
   }
   for (let n = 0; n < 30; n++) {
     const lx = hash(chunk.cx, chunk.cy, n * 4 + 1301) * CHUNK_SIZE
@@ -450,9 +504,11 @@ export function chunkScatter(chunk: Chunk, seed: number): HubPropPlacement[] {
     const roll = hash(chunk.cx, chunk.cy, n * 4 + 1303)
     const entry = UNDERSTORY[biomeAt(seed, x, z)].find(([, share]) => roll < share)
     if (!entry) continue
+    const h = localHeight(chunk, lx, ly)
+    if (isCovered(cover, x, z, h)) continue
     const [lower, spread] = SCATTER_SCALE[entry[0]] ?? [0.4, 0.3]
     const size = hash(chunk.cx, chunk.cy, n * 4 + 1304)
-    out.push({ kind: entry[0], x, y: z, rot: size * Math.PI * 2, scale: lower + size * spread, z: localHeight(chunk, lx, ly) })
+    out.push({ kind: entry[0], x, y: z, rot: size * Math.PI * 2, scale: lower + size * spread, z: h })
   }
   return out
 }

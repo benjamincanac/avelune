@@ -6,7 +6,7 @@ import type { Chunk, World } from '#shared/utils/world'
 import { generateVegetation } from '#shared/utils/vegetation'
 import { createTerrainMaterial, createTerrainMesh, updateTerrainMesh } from '~/utils/terrainChunk'
 import type { HeightSampler } from '~/utils/terrainChunk'
-import { chunkGrassBlades, createChunkProps, createPavingBank } from '~/utils/chunkProps'
+import { chunkGrassBlades, createChunkProps, createPavingBank, groundCover } from '~/utils/chunkProps'
 import { createGrassBank, updateGrassLod } from '~/utils/courtyardLandscape'
 import type { createCritters } from '~/utils/critters'
 import type { TownMaterials } from '~/utils/townMaterials'
@@ -145,10 +145,11 @@ function buildChunkDetail(entry: MountedChunk, chunk: Chunk) {
     return
   }
   critters?.mount(chunk.cx, chunk.cy)
-  entry.props = chunkProps.build(chunk)
+  const cover = groundCover(hubWorld, chunk)
+  entry.props = chunkProps.build(chunk, cover)
   tagSceneShadows(entry.props)
   entry.group.add(entry.props)
-  entry.grass = grassBank.patch(chunkGrassBlades(chunk, hubWorld.seed))
+  entry.grass = grassBank.patch(chunkGrassBlades(chunk, hubWorld.seed, cover))
   if (entry.grass) entry.group.add(entry.grass)
 }
 

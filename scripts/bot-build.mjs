@@ -24,9 +24,9 @@
 //
 // `Kit_WallDoor`, `Kit_Gate`, `Kit_Path` and `Kit_Torch` are absent from
 // `SOLID_PROPS` on purpose (their openings stay walkable), so they neither
-// block nor support. Nothing is ever stacked on the door pose for that reason:
-// a piece there would read the terrain instead and land back on the ground,
-// across the doorway.
+// block nor support. A wall aimed at a door's top still stacks on it, through
+// `ledgeHeight` rather than collision; the cottage leaves that pose open
+// anyway, so the opening reads all the way up.
 
 import { SURFACE } from '../shared/utils/world.ts'
 
@@ -170,8 +170,8 @@ export function housePlan(plot) {
   // keeps them downstairs once there is a deck over their heads.
   ops.push(build(plot, 'Kit_Crate', 0, 1, 0, LIFT.groundWall))
   ops.push(build(plot, 'Kit_Crate', 2, 2, 0, LIFT.groundWall))
-  // The upper deck: each slab reads the walls below it as its support, so the
-  // storey above lands at wall top + slab thickness.
+  // The upper deck: each slab hangs from the tops of the walls on its edges,
+  // so the storey above lands at wall top + slab thickness.
   for (const c of CELLS) ops.push(build(plot, 'Kit_Floor', c.dx, c.dy, 0, LIFT.upperFloor))
   // Second storey, on the deck. The door pose is skipped so the opening stays
   // open all the way up.

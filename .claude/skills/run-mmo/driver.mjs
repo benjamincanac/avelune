@@ -96,7 +96,7 @@ const errors = []
 // socket that misses its heartbeat, and the reconnect respawns the session in
 // town — several times a minute, which a mode that teleports, aims and clicks
 // cannot survive. MMO_HEADED=0 forces headless anyway.
-const HEADED = process.env.MMO_HEADED === '1' || (mode === 'target' && process.env.MMO_HEADED !== '0')
+const HEADED = process.env.MMO_HEADED === '1' || ((mode === 'target' || mode === 'room') && process.env.MMO_HEADED !== '0')
 const browser = await chromium.launch({ headless: !HEADED, args: HEADED ? [] : GL_ARGS })
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: Number(process.env.MMO_DPR || 1) })
 if (process.env.MMO_GFX) {
@@ -500,6 +500,67 @@ if (mode === 'target') {
   await look(1014, 'movementX', 10)
   await page.waitForTimeout(1500)
   await shoot('paint')
+}
+
+if (mode === 'room') {
+  // Dev server only: builds through `window.__maze.game.sendBuild`, so every
+  // piece goes to the server with an exact aim and height and nothing depends
+  // on where a synthetic mouse move left the crosshair. A two-cell room with a
+  // wall stacked over its door, a floor laid inside it, stairs pushed against
+  // its walls and an upper floor hung from the wall tops, then a floor, a path
+  // and a crate on open meadow so the shot shows the grass stopping at them.
+  await modelsQuiet()
+  await refocus()
+  await say(`/time ${process.env.MMO_TIME || 'day'}`)
+  const X = Number(process.env.MMO_ROOM_X || 110)
+  const Y = Number(process.env.MMO_ROOM_Y || 150)
+  await tpTo(X + 1, Y)
+  const Q = Math.PI / 2
+  const ops = [
+    ['Kit_WallDoor', X, Y + 3, 0, 0],
+    ['Kit_WallWindow', X + 2, Y + 3, 0, 0],
+    ['Kit_Wall', X, Y + 5, 0, 0],
+    ['Kit_Wall', X + 2, Y + 5, 0, 0],
+    ['Kit_Wall', X - 1, Y + 4, Q, 0],
+    ['Kit_Wall', X + 3, Y + 4, Q, 0],
+    ['Kit_Floor', X, Y + 4, 0, 0],
+    ['Kit_Stairs', X + 2, Y + 4, 3 * Q, 0],
+    ['Kit_Wall', X, Y + 3, 0, 2.5],
+    ['Kit_Floor', X, Y + 4, 0, 2.3],
+    ['Kit_Floor', X - 4, Y, 0, 0],
+    ['Kit_Path', X - 4, Y - 2, 0, 0],
+    ['Kit_Crate', X - 2, Y - 2, 0, 0],
+    ['Kit_Fence', X - 4, Y + 3, 0, 0],
+    ['Kit_Gate', X - 2, Y + 3, 0, 0],
+    ['Kit_Roof', X + 6, Y, 0, 0],
+    ['Kit_RoofCorner', X + 6, Y + 2, 0, 0],
+  ]
+  for (const [kind, x, y, rot, h] of ops) {
+    await settle()
+    const before = await pieces()
+    await page.evaluate(([k, px, py, r, ph]) => window.__maze.game.sendBuild(k, px, py, r, ph), [kind, x, y, rot, h])
+    let booked = false
+    for (let i = 0; i < 10 && !booked; i++) {
+      await page.waitForTimeout(300)
+      booked = await pieces() > before
+    }
+    console.log(booked ? 'BUILT ' : 'REFUSED', kind, x - X, y - Y, 'h', h)
+  }
+  const pose = (yaw, pitch) => page.evaluate(([yw, pt]) => {
+    const m = window.__maze
+    m.view.yaw = yw
+    m.view.pitch = pt
+    m.game.setLook(yw)
+  }, [yaw, pitch])
+  await pose(Math.PI / 2, Number(process.env.MMO_PITCH || 0.3))
+  await page.waitForTimeout(1500)
+  await shoot('room')
+  await pose(Math.PI, Number(process.env.MMO_PITCH || 0.3) + 0.25)
+  await page.waitForTimeout(1500)
+  await shoot('cover')
+  await pose(0, Number(process.env.MMO_PITCH || 0.3) + 0.15)
+  await page.waitForTimeout(1500)
+  await shoot('kit')
 }
 
 if (mode === 'build') {
