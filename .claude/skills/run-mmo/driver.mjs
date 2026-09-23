@@ -515,6 +515,10 @@ if (mode === 'room') {
   const X = Number(process.env.MMO_ROOM_X || 110)
   const Y = Number(process.env.MMO_ROOM_Y || 150)
   await tpTo(X + 1, Y)
+  // Aims are heights above the ground the player stands on, not absolute: the
+  // meadow is not flat everywhere, and an upper floor aimed at 2.3 on a rise
+  // would read the storey below it.
+  const ground = await ask(() => window.__maze.local.z ?? 0, 0)
   const Q = Math.PI / 2
   const ops = [
     ['Kit_WallDoor', X, Y + 3, 0, 0],
@@ -538,7 +542,7 @@ if (mode === 'room') {
   for (const [kind, x, y, rot, h] of ops) {
     await settle()
     const before = await pieces()
-    await page.evaluate(([k, px, py, r, ph]) => window.__maze.game.sendBuild(k, px, py, r, ph), [kind, x, y, rot, h])
+    await page.evaluate(([k, px, py, r, ph]) => window.__maze.game.sendBuild(k, px, py, r, ph), [kind, x, y, rot, ground + h])
     let booked = false
     for (let i = 0; i < 10 && !booked; i++) {
       await page.waitForTimeout(300)

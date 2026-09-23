@@ -324,8 +324,8 @@ test('a wall stacks over a door', () => {
   assert.ok(over.ok, `wall over the door refused: ${over.ok === false && over.reason}`)
   assert.equal(over.placement.z, height)
 
-  // Aimed through the opening, it is the doorway that is refused, not a wall
-  // quietly laid across it.
+  // Aimed through the opening, the wall goes down at ground level across the
+  // doorway: the door has no collision, so nothing there refuses it.
   const across = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: 0 }, actor, who('w2'))
   assert.ok(across.ok)
   assert.equal(across.placement.z, 0)
