@@ -114,7 +114,10 @@ independently.
   +depth, world `(sin rot, cos rot)`, as `ramparts.ts` measures its treads). A
   wall panel has one ledge too, the top of the panel on its own edge: walls get
   that from collision anyway, but `Kit_WallDoor` has none, and without it a wall
-  aimed over a door read the ground through the opening. `resolveBuild` takes the higher of the sampled
+  aimed over a door read the ground through the opening. For the same reason
+  `panelOnEdge` refuses a panel wherever another panel already stands on that
+  edge in an overlapping band, read off `KIT_ASSETS` heights: `overlappingPiece`
+  skips the door and the gate, so a wall went down inside a doorway. `resolveBuild` takes the higher of the sampled
   support and the highest ledge at or under `aim + LEDGE_SLACK` (1, wider than
   `AIM_SLACK` because a wall top seen from inside the room is a sliver). That is
   what lets an upper floor cross a room and a roof close its middle, where

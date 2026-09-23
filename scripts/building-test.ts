@@ -324,11 +324,19 @@ test('a wall stacks over a door', () => {
   assert.ok(over.ok, `wall over the door refused: ${over.ok === false && over.reason}`)
   assert.equal(over.placement.z, height)
 
-  // Aimed through the opening, the wall goes down at ground level across the
-  // doorway: the door has no collision, so nothing there refuses it.
+  // Aimed through the opening, the door itself refuses the wall, although it
+  // has no collision: two panels never share an edge in the same band.
   const across = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: 0 }, actor, who('w2'))
-  assert.ok(across.ok)
-  assert.equal(across.placement.z, 0)
+  assert.equal(across.ok, false)
+  assert.equal(across.ok === false && across.reason, 'Kit_WallDoor is in the way')
+
+  // Nor does a door go into a wall, or a gate into a fence.
+  put(world, 'wall', 'Kit_Wall', gx + 2, gy - 1, 0, 0)
+  put(world, 'fence', 'Kit_Fence', gx - 2, gy - 1, 0, 0)
+  for (const [kind, x, blocker] of [['Kit_WallDoor', gx + 2, 'Kit_Wall'], ['Kit_Gate', gx - 2, 'Kit_Fence']] as const) {
+    const into = resolveBuild(world, { kind, x, y: gy - 0.9, rot: 0, h: 0 }, actor, who('p'))
+    assert.equal(into.ok === false && into.reason, `${blocker} is in the way`)
+  }
 })
 
 test('a refused piece still reports the height it would have stood at', () => {

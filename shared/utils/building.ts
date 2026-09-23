@@ -443,6 +443,29 @@ function ledgeHeight(world: World, prop: PropSpec, feet: number): number {
   return Math.round(best * 100) / 100
 }
 
+/**
+ * A panel already standing on this edge in the band a new one would take, or
+ * null.
+ *
+ * Read off the kit's heights rather than collision, because the door and the
+ * gate have none: `overlappingPiece` skips them, so a wall aimed through a
+ * doorway went down inside the door and a door went into a wall, two models on
+ * one edge. Touching bands are a stack, which is how a wall goes over a door.
+ */
+function panelOnEdge(world: World, prop: PropSpec): PropSpec | null {
+  if (!isEdgeKind(prop.kind)) return null
+  const lo = prop.z ?? 0
+  const hi = lo + KIT_ASSETS[prop.kind as KitKind].height
+  for (const other of propsInBox(world, prop.x - 0.5, prop.y - 0.5, prop.x + 0.5, prop.y + 0.5)) {
+    if (other.id === prop.id || !isEdgeKind(other.kind) || !near(other.x, prop.x) || !near(other.y, prop.y)) continue
+    const base = other.z ?? 0
+    const top = base + KIT_ASSETS[other.kind as KitKind].height
+    if (lo >= top - OVERLAP_EPSILON || hi <= base + OVERLAP_EPSILON) continue
+    return other
+  }
+  return null
+}
+
 /** Whether `cell` is the cell the stairs climb into. A flight rises along its
  *  local +depth (`ramparts.ts` measures its treads that way), which in the
  *  world is (sin rot, cos rot); beside the low end or a side is not a landing. */
@@ -734,6 +757,8 @@ export function resolveBuild(
   // the overlap test below would still be reasoning about ground level.
   elevateProp(prop, support)
   if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there', z: support }
+  const panel = panelOnEdge(world, prop)
+  if (panel) return { ok: false, reason: `${panel.kind} is in the way`, z: support }
   const blocker = overlappingPiece(world, prop)
   if (blocker) return { ok: false, reason: `${blocker.kind} is in the way`, z: support }
   return { ok: true, placement }
