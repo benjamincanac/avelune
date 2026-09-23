@@ -223,10 +223,25 @@ const OVERLAP_EPSILON = 0.02
  */
 const EDGE_CORNER_INSET = 0.15
 
+/** Whether a kind fills a whole `BUILD_GRID` cell: floors, roofs, stairs. */
+function isCellKind(kind: string): boolean {
+  return !isEdgeKind(kind) && snapGridFor(kind) === BUILD_GRID
+}
+
 /** The footprint `overlappingPiece` reasons about: exact, except that a panel
- *  gives up a corner's worth at each end of its run. */
-function overlapBounds(prop: PropSpec): { minX: number, maxX: number, minY: number, maxY: number } {
+ *  gives up a corner's worth at each end of its run, and a cell piece gives up
+ *  the same strip on every side to a panel. A panel straddles its edge, so half
+ *  of it is inside each cell it bounds; without the cell's inset, stairs pushed
+ *  against a wall or a floor laid inside a finished room collided with the
+ *  wall. Against anything else, a tree or a crate, the cell stays exact.
+ *  `against` absent is the support sampler, which takes the inset too: a wall
+ *  top holds a slab through `ledgeHeight`, never through a corner sample. */
+function overlapBounds(prop: PropSpec, against?: PropSpec): { minX: number, maxX: number, minY: number, maxY: number } {
   const b = propBounds(prop)
+  if (isCellKind(prop.kind)) {
+    if (against && !isEdgeKind(against.kind)) return b
+    return { minX: b.minX + EDGE_CORNER_INSET, maxX: b.maxX - EDGE_CORNER_INSET, minY: b.minY + EDGE_CORNER_INSET, maxY: b.maxY - EDGE_CORNER_INSET }
+  }
   if (!isEdgeKind(prop.kind)) return b
   // The run is the panel's local X, so world X at rot 0 or PI.
   if (Math.abs(Math.cos(prop.rot)) > 0.5) {
@@ -245,14 +260,14 @@ function overlapBounds(prop: PropSpec): { minX: number, maxX: number, minY: numb
  */
 export function overlappingPiece(world: World, candidate: PropSpec): PropSpec | null {
   if (!isSolidProp(candidate.kind)) return null
-  const a = overlapBounds(candidate)
   const av = propSpan(candidate)
   const query = propBounds(candidate)
   // The cell index over the candidate's own AABB: every piece whose footprint
   // could touch it is in there, and the exact tests below throw the rest away.
   for (const prop of propsInBox(world, query.minX, query.minY, query.maxX, query.maxY)) {
     if (prop.id === candidate.id || !isSolidProp(prop.kind)) continue
-    const b = overlapBounds(prop)
+    const a = overlapBounds(candidate, prop)
+    const b = overlapBounds(prop, candidate)
     if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
     if (a.minY >= b.maxY - OVERLAP_EPSILON || a.maxY <= b.minY + OVERLAP_EPSILON) continue
     const bv = propSpan(prop)
@@ -300,7 +315,6 @@ function cleanAim(h: number | undefined): number | undefined {
  */
 function ceilingOver(world: World, candidate: PropSpec): PropSpec | null {
   if (!isSolidProp(candidate.kind)) return null
-  const a = overlapBounds(candidate)
   const av = propSpan(candidate)
   const query = propBounds(candidate)
   for (const prop of propsInBox(world, query.minX, query.minY, query.maxX, query.maxY)) {
@@ -311,7 +325,8 @@ function ceilingOver(world: World, candidate: PropSpec): PropSpec | null {
     // Clears the top of the band. Touching exactly is clearance, which is what
     // lets a 2.5 wall stand under a floor laid at 2.5.
     if (bv.lo >= av.hi - OVERLAP_EPSILON) continue
-    const b = overlapBounds(prop)
+    const a = overlapBounds(candidate, prop)
+    const b = overlapBounds(prop, candidate)
     if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
     if (a.minY >= b.maxY - OVERLAP_EPSILON || a.maxY <= b.minY + OVERLAP_EPSILON) continue
     return prop
@@ -350,6 +365,112 @@ export function supportHeight(world: World, prop: PropSpec, aim?: number): numbe
     if (h > top) top = h
   }
   return Number.isFinite(top) ? Math.round(top * 100) / 100 : Number.NEGATIVE_INFINITY
+}
+
+/**
+ * How far above the aim a ledge may still be chosen, in tiles. Wider than
+ * `AIM_SLACK` because a ledge is a line, not a surface: the top of a wall seen
+ * from inside the room is a sliver, and the upper third of it has to count.
+ */
+export const LEDGE_SLACK = 1
+
+/** Slabs that may hang off a neighbour rather than rest on what is under them,
+ *  grouped by which neighbours they sit level with. */
+const SPAN_FAMILY: Readonly<Record<string, 'floor' | 'roof'>> = {
+  Kit_Floor: 'floor',
+  Kit_Roof: 'roof',
+  Kit_RoofCorner: 'roof',
+}
+
+/** Whether a kind is a slab that may hang from a neighbour (`ledgeHeight`). */
+export function isSpanKind(kind: string): boolean {
+  return kind in SPAN_FAMILY
+}
+
+/** Panels whose top carries a slab laid on the edge they stand on, and the next
+ *  panel stacked on the same edge. The door is not solid, so it is listed here
+ *  rather than read off its collision: without that, a wall aimed above a door
+ *  read the ground through the opening and landed across the doorway. */
+const LEDGE_PANELS: ReadonlySet<string> = new Set(['Kit_Wall', 'Kit_WallWindow', 'Kit_WallDoor'])
+
+const near = (a: number, b: number) => Math.abs(a - b) < OVERLAP_EPSILON
+
+/**
+ * The highest ledge a piece may hang from, at or under `feet`, or -Infinity
+ * where there is none.
+ *
+ * Resting on what is under the footprint is not enough to build a storey: the
+ * middle of a ceiling has nothing under it but the room. So a slab also hangs
+ * from what borders its cell: the top of a wall standing on one of its edges,
+ * a slab of its own family in the next cell (level with it), and for a floor
+ * the top of the stairs whose high end faces it, which is the landing. That is
+ * how a floor spreads across a room from its walls and a roof closes over it.
+ *
+ * A panel has one ledge: the top of the panel already on its edge. Walls read
+ * that through their collision anyway; it is here for the door, which has none.
+ */
+function ledgeHeight(world: World, prop: PropSpec, feet: number): number {
+  const family = SPAN_FAMILY[prop.kind]
+  const panel = LEDGE_PANELS.has(prop.kind)
+  if (!family && !panel) return Number.NEGATIVE_INFINITY
+  const half = BUILD_GRID / 2
+  let best = Number.NEGATIVE_INFINITY
+  const reach = BUILD_GRID + half
+  for (const other of propsInBox(world, prop.x - reach, prop.y - reach, prop.x + reach, prop.y + reach)) {
+    if (other.id === prop.id) continue
+    const dx = Math.abs(other.x - prop.x)
+    const dy = Math.abs(other.y - prop.y)
+    const base = other.base ?? other.z ?? 0
+    let level: number
+    if (panel) {
+      if (!LEDGE_PANELS.has(other.kind) || !near(dx, 0) || !near(dy, 0)) continue
+      level = base + KIT_ASSETS[other.kind as KitKind].height
+    }
+    else if (LEDGE_PANELS.has(other.kind)) {
+      // Edge snapping means a panel on one of our edges is exactly half a cell
+      // out on one axis and centred on the other.
+      if (!((near(dx, half) && near(dy, 0)) || (near(dx, 0) && near(dy, half)))) continue
+      level = base + KIT_ASSETS[other.kind as KitKind].height
+    }
+    else {
+      if (!((near(dx, BUILD_GRID) && near(dy, 0)) || (near(dx, 0) && near(dy, BUILD_GRID)))) continue
+      if (SPAN_FAMILY[other.kind] === family) level = base
+      else if (family === 'floor' && other.kind === 'Kit_Stairs' && isStairsHead(other, prop)) level = base + KIT_ASSETS.Kit_Stairs.height
+      else continue
+    }
+    if (level <= feet && level > best) best = level
+  }
+  return Math.round(best * 100) / 100
+}
+
+/**
+ * A panel already standing on this edge in the band a new one would take, or
+ * null.
+ *
+ * Read off the kit's heights rather than collision, because the door and the
+ * gate have none: `overlappingPiece` skips them, so a wall aimed through a
+ * doorway went down inside the door and a door went into a wall, two models on
+ * one edge. Touching bands are a stack, which is how a wall goes over a door.
+ */
+function panelOnEdge(world: World, prop: PropSpec): PropSpec | null {
+  if (!isEdgeKind(prop.kind)) return null
+  const lo = prop.z ?? 0
+  const hi = lo + KIT_ASSETS[prop.kind as KitKind].height
+  for (const other of propsInBox(world, prop.x - 0.5, prop.y - 0.5, prop.x + 0.5, prop.y + 0.5)) {
+    if (other.id === prop.id || !isEdgeKind(other.kind) || !near(other.x, prop.x) || !near(other.y, prop.y)) continue
+    const base = other.z ?? 0
+    const top = base + KIT_ASSETS[other.kind as KitKind].height
+    if (lo >= top - OVERLAP_EPSILON || hi <= base + OVERLAP_EPSILON) continue
+    return other
+  }
+  return null
+}
+
+/** Whether `cell` is the cell the stairs climb into. A flight rises along its
+ *  local +depth (`ramparts.ts` measures its treads that way), which in the
+ *  world is (sin rot, cos rot); beside the low end or a side is not a landing. */
+function isStairsHead(stairs: PropSpec, cell: { x: number, y: number }): boolean {
+  return near(stairs.x + Math.sin(stairs.rot) * BUILD_GRID, cell.x) && near(stairs.y + Math.cos(stairs.rot) * BUILD_GRID, cell.y)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -467,10 +588,12 @@ const REFUSE = (reason: string): EditVerdict => ({ ok: false, reason })
 const REFUSE_CLAIM = (deed: WorldPlacement): EditVerdict => ({ ok: false, reason: PLOT_REFUSAL, claim: deed.owner })
 
 /** What `resolveBuild` returns: the exact placement the server would store, or
- *  the refusal, with `claim` carried the same way `EditVerdict` carries it. */
+ *  the refusal, with `claim` carried the same way `EditVerdict` carries it.
+ *  A refusal made after the height was resolved carries that `z`, so the ghost
+ *  shows the blocked piece where it would have stood rather than on the dirt. */
 export type BuildVerdict
   = | { ok: true, placement: WorldPlacement }
-    | { ok: false, reason: string, claim?: string }
+    | { ok: false, reason: string, claim?: string, z?: number }
 const ALLOW: EditVerdict = { ok: true }
 
 function inWorld(x: number, y: number): boolean {
@@ -625,15 +748,19 @@ export function resolveBuild(
     const verdict = checkDeedPlacement(world, pose, context.owner, held)
     if (!verdict.ok) return verdict
   }
-  const support = supportHeight(world, prop, cleanAim(request.h))
-  if (!Number.isFinite(support)) return { ok: false, reason: 'that ground is not loaded' }
+  const aim = cleanAim(request.h)
+  const ground = supportHeight(world, prop, aim)
+  if (!Number.isFinite(ground)) return { ok: false, reason: 'that ground is not loaded' }
+  const support = Math.max(ground, ledgeHeight(world, prop, aim == null ? Infinity : aim + LEDGE_SLACK))
   placement.z = support
   // Keep the resolved spec's band in step with the elevation we just chose, or
   // the overlap test below would still be reasoning about ground level.
   elevateProp(prop, support)
-  if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there' }
+  if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there', z: support }
+  const panel = panelOnEdge(world, prop)
+  if (panel) return { ok: false, reason: `${panel.kind} is in the way`, z: support }
   const blocker = overlappingPiece(world, prop)
-  if (blocker) return { ok: false, reason: `${blocker.kind} is in the way` }
+  if (blocker) return { ok: false, reason: `${blocker.kind} is in the way`, z: support }
   return { ok: true, placement }
 }
 

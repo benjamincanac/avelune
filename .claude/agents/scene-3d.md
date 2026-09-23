@@ -692,8 +692,12 @@ where the crosshair sits — marched against the shared heightfield in tile spac
 rather than raycast against the terrain meshes, so the highlight can never
 disagree with the ground physics reads. Placements are picked by world bounding
 box, as `hubEditor` does and for the same reason (sparse geometry a triangle ray
-slips between). It runs from the render loop *after* the camera has moved, or it
-aims a frame behind the view.
+slips between). A kit piece's box is its model's (`KIT_ASSETS`), not its
+collision (`pickBounds`): the door has no collision, so it was a 0.8 stub the ray
+flew over, and a top face reports the model's height, not `prop.top`, which is 0
+for the door. It runs from the render loop *after* the camera has moved, or it
+aims a frame behind the view. `scripts/build-aim-test.ts` drives the real tools
+with a posed camera.
 
 **The ray takes the first thing it meets, and remembers which face.** Terrain and
 piece boxes are both tested and the nearest wins; `faceNormal` reads the entered

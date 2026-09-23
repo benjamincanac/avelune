@@ -49,7 +49,7 @@ NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/i
 ```
 
 **2. Drive it.** The game lives at **`/play`** (`/` is the static landing page),
-and every mode but `landing` drives that. Nine modes: `arena` (default) enters and shoots the spawn;
+and every mode but `landing` drives that. Ten modes: `arena` (default) enters and shoots the spawn;
 `chat` says a short line, then a long one addressed to the Oracle, and shoots
 each bubble (`-short` beside `MMO_OUT`, then `MMO_OUT` with the long line and the Oracle's reply);
 `walk` also holds `W` for a few seconds first; `meadow` walks out of the south
@@ -107,6 +107,23 @@ gate), `MMO_TURN` (px of yaw for the about-turn, ~507 px per 90°) and
 `MMO_PITCH`. Framing out in the meadow is luck of the draw — the player can end
 up wedged against a boulder or inside a tree, collapsing the camera boom onto
 its own face. Vary `MMO_BACK` / `MMO_TURN` and shoot again.
+
+**`room` mode** checks the build rules end to end, and needs a **dev server**
+started with `AVELUNE_DEV_COMMANDS=1` (it builds through `window.__maze.game.sendBuild`,
+so every piece carries an exact aim and height instead of a synthetic crosshair).
+It teleports to `MMO_ROOM_X + 1, MMO_ROOM_Y` (default `110, 150`), raises a two
+cell room with a door, a wall stacked over the door, a floor laid inside, stairs
+pushed against the walls and an upper floor hung from the wall tops, then lays a
+floor, a path, a crate, a fence, a gate and the two roof pieces on open meadow.
+Each piece prints `BUILT` or `REFUSED`, and it writes `-room` (the house from the
+front), `-cover` (the meadow pieces, with no grass through them) and `-kit` (the
+roofs on the ground, a close look at the rebuilt kit) beside `MMO_OUT`. Headed by default, like `target`.
+Restart the server between runs: the store is in memory, and a second run is
+refused on every cell the first one filled.
+```bash
+AVELUNE_DEV_COMMANDS=1 NUXT_IGNORE_LOCK=1 pnpm dev --port 4390 &
+MMO_URL=http://localhost:4390 MMO_OUT=/tmp/room.png node .claude/skills/run-mmo/driver.mjs room
+```
 
 **`still` mode** shoots the town with nobody in it, and it is how
 `public/landing.jpg`, the landing page's backdrop, is reshot. It opens the dev

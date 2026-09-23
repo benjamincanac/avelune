@@ -99,7 +99,29 @@ independently.
   about that inset box: a corner is a join, so it neither refuses a build nor
   holds the next panel up a storey. `propBounds` and the physical collision
   boxes in `props.ts` stay exact, so four panels still seal a cell — the
-  perpendicular neighbour covers precisely the strip the inset gave up.
+  perpendicular neighbour covers precisely the strip the inset gave up. A cell
+  piece (floor, roof, stairs) gives up the same 0.15 on every side, but only
+  against a panel (`overlapBounds(prop, against)`) and in the support sampler:
+  a panel straddles its edge, so without it stairs against a wall and a floor
+  inside a finished room were refused. Against a tree or a crate the cell stays
+  exact.
+
+  **Ledges.** The sampler never reads a wall top through a slab's corners any
+  more. `ledgeHeight` is how a slab gets up there: a `Kit_Floor`, `Kit_Roof` or
+  `Kit_RoofCorner` may hang from the top of a wall panel on one of its edges,
+  level with a slab of its own family in the next cell, and (floors only) at
+  the top of stairs whose high end faces it (a flight climbs along its local
+  +depth, world `(sin rot, cos rot)`, as `ramparts.ts` measures its treads). A
+  wall panel has one ledge too, the top of the panel on its own edge: walls get
+  that from collision anyway, but `Kit_WallDoor` has none, and without it a wall
+  aimed over a door read the ground through the opening. For the same reason
+  `panelOnEdge` refuses a panel wherever another panel already stands on that
+  edge in an overlapping band, read off `KIT_ASSETS` heights: `overlappingPiece`
+  skips the door and the gate, so a wall went down inside a doorway. `resolveBuild` takes the higher of the sampled
+  support and the highest ledge at or under `aim + LEDGE_SLACK` (1, wider than
+  `AIM_SLACK` because a wall top seen from inside the room is a sliver). That is
+  what lets an upper floor cross a room and a roof close its middle, where
+  nothing is under the cell but the room.
 
   **Aim height.** A `build` request carries an optional `h`, the world height
   the client's ray hit. `supportHeight(world, prop, aim)` then answers with the
