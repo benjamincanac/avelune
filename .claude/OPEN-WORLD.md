@@ -144,7 +144,7 @@ Done when: a player builds a two-storey house with a door and stairs, walks in a
 
 - `@upstash/redis`, `UPSTASH_REDIS_REST_URL` and token in runtime config. Local dev without the env falls back to in-memory only.
 - Load chunk from Redis on first touch, else generate. Write-behind every 5 s and on `SIGTERM`. CAS on version.
-- `scripts/world-admin.mjs`: export, import, wipe a chunk range, reset the world.
+- `scripts/world-admin.mjs`: export, import, wipe a chunk range, reset the world, clear a tile rectangle back to generated ground (the gate approach by default).
 
 Done when: build, redeploy, build is still there. Two instances started locally against the same Redis never corrupt a chunk.
 
