@@ -121,8 +121,9 @@ independently.
   centred on its own tile, `DEED_LIMIT` (1) per player. `plotBounds` is
   half-open in tiles, so two plots exactly `DEED_SIZE` apart touch without
   overlapping. Inside a plot only the owner may terraform, build or demolish —
-  unowned wild growth included, which is the one place `canRemove` is not the
-  last word. `checkDeedPlacement` refuses a post whose plot would overlap
+  unowned wild growth included. Outside every plot anyone may demolish any
+  player's piece: `canRemove` only says whether a piece is removable at all
+  (built by a player, or wild nature), and the plot is the sole protection. `checkDeedPlacement` refuses a post whose plot would overlap
   another player's plot, a protected tile, or a piece somebody else built; your
   own pieces are fine, so you can fence a house first and deed it after.
   `deedAt` / `plotOwner` / `foreignClaim` answer from `chunk.deeds`, a derived

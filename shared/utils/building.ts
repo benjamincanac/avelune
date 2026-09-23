@@ -108,11 +108,12 @@ export function isPlaceableKind(kind: string): boolean {
   return isKitKind(kind) || NATURE_KINDS.has(kind)
 }
 
-/** Whether a piece may be taken away by this player: their own, or an unowned
- *  piece of the nature kit (a generated tree anyone may clear). */
-export function canRemove(placement: WorldPlacement, playerId: string): boolean {
-  if (placement.owner) return placement.owner === playerId
-  return NATURE_KINDS.has(placement.kind)
+/** Whether a piece may be taken away at all: anything a player built, or an
+ *  unowned piece of the nature kit (a generated tree). Who may take it is the
+ *  plot's question, not the piece's: outside every claim a build is anyone's
+ *  to knock down, which is what a deed is for. */
+export function canRemove(placement: WorldPlacement): boolean {
+  return !!placement.owner || NATURE_KINDS.has(placement.kind)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -637,15 +638,15 @@ export function resolveBuild(
 }
 
 /** Whether this player may take that piece away, and reach it. Inside a plot
- *  only its owner may clear anything, a generated tree included — otherwise a
- *  stranger could log your garden without touching a thing you built. */
+ *  only its owner may clear anything, a generated tree included. Outside every
+ *  plot anyone may, whoever built it: an unclaimed build is not protected. */
 export function checkDemolish(world: World, placement: WorldPlacement, actor: EditActor, playerId: string): EditVerdict {
   // Only the town refuses a demolish. The gate approach is closed to building,
   // not to clearing: anything standing in it is in the way by definition, and
   // a piece raised there before the rule existed has to be removable.
   if (editLock(placement.x, placement.y) === 'town') return REFUSE(LOCK_REFUSAL.town)
   if (!withinReach(actor, placement.x, placement.y)) return REFUSE('too far away')
-  if (!canRemove(placement, playerId)) return REFUSE('that is not yours')
+  if (!canRemove(placement)) return REFUSE('that cannot be removed')
   const deed = deedAt(world, placement.x, placement.y)
   if (deed?.owner && deed.owner !== playerId) return REFUSE_CLAIM(deed)
   return ALLOW

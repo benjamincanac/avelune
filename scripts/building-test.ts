@@ -667,6 +667,25 @@ test('wild vegetation inside a plot is the owner s to clear', () => {
   assert.equal(checkDemolish(world, wild, { x: wild.x, y: wild.y, id: 'bo' }, 'bo').ok, true)
 })
 
+test('a build is only protected inside its owner s plot', () => {
+  const { world, x, y } = plotGround()
+  assert.ok(claim(world, 'ana', x, y).ok)
+
+  const inside = { x: x + 3, y: y + 3 }
+  const kept = resolveBuild(world, { kind: 'Kit_Crate', ...inside, rot: 0 }, { ...inside, id: 'ana' }, { owner: 'ana', id: 'a1', pieces: 1 })
+  assert.ok(kept.ok)
+  applyPlace(world, kept.placement)
+  const refused = checkDemolish(world, kept.placement, { ...inside, id: 'bo' }, 'bo')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.ok === false && refused.claim, 'ana')
+
+  const outside = { x: x + DEED_SIZE + 2, y }
+  const loose = resolveBuild(world, { kind: 'Kit_Crate', ...outside, rot: 0 }, { ...outside, id: 'ana' }, { owner: 'ana', id: 'a2', pieces: 2 })
+  assert.ok(loose.ok)
+  applyPlace(world, loose.placement)
+  assert.equal(checkDemolish(world, loose.placement, { ...outside, id: 'bo' }, 'bo').ok, true)
+})
+
 test('pulling the deed releases the plot and leaves the pieces', () => {
   const { world, x, y } = plotGround()
   const planted = claim(world, 'ana', x, y)
@@ -681,10 +700,12 @@ test('pulling the deed releases the plot and leaves the pieces', () => {
   applyRemove(world, planted.placement.id)
 
   assert.equal(plotOwner(world, x, y), undefined)
-  // The crate stayed where it was, and is still only Ana s to remove.
+  // The crate stayed where it was, and with the claim gone it is anyone s to
+  // knock down.
   const chunk = world.getChunk(8, 8)!
   assert.ok(chunk.placements.some(p => p.id === 'a1'))
   assert.equal(chunk.deeds.length, 0)
+  assert.equal(checkDemolish(world, crate.placement, { ...inside, id: 'bo' }, 'bo').ok, true)
 
   // ...and a stranger can build here again.
   const bo = { x: x + 6, y: y + 6 }
