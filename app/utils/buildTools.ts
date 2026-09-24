@@ -547,40 +547,56 @@ export function createBuildTools(options: BuildToolsOptions) {
     return hit.h
   }
 
-  /** How far up the view has to point before a ray that meets nothing is read
-   *  as looking at the sky rather than at the horizon. */
-  const SKY_PITCH = 0.2
-  /** How far the ray may pass above or below a slab's level and still be read
-   *  as aiming into its cell: a roof piece is 1.2 tall. */
-  const GAP_BAND = 1.3
+  /** How far the eye must be above or below a slab's level to be looking
+   *  through its gap rather than along it. Level with a deck, every cell beside
+   *  it is crossed at its level right in front of the camera. */
+  const GAP_CLEARANCE = 0.75
+  /** How far short of what the ray hits the gap has to be crossed. A slab that
+   *  would rest on the thing hit is that hit, not a gap. */
+  const GAP_MARGIN = 0.3
 
   /**
-   * The open slab cell the view passes through, when it passes through the
-   * gap in a ceiling or a roof and meets nothing beyond it.
+   * The open slab cell the view looks through, before whatever it hits.
    *
-   * Walked along the ray one cell at a time, within reach, asking the shared
-   * rules where the armed slab would go with the ray's own height as the aim.
-   * The first cell where it would hang, level with where the ray crosses it,
-   * is the gap being looked at. Without this the aim fell through to the
-   * ground ahead, and the last hole in a roof could not be pointed at at all.
+   * Walked along the ray one cell at a time, within reach and short of
+   * `limit`, asking the shared rules where the armed slab would go. A cell is
+   * the gap when the ray crosses the plane of that level inside the cell, and
+   * clearly before the hit: looking down into a hole in a roof it meets the
+   * floor below, but it crossed the roof's level in the hole on the way, and
+   * that is the cell the player means. Looking up through a ceiling it is the
+   * same crossing from below, with nothing hit beyond it.
    */
-  function gapAim(kind: string, actor: { x: number, y: number }, rot: number, selfId: string): { x: number, y: number, h: number } | null {
+  function gapAim(kind: string, actor: { x: number, y: number }, rot: number, selfId: string, limit: number): { x: number, y: number, h: number } | null {
+    if (Math.abs(forward.y) < 1e-3) return null
+    const half = (snapGridFor(kind) || 1) / 2
+    const context = { owner: selfId, id: 'ghost', pieces: build.pieces.value, deeds: build.deeds.value }
     let last = ''
-    for (let t = RAY_STEP; t <= MAX_RAY; t += RAY_STEP) {
+    for (let t = RAY_STEP; t <= limit; t += RAY_STEP) {
       const x = origin.x + forward.x * t
       const y = origin.z + forward.z * t
-      const h = origin.y + forward.y * t
       if (Math.hypot(x - actor.x, y - actor.y) > EDIT_REACH) break
+      const h = origin.y + forward.y * t
       const pose = snapPlacement(kind, x, y, rot)
-      const key = `${pose.x},${pose.y}`
+      // Once per cell per tile of height: a ledge is only offered within
+      // `LEDGE_SLACK` of the aim, and a steep ray climbs a storey inside one
+      // cell, so the height it entered at is not enough to ask with.
+      const key = `${pose.x},${pose.y},${Math.floor(h)}`
       if (key === last) continue
       last = key
-      const verdict = resolveBuild(world, { kind, x, y, rot, h }, actor, { owner: selfId, id: 'ghost', pieces: build.pieces.value, deeds: build.deeds.value })
-      if (!verdict.ok) continue
-      const z = verdict.placement.z ?? 0
-      const ground = terrainHeight(world, pose.x, pose.y)
-      // Hung, not resting on the ground under the gap.
-      if (z - ground > 0.5 && Math.abs(h - z) <= GAP_BAND) return { x, y, h }
+      const first = resolveBuild(world, { kind, x, y, rot, h }, actor, context)
+      if (!first.ok) continue
+      const z = first.placement.z ?? 0
+      if (Math.abs(origin.y - z) < GAP_CLEARANCE) continue
+      // Where the ray crosses that level: it has to be inside this cell and in
+      // front of the hit.
+      const cross = (z - origin.y) / forward.y
+      if (cross <= 0 || cross > limit - GAP_MARGIN) continue
+      const cx = origin.x + forward.x * cross
+      const cy = origin.z + forward.z * cross
+      if (Math.abs(cx - pose.x) > half || Math.abs(cy - pose.y) > half) continue
+      if (limit >= MAX_RAY && z - terrainHeight(world, pose.x, pose.y) < 0.5) continue
+      const verdict = resolveBuild(world, { kind, x: cx, y: cy, rot, h: z }, actor, context)
+      if (verdict.ok && verdict.placement.z === z) return { x: cx, y: cy, h: z }
     }
     return null
   }
@@ -652,11 +668,12 @@ export function createBuildTools(options: BuildToolsOptions) {
     // An armed tool with no target at all reads as broken, and there is always
     // a tile in front of you.
     //
-    // Except for a slab looking up past everything: a gap in the ceiling or roof
-    // overhead is what the player is pointing at, when there is one in reach.
-    const sky = !piece && !ground && !!slot.kind && forward.y > SKY_PITCH
-    const gap = sky && isSpanKind(slot.kind!) ? gapAim(slot.kind!, actor, build.rot.value, selfId) : null
-    const aim = gap ?? (piece && (!ground || piece.distance < ground.distance) ? piece : (ground ?? reachableGround(actor)))
+    // Except for a floor or roof looking through a gap in a ceiling or roof,
+    // from above or below: the open cell the ray passes on its way is what the
+    // player is pointing at, not what it meets beyond.
+    const hit = piece && (!ground || piece.distance < ground.distance) ? piece : ground
+    const gap = slot.kind && isSpanKind(slot.kind) ? gapAim(slot.kind, actor, build.rot.value, selfId, hit?.distance ?? MAX_RAY) : null
+    const aim = gap ?? hit ?? reachableGround(actor)
     if (!aim) return hide('nothing in range')
 
     if (slot.kind) {

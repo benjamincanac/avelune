@@ -361,7 +361,8 @@ test('a roof closes over the middle of a room', () => {
   put(world, 'roof-w', 'Kit_Roof', gx, gy, 0, wallH)
 
   // The ray meets the side of the roof beside the gap, anywhere up its slope.
-  const gap = resolveBuild(world, { kind: 'Kit_Roof', x: gx + 2, y: gy, rot: Math.PI, h: wallH + 0.9 }, actor, who('r1'))
+  // Facing the same way, the two slopes run on side by side at one level.
+  const gap = resolveBuild(world, { kind: 'Kit_Roof', x: gx + 2, y: gy, rot: 0, h: wallH + 0.9 }, actor, who('r1'))
   assert.ok(gap.ok, `roof over the gap refused: ${gap.ok === false && gap.reason}`)
   assert.equal(gap.placement.z, wallH)
 
@@ -369,6 +370,32 @@ test('a roof closes over the middle of a room', () => {
   const floor = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 2, y: gy, rot: 0, h: wallH + 0.5 }, actor, who('f1'))
   assert.ok(floor.ok)
   assert.equal(floor.placement.z, 0)
+})
+
+test('roofs meet where their slopes do', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 17, 11)
+  const actor = { x: gx, y: gy }
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  const rise = KIT_ASSETS.Kit_Roof.height
+  // Its ridge on its +y edge, its eave on -y.
+  put(world, 'roof', 'Kit_Roof', gx, gy, 0, wallH)
+  const roof = (x: number, y: number, rot: number, h: number, kind = 'Kit_Roof') => resolveBuild(world, { kind, x, y, rot, h }, actor, who('r'))
+  const z = (v: ReturnType<typeof roof>) => v.ok ? v.placement.z : v.reason
+
+  // Back to back, ridge to ridge: a gable, level.
+  assert.equal(z(roof(gx, gy + 2, Math.PI, wallH + 0.5)), wallH)
+  // An eave meeting this ridge carries the slope on up, a whole rise higher.
+  assert.equal(z(roof(gx, gy + 2, 0, wallH + 1)), wallH + rise)
+  // Aimed low, the same piece sits level beside it instead.
+  assert.equal(z(roof(gx, gy + 2, 0, wallH - 0.5)), wallH)
+  // A ridge meeting this eave carries the slope on down, aimed below it...
+  assert.equal(z(roof(gx, gy - 2, 0, wallH - 1.5)), wallH - rise)
+  // ...and sits level on the walls when aimed at the roof: nothing is refused
+  // for a step where two roofs meet.
+  put(world, 'front', 'Kit_Wall', gx, gy - 3, 0, 0)
+  assert.equal(z(roof(gx, gy - 2, 0, wallH + 0.5)), wallH)
+  assert.equal(z(roof(gx, gy - 2, 0, wallH + 0.5, 'Kit_RoofCorner')), wallH)
 })
 
 /* -------------------------------------------------------------------------- */
