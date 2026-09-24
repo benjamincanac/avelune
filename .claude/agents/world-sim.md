@@ -121,14 +121,13 @@ independently.
   support and the highest ledge at or under `aim + LEDGE_SLACK` (1, wider than
   `AIM_SLACK` because a wall top seen from inside the room is a sliver). That is
   what lets an upper floor cross a room and a roof close its middle, where
-  nothing is under the cell but the room. Roofs do not simply sit level with a
-  neighbour: two roof pieces sharing an edge must agree on their top height at
-  both of its corners (`roofMeetLevel`, `roofRise`). `Kit_Roof` climbs to its
-  local +Z edge and `Kit_RoofCorner` to its +X +Z corner, local +Z being world
-  `(sin rot, cos rot)` like the stairs. So back to back is level, a ridge
-  meeting an eave steps a whole rise, and a piece whose slope cannot meet the
-  roof beside it is refused with `ROOF_MISMATCH` (`roofMismatch`). The client
-  keeps its ghost in the gap on that refusal so `R` can fix it.
+  nothing is under the cell but the room. A roof beside a roof is offered two
+  levels: level with it, and the level where the two tops agree at both corners
+  of the shared edge (`roofMeetLevel`, `roofRise`), which for a ridge beside an
+  eave is a whole rise up or down. `Kit_Roof` climbs to its local +Z edge and
+  `Kit_RoofCorner` to its +X +Z corner, local +Z being world `(sin rot, cos rot)`
+  like the stairs. Nothing is refused for not meeting: requiring it left a
+  front row with nowhere to go but a rise under its own walls.
 
   **Aim height.** A `build` request carries an optional `h`, the world height
   the client's ray hit. `supportHeight(world, prop, aim)` then answers with the

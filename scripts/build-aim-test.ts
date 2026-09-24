@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { PerspectiveCamera, Scene, Vector3 } from 'three'
 import type { Group } from 'three'
-import { ROOF_MISMATCH, resolveBuild } from '../shared/utils/building'
+import { resolveBuild } from '../shared/utils/building'
 import { KIT_ASSETS } from '../shared/utils/kit'
 import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
@@ -118,32 +118,19 @@ test('a ground floor beside a raised deck is not taken for a gap', () => {
   assert.deepEqual([low.placement.x, low.placement.y, low.placement.z], [gx + 2, gy, 0])
 })
 
-test('a roof turned the wrong way for the gap stays in it, refused', () => {
+test('the front row of a roof goes up on its walls beside the back row', () => {
   const world = createWorld()
   const { x: gx, y: gy } = levelChunk(world, 16, 10)
-  roofWithHole(world, gx, gy, 5)
-  // A wall under the gap holds a roof at the run's level whichever way it faces.
-  put(world, 'wall-n', 'Kit_Wall', gx, gy - 1, 0, 2.5)
-  const actor = { x: gx + 2, y: gy + 2 }
-  const camera = new PerspectiveCamera(62, 1.6, 0.05, 260)
-  camera.position.set(gx + 1.2, 8, gy + 1.2)
-  camera.lookAt(new Vector3(gx + 0.2, 2.7, gy + 0.2))
-  camera.updateMatrixWorld()
-  const ref = <T>(value: T) => ({ value })
-  const build = {
-    active: ref({ id: 'Kit_Roof', kind: 'Kit_Roof', label: 'Roof', icon: '' }),
-    rot: ref(Math.PI / 2),
-    pieces: ref(0),
-    deeds: ref(0),
-    targetOk: ref(true),
-    targetHint: ref(''),
-    size: ref(2),
-    surface: ref(0),
-  } as unknown as UseBuild
-  const tools = createBuildTools({ scene: new Scene(), world, templates: new Map<string, Group>(), getCamera: () => camera, build })
-  const target = tools.update(actor, 'builder')
-  tools.dispose()
-  assert.ok(target)
-  assert.deepEqual([target.x, target.y, target.ok], [gx, gy, false])
-  assert.equal(target.hint, ROOF_MISMATCH)
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  // The back row, its eave facing the open front cell, which is walled round.
+  put(world, 'back', 'Kit_Roof', gx, gy, 0, wallH)
+  put(world, 'front-wall', 'Kit_Wall', gx, gy - 3, 0, 0)
+  put(world, 'side-w', 'Kit_Wall', gx - 1, gy - 2, Math.PI / 2, 0)
+  put(world, 'side-e', 'Kit_Wall', gx + 1, gy - 2, Math.PI / 2, 0)
+  // From outside and below, at the face of the back row, as in the screenshot:
+  // the ridge of the new piece meets the eave, and it sits on the walls.
+  const actor = { x: gx - 1, y: gy - 5 }
+  const up = aim(world, 'Kit_Roof', new Vector3(gx - 1.5, 2.2, gy - 6), new Vector3(gx + 0.3, 2.9, gy - 1), actor)
+  assert.ok(up.ok, `front row refused: ${up.ok === false && up.reason}`)
+  assert.deepEqual([up.placement.x, up.placement.y, up.placement.z], [gx, gy - 2, wallH])
 })

@@ -380,26 +380,22 @@ test('roofs meet where their slopes do', () => {
   const rise = KIT_ASSETS.Kit_Roof.height
   // Its ridge on its +y edge, its eave on -y.
   put(world, 'roof', 'Kit_Roof', gx, gy, 0, wallH)
-  const roof = (x: number, y: number, rot: number, kind = 'Kit_Roof') => resolveBuild(world, { kind, x, y, rot, h: wallH + 0.5 }, actor, who('r'))
+  const roof = (x: number, y: number, rot: number, h: number, kind = 'Kit_Roof') => resolveBuild(world, { kind, x, y, rot, h }, actor, who('r'))
+  const z = (v: ReturnType<typeof roof>) => v.ok ? v.placement.z : v.reason
 
   // Back to back, ridge to ridge: a gable, level.
-  const gable = roof(gx, gy + 2, Math.PI)
-  assert.ok(gable.ok && gable.placement.z === wallH, `gable: ${gable.ok ? gable.placement.z : gable.reason}`)
-  // Eave to eave: a valley, level too.
-  const valley = roof(gx, gy - 2, Math.PI)
-  assert.ok(valley.ok && valley.placement.z === wallH, `valley: ${valley.ok ? valley.placement.z : valley.reason}`)
-  // A ridge meeting this eave carries the slope on down, a whole rise lower.
-  const down = roof(gx, gy - 2, 0)
-  assert.ok(down.ok && down.placement.z === wallH - rise, `down the slope: ${down.ok ? down.placement.z : down.reason}`)
-
-  // A hip climbing into the eave meets it at one corner only. On a wall that
-  // holds it at the eave's level, it is refused rather than pushed through.
+  assert.equal(z(roof(gx, gy + 2, Math.PI, wallH + 0.5)), wallH)
+  // An eave meeting this ridge carries the slope on up, a whole rise higher.
+  assert.equal(z(roof(gx, gy + 2, 0, wallH + 1)), wallH + rise)
+  // Aimed low, the same piece sits level beside it instead.
+  assert.equal(z(roof(gx, gy + 2, 0, wallH - 0.5)), wallH)
+  // A ridge meeting this eave carries the slope on down, aimed below it...
+  assert.equal(z(roof(gx, gy - 2, 0, wallH - 1.5)), wallH - rise)
+  // ...and sits level on the walls when aimed at the roof: nothing is refused
+  // for a step where two roofs meet.
   put(world, 'front', 'Kit_Wall', gx, gy - 3, 0, 0)
-  const hip = roof(gx, gy - 2, 0, 'Kit_RoofCorner')
-  assert.equal(hip.ok === false && hip.reason, 'it does not meet the roof beside it')
-  // Turned so its eaves face the eave beside it, the same corner fits.
-  const turned = roof(gx, gy - 2, Math.PI, 'Kit_RoofCorner')
-  assert.ok(turned.ok && turned.placement.z === wallH, `turned hip: ${turned.ok ? turned.placement.z : turned.reason}`)
+  assert.equal(z(roof(gx, gy - 2, 0, wallH + 0.5)), wallH)
+  assert.equal(z(roof(gx, gy - 2, 0, wallH + 0.5, 'Kit_RoofCorner')), wallH)
 })
 
 /* -------------------------------------------------------------------------- */
