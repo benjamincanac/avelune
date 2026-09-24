@@ -177,19 +177,25 @@ importers:
         version: 1.2.96
       '@nuxt/ui':
         specifier: ^4.11.1
-        version: 4.11.1(b951fb5332093aec99468b4d99614fa1)
+        version: 4.11.1(ed398033c2747073fbdc55d24b113831)
       '@tresjs/core':
         specifier: ^5.9.0
         version: 5.9.0(three@0.186.0)(vue@3.5.42(typescript@6.0.3))
       '@tresjs/nuxt':
         specifier: ^5.7.0
-        version: 5.7.0(e17d465d7c4259a9a24b42a8fea9f142)
+        version: 5.7.0(00a2d79026ff2bc6d8a20cdfc92b623e)
       '@upstash/redis':
         specifier: ^1.38.4
         version: 1.38.4
+      '@vercel/analytics':
+        specifier: ^2.0.1
+        version: 2.0.1(nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714))(vue@3.5.42(typescript@6.0.3))
       '@vercel/functions':
         specifier: ^3.7.1
         version: 3.7.1(ws@8.21.0)
+      '@vercel/speed-insights':
+        specifier: ^2.0.0
+        version: 2.0.0(nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714))(vue@3.5.42(typescript@6.0.3))
       ai:
         specifier: ^7.0.107
         version: 7.0.107(zod@4.6.5)
@@ -1020,8 +1026,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@nuxt/cli-nightly@4.0.0-20260921-120049-000c43c':
-    resolution: {integrity: sha512-UeEuUEFQK2wJgAThvew+Hl7UZRzex+W9o3mmzWM0gJ4e4esV70vXVG+H7o+WFTjDtBARFm2kGDRK53GImuEKkQ==}
+  '@nuxt/cli-nightly@4.0.0-20260923-082744-ba05517':
+    resolution: {integrity: sha512-BL8Ai6XpHAmIr364FAaEcTSr9KEWDK0yWmJJgAyBqFxZyM5JdBFLXBZRcfK8W8rBI3GaFqgZhiOeKefTOpkrpg==}
     engines: {node: ^22.19.0 || ^24.11.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
@@ -2189,6 +2195,35 @@ packages:
   '@upstash/redis@1.38.4':
     resolution: {integrity: sha512-ZX69mKReun/yieyHYLoBg0eSiF6hjCQjd8zUKkJ5eCHehDV6P8S8oZOHxGSfkH1spfOhGZk0EGerBrfUsXow8g==}
 
+  '@vercel/analytics@2.0.1':
+    resolution: {integrity: sha512-MTQG6V9qQrt1tsDeF+2Uoo5aPjqbVPys1xvnIftXSJYG2SrwXRHnqEvVoYID7BTruDz4lCd2Z7rM1BdkUehk2g==}
+    peerDependencies:
+      '@remix-run/react': ^2
+      '@sveltejs/kit': ^1 || ^2
+      next: '>= 13'
+      nuxt: '>= 3'
+      react: ^18 || ^19 || ^19.0.0-rc
+      svelte: '>= 4'
+      vue: ^3
+      vue-router: ^4
+    peerDependenciesMeta:
+      '@remix-run/react':
+        optional: true
+      '@sveltejs/kit':
+        optional: true
+      next:
+        optional: true
+      nuxt:
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+      vue-router:
+        optional: true
+
   '@vercel/cli-config@0.2.0':
     resolution: {integrity: sha512-fJRRRB7734BDuXZ89yBEaA2ncYhH7bWX30mk04W80J6VAfQc+4iB8lyzAdaGpFV3/vNlkt9VZt+/uoQoWX6UsQ==}
 
@@ -2215,6 +2250,32 @@ packages:
   '@vercel/oidc@3.6.1':
     resolution: {integrity: sha512-8ipTFoiX3WBRrvXLjSrmgAiwtMDQk3EgSxe8N7v2rXBz39NBIIyoGXeVbJRoBcP8WEuVnvjvIQsggbGU7ZKrMw==}
     engines: {node: '>= 20'}
+
+  '@vercel/speed-insights@2.0.0':
+    resolution: {integrity: sha512-jwkNcrTeafWxjmWq4AHBaptSqZiJkYU5adLC9QBSqeim0GcqDMgN5Ievh8OG1rJ6W3A4l1oiP7qr9CWxGuzu3w==}
+    peerDependencies:
+      '@sveltejs/kit': ^1 || ^2
+      next: '>= 13'
+      nuxt: '>= 3'
+      react: ^18 || ^19 || ^19.0.0-rc
+      svelte: '>= 4'
+      vue: ^3
+      vue-router: ^4
+    peerDependenciesMeta:
+      '@sveltejs/kit':
+        optional: true
+      next:
+        optional: true
+      nuxt:
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+      vue-router:
+        optional: true
 
   '@vitejs/devtools-kit@0.7.3':
     resolution: {integrity: sha512-MsYO9EJ3fzanvS4FJ6C9Dh2iiR4ynhcp5C3lJEKHRZBr8wOyTBSbCP1ic81KHnm3Q5GbGt4lKBHTq7PZfpdmbg==}
@@ -3640,8 +3701,8 @@ packages:
   muggle-string@0.4.1:
     resolution: {integrity: sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ==}
 
-  my-bad@0.2.5:
-    resolution: {integrity: sha512-jS1CLPZSsHrzyTDZq+5s+uxG8OIjq5+RIxQHRQPedzX5NjjtYzyCVee22tw/zfN4t403S22fF3+t3wVqk7/c4Q==}
+  my-bad@0.2.7:
+    resolution: {integrity: sha512-tI/Lvgd78tocwu2hPmvAsdr0b1lTunOMrsnKtm4VH+leR3kS69v+gpMCOh5Ty5KIgPV5GH/HOBbzYogQB9Pvpw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       vite: '>=6'
@@ -4780,6 +4841,10 @@ packages:
     resolution: {integrity: sha512-sXMwN6DMHeouPfCxkxWkKAmxphWKEenHYY5H1nIBzU3PmDsmJp6kBXJdshjVdpMZuWCmL9SH7KFRx29AylpP6g==}
     engines: {node: '>=18.12.0'}
 
+  verkit@0.5.0:
+    resolution: {integrity: sha512-u4J1hr6Y+C/hit34GwL3eIcUf3wngT8TlYUjK7tk0jxydKLAq3sYvifjdTDA6U3KCKRcQCQDGf/srjxfZF3l7g==}
+    engines: {node: '>=18.12.0'}
+
   vite-node@6.0.0:
     resolution: {integrity: sha512-oj4PVrT+pDh6GYf5wfUXkcZyekYS8kKPfLPXVl8qe324Ec6l4K2DUKNadRbZ3LQl0qGcDz+PyOo7ZAh00Y+JjQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -5810,7 +5875,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@nuxt/cli-nightly@4.0.0-20260921-120049-000c43c(@nuxt/schema-nightly@5.0.0-29718546.252d77ed)(jiti@2.7.0)(rolldown@1.2.8)(vite@8.3.0)':
+  '@nuxt/cli-nightly@4.0.0-20260923-082744-ba05517(@nuxt/schema-nightly@5.0.0-29718546.252d77ed)(jiti@2.7.0)(rolldown@1.2.8)(vite@8.3.0)':
     dependencies:
       '@clack/prompts': 1.8.1
       args-tokenizer: 0.3.0
@@ -5821,7 +5886,7 @@ snapshots:
       exsolve: 1.1.1
       fuzzysort: 4.0.2
       get-port-please: 3.2.0
-      my-bad: 0.2.5(vite@8.3.0)
+      my-bad: 0.2.7(vite@8.3.0)
       obug: 3.0.0
       pathe: 2.0.3
       perfect-debounce: 2.1.0
@@ -5833,7 +5898,7 @@ snapshots:
       tinyclip: 1.0.3
       tinyexec: 1.3.1
       uqr: 0.1.3
-      verkit: 0.4.0
+      verkit: 0.5.0
     optionalDependencies:
       '@nuxt/schema': '@nuxt/schema-nightly@5.0.0-29718546.252d77ed'
       jiti: 2.7.0
@@ -6236,7 +6301,7 @@ snapshots:
       rc9: 3.1.0
       std-env: 4.2.0
 
-  '@nuxt/ui@4.11.1(b951fb5332093aec99468b4d99614fa1)':
+  '@nuxt/ui@4.11.1(ed398033c2747073fbdc55d24b113831)':
     dependencies:
       '@floating-ui/dom': 1.8.0
       '@iconify/vue': 5.0.1(vue@3.5.42(typescript@6.0.3))
@@ -6307,7 +6372,6 @@ snapshots:
       '@internationalized/number': 3.6.7
       ai: 7.0.107(zod@4.6.5)
       valibot: 1.4.1(typescript@6.0.3)
-      vue-router: 5.3.1(@vue/compiler-sfc@3.5.42)(esbuild@0.28.1)(rolldown@1.2.8)(rollup@4.62.0)(vite@8.3.0)(vue@3.5.42(typescript@6.0.3))
       zod: 4.6.5
     transitivePeerDependencies:
       - '@azure/app-configuration'
@@ -6961,10 +7025,10 @@ snapshots:
       three: 0.186.0
       vue: 3.5.42(typescript@6.0.3)
 
-  '@tresjs/nuxt@5.7.0(e17d465d7c4259a9a24b42a8fea9f142)':
+  '@tresjs/nuxt@5.7.0(00a2d79026ff2bc6d8a20cdfc92b623e)':
     dependencies:
       '@nuxt/kit': 4.1.2(magicast@0.5.5)
-      '@nuxt/ui': 4.11.1(b951fb5332093aec99468b4d99614fa1)
+      '@nuxt/ui': 4.11.1(ed398033c2747073fbdc55d24b113831)
       '@tresjs/core': 5.9.0(three@0.186.0)(vue@3.5.42(typescript@6.0.3))
       defu: 6.1.7
       mlly: 1.8.2
@@ -7303,6 +7367,11 @@ snapshots:
     dependencies:
       uncrypto: 0.1.3
 
+  '@vercel/analytics@2.0.1(nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714))(vue@3.5.42(typescript@6.0.3))':
+    optionalDependencies:
+      nuxt: nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714)
+      vue: 3.5.42(typescript@6.0.3)
+
   '@vercel/cli-config@0.2.0':
     dependencies:
       xdg-app-paths: 5.5.1
@@ -7325,6 +7394,11 @@ snapshots:
       '@vercel/cli-config': 0.2.0
       '@vercel/cli-exec': 0.1.1
       jose: 5.10.0
+
+  '@vercel/speed-insights@2.0.0(nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714))(vue@3.5.42(typescript@6.0.3))':
+    optionalDependencies:
+      nuxt: nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714)
+      vue: 3.5.42(typescript@6.0.3)
 
   '@vitejs/devtools-kit@0.7.3(cac@7.0.0)(crossws@0.4.12(srvx@0.11.21))(ocache@0.3.0)(srvx@0.11.21)(vite@8.3.0)':
     dependencies:
@@ -8829,7 +8903,7 @@ snapshots:
 
   muggle-string@0.4.1: {}
 
-  my-bad@0.2.5(vite@8.3.0):
+  my-bad@0.2.7(vite@8.3.0):
     dependencies:
       clickable-path: 0.1.1
       errx: 0.2.2
@@ -8934,7 +9008,7 @@ snapshots:
   nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714):
     dependencies:
       '@dxup/nuxt': 0.5.10(esbuild@0.28.1)(magicast@0.5.5)(rolldown@1.2.8)(rollup@4.62.0)(vite@8.3.0)
-      '@nuxt/cli': '@nuxt/cli-nightly@4.0.0-20260921-120049-000c43c(@nuxt/schema-nightly@5.0.0-29718546.252d77ed)(jiti@2.7.0)(rolldown@1.2.8)(vite@8.3.0)'
+      '@nuxt/cli': '@nuxt/cli-nightly@4.0.0-20260923-082744-ba05517(@nuxt/schema-nightly@5.0.0-29718546.252d77ed)(jiti@2.7.0)(rolldown@1.2.8)(vite@8.3.0)'
       '@nuxt/devtools': 4.0.0-alpha.19(97f7b8ec23f3d9d8986e5f26e352f648)
       '@nuxt/kit': '@nuxt/kit-nightly@5.0.0-29718546.252d77ed(magicast@0.5.5)'
       '@nuxt/nitro-server': '@nuxt/nitro-server-nightly@5.0.0-29718546.252d77ed(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7))(@oxc-project/types@0.149.0)(@upstash/redis@1.38.4)(@vercel/functions@3.7.1(ws@8.21.0))(chokidar@5.0.0)(dotenv@17.4.2)(esbuild@0.28.1)(giget@3.3.0)(ioredis@5.11.1)(jiti@2.7.0)(lightningcss@1.33.0)(magicast@0.5.5)(nuxt-nightly@5.0.0-29718546.252d77ed(99ad86084d1dcd24bb3e1b27e6a9f714))(rolldown@1.2.8)(rollup@4.62.0)(typescript@6.0.3)(vite@8.3.0)'
@@ -10098,6 +10172,8 @@ snapshots:
   verkit@0.3.2: {}
 
   verkit@0.4.0: {}
+
+  verkit@0.5.0: {}
 
   vite-node@6.0.0(@types/node@26.6.1)(@vitejs/devtools@0.7.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0):
     dependencies:

@@ -21,7 +21,12 @@ const canonical = `${siteUrl}/`
 const ogImage = `${siteUrl}${site.ogImage}`
 
 export default defineNuxtConfig({
-  modules: ['@nuxt/ui', '@tresjs/nuxt'],
+  modules: [
+    '@nuxt/ui',
+    '@tresjs/nuxt',
+    '@vercel/analytics',
+    '@vercel/speed-insights',
+  ],
 
   devtools: { enabled: false },
 
