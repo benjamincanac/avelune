@@ -696,7 +696,12 @@ slips between). A kit piece's box is its model's (`KIT_ASSETS`), not its
 collision (`pickBounds`): the door has no collision, so it was a 0.8 stub the ray
 flew over, and a top face reports the model's height, not `prop.top`, which is 0
 for the door. It runs from the render loop *after* the camera has moved, or it
-aims a frame behind the view. `scripts/build-aim-test.ts` drives the real tools
+aims a frame behind the view. With a floor or roof armed, `gapAim` walks the
+ray before anything it hits and takes the first open cell where the slab would
+hang and the ray crosses that level inside the cell: that is how a hole in a roof
+is aimed at from above, where the ray meets the deck below, or from below. It
+re-asks per cell per tile of height, because a ledge is only offered within
+`LEDGE_SLACK` of the aim. `scripts/build-aim-test.ts` drives the real tools
 with a posed camera.
 
 **The ray takes the first thing it meets, and remembers which face.** Terrain and

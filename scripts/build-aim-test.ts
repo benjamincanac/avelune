@@ -11,7 +11,7 @@ import { PerspectiveCamera, Scene, Vector3 } from 'three'
 import type { Group } from 'three'
 import { resolveBuild } from '../shared/utils/building'
 import { KIT_ASSETS } from '../shared/utils/kit'
-import { CHUNK_SIZE, applyPlace, createWorld } from '../shared/utils/world'
+import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { createBuildTools } from '../app/utils/buildTools'
 import type { UseBuild } from '../app/composables/useBuild'
@@ -30,6 +30,10 @@ function put(world: World, id: string, kind: string, x: number, y: number, rot: 
 /** Aim a wall from `eye` at `look` and resolve the target the way the server
  *  would receive it. */
 function aimWall(world: World, eye: Vector3, look: Vector3, actor: { x: number, y: number }) {
+  return aim(world, 'Kit_Wall', eye, look, actor)
+}
+
+function aim(world: World, kind: string, eye: Vector3, look: Vector3, actor: { x: number, y: number }) {
   const camera = new PerspectiveCamera(62, 1.6, 0.05, 260)
   camera.position.copy(eye)
   camera.lookAt(look)
@@ -37,7 +41,7 @@ function aimWall(world: World, eye: Vector3, look: Vector3, actor: { x: number, 
   // The tools only read and write `.value`, so plain boxes stand in for refs.
   const ref = <T>(value: T) => ({ value })
   const build = {
-    active: ref({ id: 'Kit_Wall', kind: 'Kit_Wall', label: 'Wall', icon: '' }),
+    active: ref({ id: kind, kind, label: kind, icon: '' }),
     rot: ref(0),
     pieces: ref(0),
     deeds: ref(0),
@@ -50,7 +54,7 @@ function aimWall(world: World, eye: Vector3, look: Vector3, actor: { x: number, 
   const target = tools.update(actor, 'builder')
   tools.dispose()
   assert.ok(target, 'no target under the crosshair')
-  return resolveBuild(world, { kind: 'Kit_Wall', x: target.rawX, y: target.rawY, rot: target.rot ?? 0, h: target.h }, actor, { owner: 'builder', id: 'aimed', pieces: 0 })
+  return resolveBuild(world, { kind, x: target.rawX, y: target.rawY, rot: target.rot ?? 0, h: target.h }, actor, { owner: 'builder', id: 'aimed', pieces: 0 })
 }
 
 for (const kind of ['Kit_WallDoor', 'Kit_WallWindow']) {
@@ -74,3 +78,43 @@ for (const kind of ['Kit_WallDoor', 'Kit_WallWindow']) {
     assert.equal(face.placement.y, gy - 1)
   })
 }
+
+/** A ring of roof slabs at `level` around the cell at (x, y), and a deck under
+ *  the hole: the house in the screenshot that could not be closed. */
+function roofWithHole(world: World, x: number, y: number, level: number) {
+  for (let dy = -2; dy <= 2; dy += 2) {
+    for (let dx = -2; dx <= 2; dx += 2) if (dx || dy) put(world, `roof${dx},${dy}`, 'Kit_Roof', x + dx, y + dy, 0, level)
+  }
+  put(world, 'deck', 'Kit_Floor', x, y, 0, 2.5)
+}
+
+test('looking down into a hole in a roof aims at the hole, not the deck under it', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 10)
+  roofWithHole(world, gx, gy, 5)
+  const actor = { x: gx + 2, y: gy + 2 }
+  const into = aim(world, 'Kit_Roof', new Vector3(gx + 1.2, 8, gy + 1.2), new Vector3(gx + 0.2, 2.7, gy + 0.2), actor)
+  assert.ok(into.ok, `roof into the hole refused: ${into.ok === false && into.reason}`)
+  assert.deepEqual([into.placement.x, into.placement.y, into.placement.z], [gx, gy, 5])
+})
+
+test('looking up through a hole in a roof aims at the hole', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 10)
+  roofWithHole(world, gx, gy, 5)
+  applyRemove(world, 'deck')
+  const actor = { x: gx + 1, y: gy + 1 }
+  const up = aim(world, 'Kit_Roof', new Vector3(gx + 1, 1.8, gy + 1), new Vector3(gx, 7, gy), actor)
+  assert.ok(up.ok, `roof into the hole refused: ${up.ok === false && up.reason}`)
+  assert.deepEqual([up.placement.x, up.placement.y, up.placement.z], [gx, gy, 5])
+})
+
+test('a ground floor beside a raised deck is not taken for a gap', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 10)
+  put(world, 'deck', 'Kit_Floor', gx, gy, 0, 2.5)
+  const actor = { x: gx + 2, y: gy + 1 }
+  const low = aim(world, 'Kit_Floor', new Vector3(gx + 2, 3.1, gy + 2.5), new Vector3(gx + 2, 0, gy - 0.5), actor)
+  assert.ok(low.ok, `ground floor refused: ${low.ok === false && low.reason}`)
+  assert.deepEqual([low.placement.x, low.placement.y, low.placement.z], [gx + 2, gy, 0])
+})
