@@ -7,28 +7,28 @@
  * all of them.
  */
 
-/** Vercel region codes to the names players see. Unknown ids show as-is. */
+/** Vercel region codes to the MMO style region players see. Unknown ids show as-is. */
 const REALM_NAMES: Record<string, string> = {
   local: 'Local',
-  arn1: 'Stockholm',
-  bom1: 'Mumbai',
-  cdg1: 'Paris',
-  cle1: 'Cleveland',
-  cpt1: 'Cape Town',
-  dub1: 'Dublin',
-  dxb1: 'Dubai',
-  fra1: 'Frankfurt',
-  gru1: 'São Paulo',
-  hkg1: 'Hong Kong',
-  hnd1: 'Tokyo',
-  iad1: 'Washington',
-  icn1: 'Seoul',
-  kix1: 'Osaka',
-  lhr1: 'London',
-  pdx1: 'Portland',
-  sfo1: 'San Francisco',
-  sin1: 'Singapore',
-  syd1: 'Sydney',
+  arn1: 'EU North',
+  bom1: 'Asia South',
+  cdg1: 'EU West',
+  cle1: 'US East',
+  cpt1: 'Africa South',
+  dub1: 'EU West',
+  dxb1: 'Middle East',
+  fra1: 'EU Central',
+  gru1: 'South America',
+  hkg1: 'Asia East',
+  hnd1: 'Asia Northeast',
+  iad1: 'US East',
+  icn1: 'Asia Northeast',
+  kix1: 'Asia Northeast',
+  lhr1: 'EU West',
+  pdx1: 'US West',
+  sfo1: 'US West',
+  sin1: 'Asia Southeast',
+  syd1: 'Oceania',
 }
 
 /** A realm id is a key segment: lowercase letters, digits and dashes only. */
