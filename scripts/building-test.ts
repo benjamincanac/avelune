@@ -361,7 +361,8 @@ test('a roof closes over the middle of a room', () => {
   put(world, 'roof-w', 'Kit_Roof', gx, gy, 0, wallH)
 
   // The ray meets the side of the roof beside the gap, anywhere up its slope.
-  const gap = resolveBuild(world, { kind: 'Kit_Roof', x: gx + 2, y: gy, rot: Math.PI, h: wallH + 0.9 }, actor, who('r1'))
+  // Facing the same way, the two slopes run on side by side at one level.
+  const gap = resolveBuild(world, { kind: 'Kit_Roof', x: gx + 2, y: gy, rot: 0, h: wallH + 0.9 }, actor, who('r1'))
   assert.ok(gap.ok, `roof over the gap refused: ${gap.ok === false && gap.reason}`)
   assert.equal(gap.placement.z, wallH)
 
@@ -369,6 +370,36 @@ test('a roof closes over the middle of a room', () => {
   const floor = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 2, y: gy, rot: 0, h: wallH + 0.5 }, actor, who('f1'))
   assert.ok(floor.ok)
   assert.equal(floor.placement.z, 0)
+})
+
+test('roofs meet where their slopes do', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 17, 11)
+  const actor = { x: gx, y: gy }
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  const rise = KIT_ASSETS.Kit_Roof.height
+  // Its ridge on its +y edge, its eave on -y.
+  put(world, 'roof', 'Kit_Roof', gx, gy, 0, wallH)
+  const roof = (x: number, y: number, rot: number, kind = 'Kit_Roof') => resolveBuild(world, { kind, x, y, rot, h: wallH + 0.5 }, actor, who('r'))
+
+  // Back to back, ridge to ridge: a gable, level.
+  const gable = roof(gx, gy + 2, Math.PI)
+  assert.ok(gable.ok && gable.placement.z === wallH, `gable: ${gable.ok ? gable.placement.z : gable.reason}`)
+  // Eave to eave: a valley, level too.
+  const valley = roof(gx, gy - 2, Math.PI)
+  assert.ok(valley.ok && valley.placement.z === wallH, `valley: ${valley.ok ? valley.placement.z : valley.reason}`)
+  // A ridge meeting this eave carries the slope on down, a whole rise lower.
+  const down = roof(gx, gy - 2, 0)
+  assert.ok(down.ok && down.placement.z === wallH - rise, `down the slope: ${down.ok ? down.placement.z : down.reason}`)
+
+  // A hip climbing into the eave meets it at one corner only. On a wall that
+  // holds it at the eave's level, it is refused rather than pushed through.
+  put(world, 'front', 'Kit_Wall', gx, gy - 3, 0, 0)
+  const hip = roof(gx, gy - 2, 0, 'Kit_RoofCorner')
+  assert.equal(hip.ok === false && hip.reason, 'it does not meet the roof beside it')
+  // Turned so its eaves face the eave beside it, the same corner fits.
+  const turned = roof(gx, gy - 2, Math.PI, 'Kit_RoofCorner')
+  assert.ok(turned.ok && turned.placement.z === wallH, `turned hip: ${turned.ok ? turned.placement.z : turned.reason}`)
 })
 
 /* -------------------------------------------------------------------------- */

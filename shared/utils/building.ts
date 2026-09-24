@@ -434,13 +434,96 @@ function ledgeHeight(world: World, prop: PropSpec, feet: number): number {
     }
     else {
       if (!((near(dx, BUILD_GRID) && near(dy, 0)) || (near(dx, 0) && near(dy, BUILD_GRID)))) continue
-      if (SPAN_FAMILY[other.kind] === family) level = base
+      if (family === 'roof' && SPAN_FAMILY[other.kind] === 'roof') {
+        const meet = roofMeetLevel(prop, other, base)
+        if (meet == null) continue
+        level = meet
+      }
+      else if (SPAN_FAMILY[other.kind] === family) level = base
       else if (family === 'floor' && other.kind === 'Kit_Stairs' && isStairsHead(other, prop)) level = base + KIT_ASSETS.Kit_Stairs.height
       else continue
     }
     if (level <= feet && level > best) best = level
   }
   return Math.round(best * 100) / 100
+}
+
+/* -------------------------------------------------------------------------- */
+/* Roof pitch                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const ROOF_RISE = KIT_ASSETS.Kit_Roof.height
+
+/** The refusal for a roof turned so its slope cannot meet the one beside it.
+ *  The client keeps its ghost in the gap on this one, so `R` fixes it. */
+export const ROOF_MISMATCH = 'it does not meet the roof beside it'
+
+/**
+ * How high a roof piece's top stands above its own `z` at one corner of its
+ * cell. `Kit_Roof` climbs from its eave on local -Z to its ridge on local +Z;
+ * `Kit_RoofCorner` has eaves on local -Z and -X and climbs to the one corner at
+ * +X +Z (`scripts/build_kit.py`). Local +Z is world (sin rot, cos rot), the
+ * same axis a flight of stairs climbs along.
+ */
+function roofRise(roof: { kind: string, x: number, y: number, rot: number }, cx: number, cy: number): number {
+  const half = BUILD_GRID / 2
+  const dx = (cx - roof.x) / half
+  const dy = (cy - roof.y) / half
+  const c = Math.cos(roof.rot)
+  const sn = Math.sin(roof.rot)
+  const lx = Math.round(dx * c - dy * sn)
+  const lz = Math.round(dx * sn + dy * c)
+  if (roof.kind === 'Kit_RoofCorner') return ROOF_RISE * Math.min(1 + lx, 1 + lz) / 2
+  return ROOF_RISE * (1 + lz) / 2
+}
+
+/** The two world corners of the edge `roof` shares with the cell beside it. */
+function sharedCorners(roof: { x: number, y: number }, other: { x: number, y: number }): [[number, number], [number, number]] {
+  const half = BUILD_GRID / 2
+  const ux = Math.sign(other.x - roof.x)
+  const uy = Math.sign(other.y - roof.y)
+  return [
+    [roof.x + half * (ux - uy), roof.y + half * (uy + ux)],
+    [roof.x + half * (ux + uy), roof.y + half * (uy - ux)],
+  ]
+}
+
+/**
+ * The `z` at which this roof meets the one beside it, or null when no height
+ * can: both roofs' tops have to agree at both corners of the edge they share.
+ * Back to back they are level, a piece whose eave meets the other's ridge sits
+ * a whole rise up, and a slope that climbs into the other's eave meets nothing.
+ */
+function roofMeetLevel(roof: PropSpec, other: PropSpec, otherZ: number): number | null {
+  const [a, b] = sharedCorners(roof, other)
+  const at = (corner: [number, number]) => otherZ + roofRise(other, corner[0], corner[1]) - roofRise(roof, corner[0], corner[1])
+  const za = at(a)
+  const zb = at(b)
+  return Math.abs(za - zb) < OVERLAP_EPSILON ? za : null
+}
+
+/**
+ * A roof beside this one, within a rise of its level, that its top does not
+ * meet at the edge they share, or null. Hanging level with a neighbour was
+ * not enough on its own: a hip climbing into the eave of the roof beside it
+ * stuck up through that roof.
+ */
+function roofMismatch(world: World, prop: PropSpec): PropSpec | null {
+  if (SPAN_FAMILY[prop.kind] !== 'roof') return null
+  const z = prop.z ?? 0
+  const reach = BUILD_GRID + 0.5
+  for (const other of propsInBox(world, prop.x - reach, prop.y - reach, prop.x + reach, prop.y + reach)) {
+    if (other.id === prop.id || SPAN_FAMILY[other.kind] !== 'roof') continue
+    const dx = Math.abs(other.x - prop.x)
+    const dy = Math.abs(other.y - prop.y)
+    if (!((near(dx, BUILD_GRID) && near(dy, 0)) || (near(dx, 0) && near(dy, BUILD_GRID)))) continue
+    const otherZ = other.z ?? 0
+    if (Math.abs(otherZ - z) > ROOF_RISE + OVERLAP_EPSILON) continue
+    for (const [cx, cy] of sharedCorners(prop, other)) {
+      if (Math.abs(z + roofRise(prop, cx, cy) - otherZ - roofRise(other, cx, cy)) > OVERLAP_EPSILON) return other
+    }
+  }
+  return null
 }
 
 /**
@@ -759,6 +842,7 @@ export function resolveBuild(
   if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there', z: support }
   const panel = panelOnEdge(world, prop)
   if (panel) return { ok: false, reason: `${panel.kind} is in the way`, z: support }
+  if (roofMismatch(world, prop)) return { ok: false, reason: ROOF_MISMATCH, z: support }
   const blocker = overlappingPiece(world, prop)
   if (blocker) return { ok: false, reason: `${blocker.kind} is in the way`, z: support }
   return { ok: true, placement }

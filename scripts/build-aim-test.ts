@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { PerspectiveCamera, Scene, Vector3 } from 'three'
 import type { Group } from 'three'
-import { resolveBuild } from '../shared/utils/building'
+import { ROOF_MISMATCH, resolveBuild } from '../shared/utils/building'
 import { KIT_ASSETS } from '../shared/utils/kit'
 import { CHUNK_SIZE, applyPlace, applyRemove, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
@@ -79,12 +79,11 @@ for (const kind of ['Kit_WallDoor', 'Kit_WallWindow']) {
   })
 }
 
-/** A ring of roof slabs at `level` around the cell at (x, y), and a deck under
- *  the hole: the house in the screenshot that could not be closed. */
+/** A run of roof slabs at `level` with the cell at (x, y) missing from it, and a
+ *  deck under the hole: the house in the screenshot that could not be closed. */
 function roofWithHole(world: World, x: number, y: number, level: number) {
-  for (let dy = -2; dy <= 2; dy += 2) {
-    for (let dx = -2; dx <= 2; dx += 2) if (dx || dy) put(world, `roof${dx},${dy}`, 'Kit_Roof', x + dx, y + dy, 0, level)
-  }
+  put(world, 'roof-w', 'Kit_Roof', x - 2, y, 0, level)
+  put(world, 'roof-e', 'Kit_Roof', x + 2, y, 0, level)
   put(world, 'deck', 'Kit_Floor', x, y, 0, 2.5)
 }
 
@@ -117,4 +116,34 @@ test('a ground floor beside a raised deck is not taken for a gap', () => {
   const low = aim(world, 'Kit_Floor', new Vector3(gx + 2, 3.1, gy + 2.5), new Vector3(gx + 2, 0, gy - 0.5), actor)
   assert.ok(low.ok, `ground floor refused: ${low.ok === false && low.reason}`)
   assert.deepEqual([low.placement.x, low.placement.y, low.placement.z], [gx + 2, gy, 0])
+})
+
+test('a roof turned the wrong way for the gap stays in it, refused', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 10)
+  roofWithHole(world, gx, gy, 5)
+  // A wall under the gap holds a roof at the run's level whichever way it faces.
+  put(world, 'wall-n', 'Kit_Wall', gx, gy - 1, 0, 2.5)
+  const actor = { x: gx + 2, y: gy + 2 }
+  const camera = new PerspectiveCamera(62, 1.6, 0.05, 260)
+  camera.position.set(gx + 1.2, 8, gy + 1.2)
+  camera.lookAt(new Vector3(gx + 0.2, 2.7, gy + 0.2))
+  camera.updateMatrixWorld()
+  const ref = <T>(value: T) => ({ value })
+  const build = {
+    active: ref({ id: 'Kit_Roof', kind: 'Kit_Roof', label: 'Roof', icon: '' }),
+    rot: ref(Math.PI / 2),
+    pieces: ref(0),
+    deeds: ref(0),
+    targetOk: ref(true),
+    targetHint: ref(''),
+    size: ref(2),
+    surface: ref(0),
+  } as unknown as UseBuild
+  const tools = createBuildTools({ scene: new Scene(), world, templates: new Map<string, Group>(), getCamera: () => camera, build })
+  const target = tools.update(actor, 'builder')
+  tools.dispose()
+  assert.ok(target)
+  assert.deepEqual([target.x, target.y, target.ok], [gx, gy, false])
+  assert.equal(target.hint, ROOF_MISMATCH)
 })

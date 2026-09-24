@@ -126,9 +126,12 @@ const EDGES = [
   { dx: 3, dy: 2 },
 ]
 const SOLID_EDGES = EDGES.filter(p => !p.door)
-/** The two cells a roof corner sits on: the ones with two outside walls that
- *  meet. Every cell of a 2×2 room is a corner, so this picks the diagonal. */
-const ROOF_CORNERS = new Set(['0,0', '2,2'])
+/** A hip roof over the 2×2 room: every cell is a corner, and each corner piece
+ *  is turned so it climbs to the middle of the room. `Kit_RoofCorner` rises to
+ *  its local +X +Z corner, and a turn of `rot` points that corner at world
+ *  (cos + sin, cos - sin), so these are the four turns that aim it inward. Four
+ *  corners meet at every shared edge; anything else is refused by the rules. */
+const HIP_TURNS = { '0,0': 0, '2,0': 3 * Math.PI / 2, '0,2': Math.PI / 2, '2,2': Math.PI }
 
 /** Storey heights, in the kit's own units: a slab on the ground, walls on the
  *  slab, the next slab on those walls, and so on. */
@@ -178,9 +181,9 @@ export function housePlan(plot) {
   for (const p of SOLID_EDGES) {
     ops.push(build(plot, p.dx === 2 && p.dy === -1 ? 'Kit_WallWindow' : 'Kit_Wall', p.dx, p.dy, 0, LIFT.upperWall))
   }
-  // Roof. Corner pieces on the diagonal, straight ones on the rest.
+  // Roof: four hip corners climbing to the middle.
   for (const c of CELLS) {
-    ops.push(build(plot, ROOF_CORNERS.has(`${c.dx},${c.dy}`) ? 'Kit_RoofCorner' : 'Kit_Roof', c.dx, c.dy, 0, LIFT.roof))
+    ops.push(build(plot, 'Kit_RoofCorner', c.dx, c.dy, HIP_TURNS[`${c.dx},${c.dy}`], LIFT.roof))
   }
   // Dressing. The torches snap to the 1-tile grid, so any integer tile is
   // theirs.

@@ -114,10 +114,11 @@ so every piece carries an exact aim and height instead of a synthetic crosshair)
 It teleports to `MMO_ROOM_X + 1, MMO_ROOM_Y` (default `110, 150`), raises a two
 cell room with a door, a wall stacked over the door, a floor laid inside, stairs
 pushed against the walls and an upper floor hung from the wall tops, then lays a
-floor, a path, a crate, a fence, a gate and the two roof pieces on open meadow.
-Each piece prints `BUILT` or `REFUSED`, and it writes `-room` (the house from the
-front), `-cover` (the meadow pieces, with no grass through them) and `-kit` (the
-roofs on the ground, a close look at the rebuilt kit) beside `MMO_OUT`. Headed by default, like `target`.
+floor, a path, a crate, a fence, a gate and a four-corner hip roof on open
+meadow. Each piece prints `BUILT` or `REFUSED`, and it writes `-room` (the house
+from the front), `-cover` (the meadow pieces, with no grass through them) and
+`-kit` (the hip roof on the ground: four slopes meeting at a point) beside
+`MMO_OUT`. Headed by default, like `target`.
 Restart the server between runs: the store is in memory, and a second run is
 refused on every cell the first one filled.
 ```bash

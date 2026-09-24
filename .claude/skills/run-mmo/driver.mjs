@@ -508,7 +508,8 @@ if (mode === 'room') {
   // on where a synthetic mouse move left the crosshair. A two-cell room with a
   // wall stacked over its door, a floor laid inside it, stairs pushed against
   // its walls and an upper floor hung from the wall tops, then a floor, a path
-  // and a crate on open meadow so the shot shows the grass stopping at them.
+  // and a crate on open meadow so the shot shows the grass stopping at them,
+  // and a hip roof on a levelled patch.
   await modelsQuiet()
   await refocus()
   await say(`/time ${process.env.MMO_TIME || 'day'}`)
@@ -536,9 +537,23 @@ if (mode === 'room') {
     ['Kit_Crate', X - 2, Y - 2, 0, 0],
     ['Kit_Fence', X - 4, Y + 3, 0, 0],
     ['Kit_Gate', X - 2, Y + 3, 0, 0],
-    ['Kit_Roof', X + 6, Y, 0, 0],
-    ['Kit_RoofCorner', X + 6, Y + 2, 0, 0],
+    // A hip roof on the ground: four corners each climbing to the middle, the
+    // one way four corner pieces meet (see `HIP_TURNS` in scripts/bot-build.mjs).
+    ['Kit_RoofCorner', X + 4, Y - 2, 0, 0],
+    ['Kit_RoofCorner', X + 6, Y - 2, 3 * Q, 0],
+    ['Kit_RoofCorner', X + 4, Y, Q, 0],
+    ['Kit_RoofCorner', X + 6, Y, 2 * Q, 0],
   ]
+  // Level the patch under the hip roof first. Four corners resting on uneven
+  // meadow sit at four heights and cannot meet, which the rules refuse. Flatten
+  // levels a brush to its centre and moves at most a step per edit, so it
+  // spreads out from the middle, a few passes over.
+  for (let pass = 0; pass < 6; pass++) {
+    for (const [fx, fy] of [[X + 5, Y - 1], [X + 4, Y - 2], [X + 6, Y - 2], [X + 4, Y], [X + 6, Y]]) {
+      await page.evaluate(([px, py]) => window.__maze.game.sendTerraform(px, py, 'flatten', 3), [fx, fy])
+      await page.waitForTimeout(160)
+    }
+  }
   for (const [kind, x, y, rot, h] of ops) {
     await settle()
     const before = await pieces()

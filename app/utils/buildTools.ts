@@ -17,7 +17,7 @@ import {
 } from 'three'
 import type { Object3D, Scene,
   PerspectiveCamera } from 'three'
-import { EDIT_REACH, brushExtent, checkDemolish, checkTerraform, isEdgeKind, isKitKind, isSpanKind, plotBounds, refusalText, resolveBuild, snapGridFor, snapPlacement } from '#shared/utils/building'
+import { EDIT_REACH, ROOF_MISMATCH, brushExtent, checkDemolish, checkTerraform, isEdgeKind, isKitKind, isSpanKind, plotBounds, refusalText, resolveBuild, snapGridFor, snapPlacement } from '#shared/utils/building'
 import type { PlotBounds } from '#shared/utils/building'
 import { DEED_KIND, KIT_ASSETS } from '#shared/utils/kit'
 import type { KitKind } from '#shared/utils/kit'
@@ -584,8 +584,10 @@ export function createBuildTools(options: BuildToolsOptions) {
       if (key === last) continue
       last = key
       const first = resolveBuild(world, { kind, x, y, rot, h }, actor, context)
-      if (!first.ok) continue
-      const z = first.placement.z ?? 0
+      // A roof turned the wrong way for the gap is still the gap: the ghost
+      // stays in it, red, until `R` turns it to fit.
+      const z = first.ok ? first.placement.z ?? 0 : first.reason === ROOF_MISMATCH ? first.z : undefined
+      if (z == null) continue
       if (Math.abs(origin.y - z) < GAP_CLEARANCE) continue
       // Where the ray crosses that level: it has to be inside this cell and in
       // front of the hit.
@@ -596,7 +598,7 @@ export function createBuildTools(options: BuildToolsOptions) {
       if (Math.abs(cx - pose.x) > half || Math.abs(cy - pose.y) > half) continue
       if (limit >= MAX_RAY && z - terrainHeight(world, pose.x, pose.y) < 0.5) continue
       const verdict = resolveBuild(world, { kind, x: cx, y: cy, rot, h: z }, actor, context)
-      if (verdict.ok && verdict.placement.z === z) return { x: cx, y: cy, h: z }
+      if ((verdict.ok ? verdict.placement.z : verdict.reason === ROOF_MISMATCH ? verdict.z : undefined) === z) return { x: cx, y: cy, h: z }
     }
     return null
   }
