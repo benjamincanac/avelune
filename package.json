@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Avelune, a shared fantasy town on Vercel WebSockets. Built with Nuxt, TresJS, and an authoritative multiplayer game loop.",
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.6.0",
   "engines": {
     "node": ">=24"
   },
@@ -29,21 +29,21 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
-    "@iconify-json/lucide": "^1.2.134",
-    "@iconify-json/simple-icons": "^1.2.96",
-    "@nuxt/ui": "^4.11.1",
+    "@iconify-json/lucide": "^1.2.137",
+    "@iconify-json/simple-icons": "^1.2.97",
+    "@nuxt/ui": "^4.11.2",
     "@tresjs/core": "^5.9.0",
     "@tresjs/nuxt": "^5.7.0",
-    "@upstash/redis": "^1.38.4",
+    "@upstash/redis": "^1.39.0",
     "@vercel/analytics": "^2.0.1",
-    "@vercel/functions": "^3.7.1",
+    "@vercel/functions": "^3.9.9",
     "@vercel/speed-insights": "^2.0.0",
-    "ai": "^7.0.107",
+    "ai": "^7.0.117",
     "h3": "2.0.1-rc.32",
     "nitro": "3.0.260610-beta",
     "nuxt": "npm:nuxt-nightly@5.0.0-29718546.252d77ed",
     "tailwindcss": "^4.3.3",
-    "three": "^0.186.0",
+    "three": "^0.186.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -52,7 +52,7 @@
     "eslint": "^10.11.0",
     "jiti": "^2.7.0",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.1",
+    "vitest": "^5.0.2",
     "vue-tsc": "^3.3.11"
   }
 }
