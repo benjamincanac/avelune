@@ -15,5 +15,18 @@ allowBuilds:
 # `server.httpServer.on("upgrade")` while Nuxt runs Vite in middleware mode
 # (httpServer is null), so `nuxt dev` crashes and dev WebSockets have no
 # upgrade path. Prod builds were fine. Revisit when Nuxt forwards upgrades.
+#
+# nuxt-nightly depends on `@nuxt/cli-nightly@latest`, so every lockfile refresh
+# floats the CLI. 20261003 registers a `runtime/dev-close-sockets.mjs` Nitro
+# plugin from inside the CLI package, which this Nuxt nightly's impound rules
+# refuse as a build-time import, so `nuxt dev` fails its server build. The
+# stable `@nuxt/cli@4.0.0` ships the same plugin and fails the same way. Hold
+# the CLI at the last one that works until the Nuxt nightly itself can move.
+#
+# Retried on 2026-10-09 with nuxt-nightly 5.0.0-2610082216 and Nitro 260903:
+# the `httpServer` crash above is still there, and with it stubbed the dev SSR
+# 500s on `module is not defined` in `vue/index.js` and the socket never sends
+# `welcome`.
 overrides:
   nitro: 3.0.260610-beta
+  '@nuxt/cli': npm:@nuxt/cli-nightly@4.0.0-20260923-082744-ba05517
