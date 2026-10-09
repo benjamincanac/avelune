@@ -580,6 +580,42 @@ let nextEditAt = 0
  */
 let lastEditKey = ''
 let lastPressId = 0
+/** The press that already sent an edit, so the click that ends it is not a
+ *  second one. */
+let editedPressId = 0
+
+/**
+ * Where the crosshair was when the last edit was sent.
+ *
+ * An edit changes what is under the crosshair: a placed wall becomes the face
+ * the next ghost stacks on, a demolished piece uncovers the one behind it. That
+ * is a new target the player never aimed at, and a click of ordinary length
+ * outlasts `EDIT_INTERVAL`, so it used to be edited too. A new target only
+ * counts once the aim itself has moved this far.
+ */
+const AIM_STILL_ANGLE = 0.02
+const AIM_STILL_MOVE = 0.15
+const editAim = { yaw: 0, pitch: 0, cursorX: 0, cursorY: 0, x: 0, y: 0, z: 0 }
+
+function rememberAim() {
+  editAim.yaw = props.view.yaw
+  editAim.pitch = props.view.pitch
+  editAim.cursorX = props.view.cursorX
+  editAim.cursorY = props.view.cursorY
+  editAim.x = local.x
+  editAim.y = local.y
+  editAim.z = local.z
+}
+
+function aimMoved(): boolean {
+  return Math.abs(props.view.yaw - editAim.yaw) > AIM_STILL_ANGLE
+    || Math.abs(props.view.pitch - editAim.pitch) > AIM_STILL_ANGLE
+    || Math.abs(props.view.cursorX - editAim.cursorX) > AIM_STILL_ANGLE
+    || Math.abs(props.view.cursorY - editAim.cursorY) > AIM_STILL_ANGLE
+    || Math.abs(local.x - editAim.x) > AIM_STILL_MOVE
+    || Math.abs(local.y - editAim.y) > AIM_STILL_MOVE
+    || Math.abs(local.z - editAim.z) > AIM_STILL_MOVE
+}
 
 function targetKey(target: NonNullable<ReturnType<NonNullable<typeof buildTools>['update']>>): string {
   return `${target.mode}:${target.x},${target.y},${target.rot ?? ''},${target.id ?? ''}`
@@ -596,10 +632,18 @@ function applyTool(target: ReturnType<NonNullable<typeof buildTools>['update']>)
   const repeatable = !slot.kind && slot.id !== 'demolish' && slot.id !== 'paint'
   const key = targetKey(target)
   if (!repeatable && key === lastEditKey) return
+  // The target changed under a crosshair that did not: that is the last edit
+  // showing up in the world, so it becomes the target already edited.
+  if (!repeatable && lastEditKey && !aimMoved()) {
+    lastEditKey = key
+    return
+  }
   const now = Date.now()
   if (now < nextEditAt) return
   nextEditAt = now + EDIT_INTERVAL
   lastEditKey = key
+  editedPressId = lastPressId
+  rememberAim()
   if (slot.id === 'demolish') {
     if (target.id) props.game.sendDemolish(target.id)
     // The server is the authority, so the click goes either way. The sound
@@ -925,7 +969,9 @@ onBeforeRender(({ delta }) => {
     }
     const clicked = build.fireQueued.value
     build.fireQueued.value = false
-    if (clicked || build.holding.value) applyTool(target)
+    // The click is only there for a press too quick to span a frame. One that
+    // was seen held has had its edit.
+    if (build.holding.value || (clicked && editedPressId !== lastPressId)) applyTool(target)
   }
 
   if (camera.value && renderer.instance instanceof WebGLRenderer) {
