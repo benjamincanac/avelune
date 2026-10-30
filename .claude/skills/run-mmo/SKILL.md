@@ -49,7 +49,7 @@ NUXT_SESSION_PASSWORD=verify-secret-0123456789abcdef nohup node .output/server/i
 ```
 
 **2. Drive it.** The game lives at **`/play`** (`/` is the static landing page),
-and every mode but `landing` drives that. Nine modes: `arena` (default) enters and shoots the spawn;
+and every mode but `landing` drives that. Ten modes: `arena` (default) enters and shoots the spawn;
 `chat` says a short line, then a long one addressed to the Oracle, and shoots
 each bubble (`-short` beside `MMO_OUT`, then `MMO_OUT` with the long line and the Oracle's reply);
 `walk` also holds `W` for a few seconds first; `meadow` walks out of the south
@@ -100,13 +100,31 @@ ERRORS 2
 
 Env knobs: `MMO_URL` (skip port autodetect — recommended), `MMO_OUT` (screenshot
 path), `MMO_PW` (Playwright install location), `MMO_TIME` / `MMO_WEATHER` (fix
-the sky through the chat commands before shooting), `MMO_STATS` (fps / mesh /
-triangle counts), `MMO_HUD=0` (hide every 2D overlay, for a clean scenery still from a player's
+the sky through the chat commands before shooting), `MMO_STATS` / `MMO_DUMP` /
+`MMO_DPR` / `MMO_GFX` (frame cost, see below), `MMO_HUD=0` (hide every 2D overlay, for a clean scenery still from a player's
 camera), and for `meadow` / `build`: `MMO_BACK` (ms walking out of the
 gate), `MMO_TURN` (px of yaw for the about-turn, ~507 px per 90°) and
 `MMO_PITCH`. Framing out in the meadow is luck of the draw — the player can end
 up wedged against a boulder or inside a tree, collapsing the camera boom onto
 its own face. Vary `MMO_BACK` / `MMO_TURN` and shoot again.
+
+**`room` mode** checks the build rules end to end, and needs a **dev server**
+started with `AVELUNE_DEV_COMMANDS=1` (it builds through `window.__maze.game.sendBuild`,
+so every piece carries an exact aim and height instead of a synthetic crosshair).
+It teleports to `MMO_ROOM_X + 1, MMO_ROOM_Y` (default `110, 150`), raises a two
+cell room with a door, a wall stacked over the door, a floor laid inside, stairs
+pushed against the walls and an upper floor hung from the wall tops, then lays a
+floor, a path, a crate, a fence, a gate and a four-corner hip roof on open
+meadow. Each piece prints `BUILT` or `REFUSED`, and it writes `-room` (the house
+from the front), `-cover` (the meadow pieces, with no grass through them) and
+`-kit` (the hip roof on the ground: four slopes meeting at a point) beside
+`MMO_OUT`. Headed by default, like `target`.
+Restart the server between runs: the store is in memory, and a second run is
+refused on every cell the first one filled.
+```bash
+AVELUNE_DEV_COMMANDS=1 NUXT_IGNORE_LOCK=1 pnpm dev --port 4390 &
+MMO_URL=http://localhost:4390 MMO_OUT=/tmp/room.png node .claude/skills/run-mmo/driver.mjs room
+```
 
 **`still` mode** shoots the town with nobody in it, and it is how
 `public/landing.jpg`, the landing page's backdrop, is reshot. It opens the dev
@@ -126,6 +144,47 @@ sips -Z 1920 -s format jpeg -s formatOptions 75 /tmp/still.png --out public/land
 Frame it at `MMO_SIZE=1280x720` first, a full-size SwiftShader frame takes
 minutes. The landing page darkens the left third, so keep the subject in the
 right two thirds.
+
+## Measure a frame — [`perf.mjs`](perf.mjs)
+
+`MMO_STATS=1` on any mode prints fps, draw calls and triangles per frame, and one
+row per render pass: the WebGL2 draw calls are counted where they are issued and
+attributed to the framebuffer bound at the time. `MMO_DUMP=1` adds the scene's
+triangles by named group, what casts, and the heaviest meshes (dev server only,
+it reads `window.__maze.scene`).
+
+```bash
+MMO_URL=http://localhost:4321 MMO_HEADED=1 MMO_STATS=1 MMO_DUMP=1 node .claude/skills/run-mmo/driver.mjs arena
+MMO_URL=http://localhost:4321 MMO_HEADED=1 MMO_STATS=1 MMO_DPR=2 MMO_SIZE=1600x1000 \
+  MMO_CAM="72,4,153,0,-2" node .claude/skills/run-mmo/driver.mjs still
+```
+
+- **Headed, always.** SwiftShader's numbers mean nothing.
+- **`still` is the A/B mode.** Its camera goes back exactly where it was, so
+  `git stash`, run, `git stash pop`, run is a fair comparison and the two shots
+  can be diffed (`ffmpeg -i a.png -i b.png -filter_complex
+  "blend=all_mode=difference,eq=contrast=12:brightness=0.12"`). Clouds and the
+  fountain's ripple drift between runs; anything else that moves is the change.
+  Known cameras: `72,4,153,0,-2` looks in through the gate, `72,5,84,0,-10`
+  stands in the plaza.
+- **But `still` is the editor's scene, not the game's.** The town is drawn as
+  `hubEditor` clones that cast nothing, so anything about the town's own trees or
+  buildings in the shadow pass has to be measured in `arena` / `meadow`.
+- **Measure at the pixel count people play at.** `MMO_DPR=2` with a
+  `MMO_SIZE` near a real window. At dpr 1 a frame here is bound by draw calls
+  and triangles; at dpr 2 it was bound by pixels, and a run of draw-call cuts
+  that read as +40 fps at dpr 1 showed nothing on a retina display until MSAA
+  went. fps is also capped at the display's refresh rate, so near the cap trust
+  the call and triangle counts, not the fps.
+- **`MMO_GFX`** is the JSON the Escape menu stores under `avelune:graphics`, for
+  turning one cost off at a time:
+  `'{"scale":1,"detail":"high","shadows":true,"occlusion":false,"bloom":true}'`.
+- **Run it twice and throw the first away.** A dev server that has just
+  compiled, or just served another run, is still busy: the same camera read 38
+  fps and then 72, 75 and 77. The call and triangle counts do not move, which is
+  another reason to read those first.
+- A rate-limited pass (the fountain's captures) can be missing from the rows,
+  which are the last frame's, and still be in the averages.
 
 ## Record a take — [`record.mjs`](record.mjs)
 

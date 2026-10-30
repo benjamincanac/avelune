@@ -50,8 +50,8 @@ independently.
   field). Amplitudes are budgeted against `SLOPE_MAX`: a value-noise octave's
   steepest slope is `1.5 / lattice` per tile (a ridged one twice that), so a new
   term is sized from its lattice rather than by eye — a range has to be climbable
-  along most routes, and a tile past `SLOPE_MAX` is a wall at every height, jump
-  included, which is also why no amount of relief can trap a body.
+  along most routes, and a tile past `SLOPE_MAX` is a cliff face that no body
+  walks up (see invariant 3).
 - `shared/utils/props.ts` — `PropSpec`, `HubPropPlacement`, `WorldPlacement`,
   `SOLID_PROPS` and `makeProp`. Split out of `maze.ts` so `world.ts` (which
   buckets placements) and `maze.ts` (which queries them) share it without a
@@ -99,7 +99,35 @@ independently.
   about that inset box: a corner is a join, so it neither refuses a build nor
   holds the next panel up a storey. `propBounds` and the physical collision
   boxes in `props.ts` stay exact, so four panels still seal a cell — the
-  perpendicular neighbour covers precisely the strip the inset gave up.
+  perpendicular neighbour covers precisely the strip the inset gave up. A cell
+  piece (floor, roof, stairs) gives up the same 0.15 on every side, but only
+  against a panel (`overlapBounds(prop, against)`) and in the support sampler:
+  a panel straddles its edge, so without it stairs against a wall and a floor
+  inside a finished room were refused. Against a tree or a crate the cell stays
+  exact.
+
+  **Ledges.** The sampler never reads a wall top through a slab's corners any
+  more. `ledgeHeight` is how a slab gets up there: a `Kit_Floor`, `Kit_Roof` or
+  `Kit_RoofCorner` may hang from the top of a wall panel on one of its edges,
+  level with a slab of its own family in the next cell, and (floors only) at
+  the top of stairs whose high end faces it (a flight climbs along its local
+  +depth, world `(sin rot, cos rot)`, as `ramparts.ts` measures its treads). A
+  wall panel has one ledge too, the top of the panel on its own edge: walls get
+  that from collision anyway, but `Kit_WallDoor` has none, and without it a wall
+  aimed over a door read the ground through the opening. For the same reason
+  `panelOnEdge` refuses a panel wherever another panel already stands on that
+  edge in an overlapping band, read off `KIT_ASSETS` heights: `overlappingPiece`
+  skips the door and the gate, so a wall went down inside a doorway. `resolveBuild` takes the higher of the sampled
+  support and the highest ledge at or under `aim + LEDGE_SLACK` (1, wider than
+  `AIM_SLACK` because a wall top seen from inside the room is a sliver). That is
+  what lets an upper floor cross a room and a roof close its middle, where
+  nothing is under the cell but the room. A roof beside a roof is offered two
+  levels: level with it, and the level where the two tops agree at both corners
+  of the shared edge (`roofMeetLevel`, `roofRise`), which for a ridge beside an
+  eave is a whole rise up or down. `Kit_Roof` climbs to its local +Z edge and
+  `Kit_RoofCorner` to its +X +Z corner, local +Z being world `(sin rot, cos rot)`
+  like the stairs. Nothing is refused for not meeting: requiring it left a
+  front row with nowhere to go but a rise under its own walls.
 
   **Aim height.** A `build` request carries an optional `h`, the world height
   the client's ray hit. `supportHeight(world, prop, aim)` then answers with the
@@ -121,8 +149,9 @@ independently.
   centred on its own tile, `DEED_LIMIT` (1) per player. `plotBounds` is
   half-open in tiles, so two plots exactly `DEED_SIZE` apart touch without
   overlapping. Inside a plot only the owner may terraform, build or demolish —
-  unowned wild growth included, which is the one place `canRemove` is not the
-  last word. `checkDeedPlacement` refuses a post whose plot would overlap
+  unowned wild growth included. Outside every plot anyone may demolish any
+  player's piece: `canRemove` only says whether a piece is removable at all
+  (built by a player, or wild nature), and the plot is the sole protection. `checkDeedPlacement` refuses a post whose plot would overlap
   another player's plot, a protected tile, or a piece somebody else built; your
   own pieces are fine, so you can fence a house first and deed it after.
   `deedAt` / `plotOwner` / `foreignClaim` answer from `chunk.deeds`, a derived
@@ -269,7 +298,19 @@ independently.
    `terrainHeight` interpolates bilinearly and returns `-Infinity` for a missing
    chunk, so an unloaded chunk reads as void rather than a hole to fall through.
    `isWalkable` blocks the world edge, missing chunks, and any tile whose local
-   gradient exceeds `SLOPE_MAX` (1.2 per tile) — that is how cliffs work.
+   gradient exceeds `SLOPE_MAX` (1.2 per tile) — that is how cliffs work. That
+   is the 2D answer, for bots, critters and the camera. A body is resolved by
+   height: `isWalkableAt(world, tx, ty, feet)` opens a steep tile to feet at or
+   above its highest corner minus `STEP_MAX`, the ledge rule a raised piece
+   uses, so a jump clears a dug hole and walking off a cliff top is a fall. The
+   world edge and a missing chunk stay walls at every height. `slideBody` passes
+   `body.z` to `moveWithCollision`, which without a `feet` argument is still the
+   2D wall. A body can therefore stand on a face, having landed on it or walked
+   off its top, and `climbsSteepTile` in `canEnter` is what keeps the landing
+   snap from carrying it up: below the tile's top band, a move that ends on
+   higher terrain than it started from is refused, level and downhill never
+   are. A face whose rise is within a jump (about 2 per tile) can be jumped,
+   exactly like a pit rim of that depth. The two are the same geometry.
    **Every spatial query goes through the per-chunk cell index.** Props are
    bucketed into every chunk the square `prop.r` in each direction around them
    reaches (so a 78-tile gallery run is never missed), and inside each chunk into
@@ -293,10 +334,20 @@ independently.
    `PROTECTED_FOOTPRINT` in `world.ts` hugs the geometry: the moat's outer
    square plus a 1-tile `TOWN_MARGIN` (`[22, 121]`), the bank stair with the
    same margin, and exactly the tiles under the bridge's landing (`x` `[68, 75]`,
-   `y` `[121, 122]`), so the first tile beside or past the bridge is buildable. `isProtectedTile` tests it
-   and is what `checkTerraform` / `resolveBuild` / `checkDemolish` refuse on — a
-   brush is refused if any corner it writes lands inside — so building starts
-   the tile after the bridge ends instead of thirty tiles later.
+   `y` `[121, 122]`). It is what the town *draws*: `isProtectedTile` gives those
+   tiles the `path` surface, sinks their corners by `TOWN_CLEARANCE` and keeps
+   props off them, so widening it would trench the meadow beside the road.
+   **What an edit may touch is the wider question, and `editLock` answers it.**
+   It returns `'town'` inside the footprint, `'gate'` inside `GATE_APPROACH` —
+   the deck's width flared by `GATE_APPROACH_MARGIN` (4) on each side, running
+   from the bridge's far end past the spawn (`x` `[64, 79]`, `y` `[123, 133]`) —
+   and `null` everywhere else. `checkTerraform` / `resolveBuild` /
+   `checkDeedPlacement` refuse on either (a brush is refused if any corner it
+   writes lands inside); `checkDemolish` refuses only `'town'`, because a piece
+   standing in the approach is in the way by definition and has to be
+   removable. The approach is generated meadow that renders as meadow — no
+   renderer reads it — and it exists because the bridge is the only way in, so
+   one wall or one trench across its mouth would shut the town to everybody.
    `isTownChunk(cx, cy)` is the coarser fact: a chunk overlapping the footprint,
    seeded from the town JSON by `seedTown`, created up front and never evicted.
    Its tiles outside the footprint are ordinary editable ground.
@@ -441,12 +492,16 @@ agent are told what moved.
   stack-versus-overlap verdicts `resolveBuild` returns, the aim height (which
   storey a crate lands on, a ground-floor wall put back in its slot, the
   `no room there` refusal, and a bogus `h` being ignored or clamped), plus the
-  per-piece snap grid and the footprint edge at the end of the gate bridge. `world-test.ts` checks spawn, the world edge, town obstacles,
+  per-piece snap grid, the footprint edge at the end of the gate bridge, and
+  the gate approach refusing builds, digs and deeds while still allowing a
+  demolish. `world-test.ts` checks spawn, the world edge, town obstacles,
   diagonal boxes, bench jumping and deterministic movement; `terrain-test.ts`
-  covers bilinear heights, the slope rule, terraform-then-walk, chunk-border
+  covers bilinear heights, the slope rule, jumping over and out of a dug pit, the
+  cliff face that cannot be walked up, terraform-then-walk, chunk-border
   sync, generation determinism, the encode round trip, and the protected
-  footprint — that the road ends the protection, that the meadow beside it is
-  editable, and that the bank stair is still covered.
+  footprint — that the road ends the drawn footprint while `editLock` keeps the
+  approach and the spawn shut to edits, that the meadow past it is editable, and
+  that the bank stair is still covered.
   `scripts/moat-test.ts`, `scripts/index-test.ts` and
   `scripts/character-animation-test.ts` also build a `World` and are run the
   same way; `index-test.ts` is the one that covers the per-chunk cell index and

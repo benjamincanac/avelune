@@ -1,12 +1,16 @@
 <script setup lang="ts">
 /**
  * The Escape menu: pause, check the controls, jump to the map or the editor,
- * get back to town when stuck, leave. A modal over the frozen render — it does
- * not pause the server, and the status module stays visible behind it saying so.
+ * get back to town when stuck, leave for the title screen. A modal over the
+ * frozen render — it does not pause the server, and the status module stays
+ * visible behind it saying so.
  *
  * Resume is the only accent on the screen. Everything below it is the same
- * frost weight, in the order you are likely to want them, and logging out gets
- * its own destructive treatment: as a bare ghost row it disappeared.
+ * frost weight, in the order you are likely to want them. The last two rows are
+ * the two ways out and they are not the same thing: leaving keeps the character
+ * and only walks back to the title screen, logging out forgets it. That is why
+ * logging out gets its own destructive treatment: as a bare ghost row it
+ * disappeared.
  *
  * It is also where the mixer lives. The world ducks under the menu rather than
  * stopping, so dragging the slider is audible while you drag it.
@@ -43,6 +47,7 @@ const emit = defineEmits<{
   map: []
   respawn: []
   edit: []
+  leave: []
   logout: []
 }>()
 
@@ -465,6 +470,19 @@ onBeforeUnmount(() => {
       >
         <template #trailing>
           <span class="telemetry text-label">If stuck</span>
+        </template>
+      </UButton>
+      <UButton
+        block
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-chevron-left"
+        label="Leave world"
+        :ui="{ base: 'justify-start', leadingIcon: 'text-dimmed', label: 'flex-1 text-left' }"
+        @click="emit('leave')"
+      >
+        <template #trailing>
+          <span class="telemetry text-label">Keeps your character</span>
         </template>
       </UButton>
       <UButton

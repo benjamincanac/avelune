@@ -1,5 +1,6 @@
 import { BoxGeometry, ExtrudeGeometry, Group, InstancedBufferAttribute, InstancedMesh, Mesh, MeshBasicMaterial, Object3D, RingGeometry, MeshPhysicalMaterial, MeshStandardMaterial, PlaneGeometry, Shape } from 'three'
-import type { Texture } from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import type { BufferGeometry, Texture } from 'three'
 import type { TownMaterials } from './townMaterials'
 import { MOAT, MOAT_STAIRS } from '#shared/utils/moat'
 import type { FountainInteractor } from './fountainWater'
@@ -10,12 +11,18 @@ export function createCityMoat(stoneMap: Texture, materials: TownMaterials) {
   const f = FORTIFICATIONS
   const group = new Group()
   group.name = 'city-moat'
-  const geometries = new Set<BoxGeometry | PlaneGeometry | ExtrudeGeometry>()
+  const geometries = new Set<BufferGeometry>()
   const time = { value: 0 }
   const stone = new MeshStandardMaterial({ color: '#a8b3ad', map: stoneMap, roughness: 0.92 })
   const coping = new MeshStandardMaterial({ color: '#c4c9b9', map: stoneMap, roughness: 0.86 })
   const wetStone = new MeshStandardMaterial({ color: '#657e71', roughness: 0.94 })
   const bed = new MeshStandardMaterial({ color: '#64816c', roughness: 1 })
+  const blockBatches = new Map<MeshStandardMaterial, { name: string, parts: BoxGeometry[] }>([
+    [stone, { name: 'Moat stone blocks', parts: [] }],
+    [coping, { name: 'Moat coping and steps', parts: [] }],
+    [wetStone, { name: 'Moat wet stone blocks', parts: [] }],
+    [bed, { name: 'Moat bed blocks', parts: [] }],
+  ])
   for (const material of [stone, coping, wetStone]) materials.apply(material, 'stone', 1.1, 0.5, material === coping)
   materials.apply(bed, 'earth', 1.2, 0.35)
   const water = new MeshPhysicalMaterial({
@@ -46,14 +53,10 @@ export function createCityMoat(stoneMap: Texture, materials: TownMaterials) {
   water.customProgramCacheKey = () => 'city-moat-ripples-v1'
 
   function block(x: number, y: number, z: number, width: number, height: number, depth: number, material = stone) {
-    const geometry = new BoxGeometry(width, height, depth)
-    geometries.add(geometry)
-    const mesh = new Mesh(geometry, material)
-    mesh.position.set(x, y, z)
-    mesh.castShadow = true
-    mesh.receiveShadow = true
-    group.add(mesh)
-    return mesh
+    // Fixed architecture can share one draw call per material. Bake the old
+    // mesh translation into its geometry before merging so world positions and
+    // world-projected pigment remain exactly where they were.
+    blockBatches.get(material)!.parts.push(new BoxGeometry(width, height, depth).translate(x, y, z))
   }
   function surface(x: number, z: number, width: number, depth: number) {
     const geometry = new PlaneGeometry(width, depth, Math.ceil(width * 2), Math.ceil(depth * 2))
@@ -151,6 +154,17 @@ export function createCityMoat(stoneMap: Texture, materials: TownMaterials) {
       mesh.castShadow = mesh.receiveShadow = true
       group.add(mesh)
     }
+  }
+  for (const [material, { name, parts }] of blockBatches) {
+    if (!parts.length) continue
+    const geometry = mergeGeometries(parts)
+    for (const part of parts) part.dispose()
+    if (!geometry) throw new Error(`Cannot merge ${name}`)
+    geometries.add(geometry)
+    const mesh = new Mesh(geometry, material)
+    mesh.name = name
+    mesh.castShadow = mesh.receiveShadow = true
+    group.add(mesh)
   }
   const rippleGeometry = new RingGeometry(0.86, 1, 32)
   const opacity = new InstancedBufferAttribute(new Float32Array(32), 1)

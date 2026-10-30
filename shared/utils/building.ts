@@ -21,11 +21,19 @@ import {
   WORLD_TILE_MAX,
   WORLD_TILE_MIN,
   deedsInBox,
-  isProtectedBox,
-  isProtectedTile,
+  editLock,
+  editLockBox,
   propsInBox,
 } from './world'
-import type { SurfaceType, TerraformMode, World } from './world'
+import type { EditLock, SurfaceType, TerraformMode, World } from './world'
+
+/** What a player is told when they aim at ground that is not theirs to change.
+ *  The town is authored and permanent; the gate approach is ordinary meadow
+ *  held open so nobody can wall the only way in. */
+const LOCK_REFUSAL: Record<EditLock, string> = {
+  town: 'the town is protected',
+  gate: 'the way into town must stay clear',
+}
 
 /** How far from a player an edit may land, in tiles. */
 export const EDIT_REACH = 6
@@ -100,11 +108,12 @@ export function isPlaceableKind(kind: string): boolean {
   return isKitKind(kind) || NATURE_KINDS.has(kind)
 }
 
-/** Whether a piece may be taken away by this player: their own, or an unowned
- *  piece of the nature kit (a generated tree anyone may clear). */
-export function canRemove(placement: WorldPlacement, playerId: string): boolean {
-  if (placement.owner) return placement.owner === playerId
-  return NATURE_KINDS.has(placement.kind)
+/** Whether a piece may be taken away at all: anything a player built, or an
+ *  unowned piece of the nature kit (a generated tree). Who may take it is the
+ *  plot's question, not the piece's: outside every claim a build is anyone's
+ *  to knock down, which is what a deed is for. */
+export function canRemove(placement: WorldPlacement): boolean {
+  return !!placement.owner || NATURE_KINDS.has(placement.kind)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -214,10 +223,25 @@ const OVERLAP_EPSILON = 0.02
  */
 const EDGE_CORNER_INSET = 0.15
 
+/** Whether a kind fills a whole `BUILD_GRID` cell: floors, roofs, stairs. */
+function isCellKind(kind: string): boolean {
+  return !isEdgeKind(kind) && snapGridFor(kind) === BUILD_GRID
+}
+
 /** The footprint `overlappingPiece` reasons about: exact, except that a panel
- *  gives up a corner's worth at each end of its run. */
-function overlapBounds(prop: PropSpec): { minX: number, maxX: number, minY: number, maxY: number } {
+ *  gives up a corner's worth at each end of its run, and a cell piece gives up
+ *  the same strip on every side to a panel. A panel straddles its edge, so half
+ *  of it is inside each cell it bounds; without the cell's inset, stairs pushed
+ *  against a wall or a floor laid inside a finished room collided with the
+ *  wall. Against anything else, a tree or a crate, the cell stays exact.
+ *  `against` absent is the support sampler, which takes the inset too: a wall
+ *  top holds a slab through `ledgeHeight`, never through a corner sample. */
+function overlapBounds(prop: PropSpec, against?: PropSpec): { minX: number, maxX: number, minY: number, maxY: number } {
   const b = propBounds(prop)
+  if (isCellKind(prop.kind)) {
+    if (against && !isEdgeKind(against.kind)) return b
+    return { minX: b.minX + EDGE_CORNER_INSET, maxX: b.maxX - EDGE_CORNER_INSET, minY: b.minY + EDGE_CORNER_INSET, maxY: b.maxY - EDGE_CORNER_INSET }
+  }
   if (!isEdgeKind(prop.kind)) return b
   // The run is the panel's local X, so world X at rot 0 or PI.
   if (Math.abs(Math.cos(prop.rot)) > 0.5) {
@@ -236,14 +260,14 @@ function overlapBounds(prop: PropSpec): { minX: number, maxX: number, minY: numb
  */
 export function overlappingPiece(world: World, candidate: PropSpec): PropSpec | null {
   if (!isSolidProp(candidate.kind)) return null
-  const a = overlapBounds(candidate)
   const av = propSpan(candidate)
   const query = propBounds(candidate)
   // The cell index over the candidate's own AABB: every piece whose footprint
   // could touch it is in there, and the exact tests below throw the rest away.
   for (const prop of propsInBox(world, query.minX, query.minY, query.maxX, query.maxY)) {
     if (prop.id === candidate.id || !isSolidProp(prop.kind)) continue
-    const b = overlapBounds(prop)
+    const a = overlapBounds(candidate, prop)
+    const b = overlapBounds(prop, candidate)
     if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
     if (a.minY >= b.maxY - OVERLAP_EPSILON || a.maxY <= b.minY + OVERLAP_EPSILON) continue
     const bv = propSpan(prop)
@@ -291,7 +315,6 @@ function cleanAim(h: number | undefined): number | undefined {
  */
 function ceilingOver(world: World, candidate: PropSpec): PropSpec | null {
   if (!isSolidProp(candidate.kind)) return null
-  const a = overlapBounds(candidate)
   const av = propSpan(candidate)
   const query = propBounds(candidate)
   for (const prop of propsInBox(world, query.minX, query.minY, query.maxX, query.maxY)) {
@@ -302,7 +325,8 @@ function ceilingOver(world: World, candidate: PropSpec): PropSpec | null {
     // Clears the top of the band. Touching exactly is clearance, which is what
     // lets a 2.5 wall stand under a floor laid at 2.5.
     if (bv.lo >= av.hi - OVERLAP_EPSILON) continue
-    const b = overlapBounds(prop)
+    const a = overlapBounds(candidate, prop)
+    const b = overlapBounds(prop, candidate)
     if (a.minX >= b.maxX - OVERLAP_EPSILON || a.maxX <= b.minX + OVERLAP_EPSILON) continue
     if (a.minY >= b.maxY - OVERLAP_EPSILON || a.maxY <= b.minY + OVERLAP_EPSILON) continue
     return prop
@@ -341,6 +365,170 @@ export function supportHeight(world: World, prop: PropSpec, aim?: number): numbe
     if (h > top) top = h
   }
   return Number.isFinite(top) ? Math.round(top * 100) / 100 : Number.NEGATIVE_INFINITY
+}
+
+/**
+ * How far above the aim a ledge may still be chosen, in tiles. Wider than
+ * `AIM_SLACK` because a ledge is a line, not a surface: the top of a wall seen
+ * from inside the room is a sliver, and the upper third of it has to count.
+ */
+export const LEDGE_SLACK = 1
+
+/** Slabs that may hang off a neighbour rather than rest on what is under them,
+ *  grouped by which neighbours they sit level with. */
+const SPAN_FAMILY: Readonly<Record<string, 'floor' | 'roof'>> = {
+  Kit_Floor: 'floor',
+  Kit_Roof: 'roof',
+  Kit_RoofCorner: 'roof',
+}
+
+/** Whether a kind is a slab that may hang from a neighbour (`ledgeHeight`). */
+export function isSpanKind(kind: string): boolean {
+  return kind in SPAN_FAMILY
+}
+
+/** Panels whose top carries a slab laid on the edge they stand on, and the next
+ *  panel stacked on the same edge. The door is not solid, so it is listed here
+ *  rather than read off its collision: without that, a wall aimed above a door
+ *  read the ground through the opening and landed across the doorway. */
+const LEDGE_PANELS: ReadonlySet<string> = new Set(['Kit_Wall', 'Kit_WallWindow', 'Kit_WallDoor'])
+
+const near = (a: number, b: number) => Math.abs(a - b) < OVERLAP_EPSILON
+
+/**
+ * The highest ledge a piece may hang from, at or under `feet`, or -Infinity
+ * where there is none.
+ *
+ * Resting on what is under the footprint is not enough to build a storey: the
+ * middle of a ceiling has nothing under it but the room. So a slab also hangs
+ * from what borders its cell: the top of a wall standing on one of its edges,
+ * a slab of its own family in the next cell (level with it), and for a floor
+ * the top of the stairs whose high end faces it, which is the landing. That is
+ * how a floor spreads across a room from its walls and a roof closes over it.
+ *
+ * A panel has one ledge: the top of the panel already on its edge. Walls read
+ * that through their collision anyway; it is here for the door, which has none.
+ */
+function ledgeHeight(world: World, prop: PropSpec, feet: number): number {
+  const family = SPAN_FAMILY[prop.kind]
+  const panel = LEDGE_PANELS.has(prop.kind)
+  if (!family && !panel) return Number.NEGATIVE_INFINITY
+  const half = BUILD_GRID / 2
+  let best = Number.NEGATIVE_INFINITY
+  const reach = BUILD_GRID + half
+  for (const other of propsInBox(world, prop.x - reach, prop.y - reach, prop.x + reach, prop.y + reach)) {
+    if (other.id === prop.id) continue
+    const dx = Math.abs(other.x - prop.x)
+    const dy = Math.abs(other.y - prop.y)
+    const base = other.base ?? other.z ?? 0
+    let level: number
+    if (panel) {
+      if (!LEDGE_PANELS.has(other.kind) || !near(dx, 0) || !near(dy, 0)) continue
+      level = base + KIT_ASSETS[other.kind as KitKind].height
+    }
+    else if (LEDGE_PANELS.has(other.kind)) {
+      // Edge snapping means a panel on one of our edges is exactly half a cell
+      // out on one axis and centred on the other.
+      if (!((near(dx, half) && near(dy, 0)) || (near(dx, 0) && near(dy, half)))) continue
+      level = base + KIT_ASSETS[other.kind as KitKind].height
+    }
+    else {
+      if (!((near(dx, BUILD_GRID) && near(dy, 0)) || (near(dx, 0) && near(dy, BUILD_GRID)))) continue
+      if (family === 'roof' && SPAN_FAMILY[other.kind] === 'roof') {
+        // Level with it always, and wherever the two slopes meet as well: a
+        // ridge beside an eave meets it a whole rise up or down. The aim picks.
+        for (const option of [base, roofMeetLevel(prop, other, base)]) {
+          if (option != null && option <= feet && option > best) best = option
+        }
+        continue
+      }
+      if (SPAN_FAMILY[other.kind] === family) level = base
+      else if (family === 'floor' && other.kind === 'Kit_Stairs' && isStairsHead(other, prop)) level = base + KIT_ASSETS.Kit_Stairs.height
+      else continue
+    }
+    if (level <= feet && level > best) best = level
+  }
+  return Math.round(best * 100) / 100
+}
+
+/* -------------------------------------------------------------------------- */
+/* Roof pitch                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const ROOF_RISE = KIT_ASSETS.Kit_Roof.height
+
+/**
+ * How high a roof piece's top stands above its own `z` at one corner of its
+ * cell. `Kit_Roof` climbs from its eave on local -Z to its ridge on local +Z;
+ * `Kit_RoofCorner` has eaves on local -Z and -X and climbs to the one corner at
+ * +X +Z (`scripts/build_kit.py`). Local +Z is world (sin rot, cos rot), the
+ * same axis a flight of stairs climbs along.
+ */
+function roofRise(roof: { kind: string, x: number, y: number, rot: number }, cx: number, cy: number): number {
+  const half = BUILD_GRID / 2
+  const dx = (cx - roof.x) / half
+  const dy = (cy - roof.y) / half
+  const c = Math.cos(roof.rot)
+  const sn = Math.sin(roof.rot)
+  const lx = Math.round(dx * c - dy * sn)
+  const lz = Math.round(dx * sn + dy * c)
+  if (roof.kind === 'Kit_RoofCorner') return ROOF_RISE * Math.min(1 + lx, 1 + lz) / 2
+  return ROOF_RISE * (1 + lz) / 2
+}
+
+/** The two world corners of the edge `roof` shares with the cell beside it. */
+function sharedCorners(roof: { x: number, y: number }, other: { x: number, y: number }): [[number, number], [number, number]] {
+  const half = BUILD_GRID / 2
+  const ux = Math.sign(other.x - roof.x)
+  const uy = Math.sign(other.y - roof.y)
+  return [
+    [roof.x + half * (ux - uy), roof.y + half * (uy + ux)],
+    [roof.x + half * (ux + uy), roof.y + half * (uy - ux)],
+  ]
+}
+
+/**
+ * The `z` at which this roof meets the one beside it, or null when no height
+ * can: both roofs' tops have to agree at both corners of the edge they share.
+ * Back to back they are level, and a piece whose eave meets the other's ridge
+ * sits a whole rise up, carrying the slope on.
+ */
+function roofMeetLevel(roof: PropSpec, other: PropSpec, otherZ: number): number | null {
+  const [a, b] = sharedCorners(roof, other)
+  const at = (corner: [number, number]) => otherZ + roofRise(other, corner[0], corner[1]) - roofRise(roof, corner[0], corner[1])
+  const za = at(a)
+  const zb = at(b)
+  return Math.abs(za - zb) < OVERLAP_EPSILON ? za : null
+}
+
+/**
+ * A panel already standing on this edge in the band a new one would take, or
+ * null.
+ *
+ * Read off the kit's heights rather than collision, because the door and the
+ * gate have none: `overlappingPiece` skips them, so a wall aimed through a
+ * doorway went down inside the door and a door went into a wall, two models on
+ * one edge. Touching bands are a stack, which is how a wall goes over a door.
+ */
+function panelOnEdge(world: World, prop: PropSpec): PropSpec | null {
+  if (!isEdgeKind(prop.kind)) return null
+  const lo = prop.z ?? 0
+  const hi = lo + KIT_ASSETS[prop.kind as KitKind].height
+  for (const other of propsInBox(world, prop.x - 0.5, prop.y - 0.5, prop.x + 0.5, prop.y + 0.5)) {
+    if (other.id === prop.id || !isEdgeKind(other.kind) || !near(other.x, prop.x) || !near(other.y, prop.y)) continue
+    const base = other.z ?? 0
+    const top = base + KIT_ASSETS[other.kind as KitKind].height
+    if (lo >= top - OVERLAP_EPSILON || hi <= base + OVERLAP_EPSILON) continue
+    return other
+  }
+  return null
+}
+
+/** Whether `cell` is the cell the stairs climb into. A flight rises along its
+ *  local +depth (`ramparts.ts` measures its treads that way), which in the
+ *  world is (sin rot, cos rot); beside the low end or a side is not a landing. */
+function isStairsHead(stairs: PropSpec, cell: { x: number, y: number }): boolean {
+  return near(stairs.x + Math.sin(stairs.rot) * BUILD_GRID, cell.x) && near(stairs.y + Math.cos(stairs.rot) * BUILD_GRID, cell.y)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -458,10 +646,12 @@ const REFUSE = (reason: string): EditVerdict => ({ ok: false, reason })
 const REFUSE_CLAIM = (deed: WorldPlacement): EditVerdict => ({ ok: false, reason: PLOT_REFUSAL, claim: deed.owner })
 
 /** What `resolveBuild` returns: the exact placement the server would store, or
- *  the refusal, with `claim` carried the same way `EditVerdict` carries it. */
+ *  the refusal, with `claim` carried the same way `EditVerdict` carries it.
+ *  A refusal made after the height was resolved carries that `z`, so the ghost
+ *  shows the blocked piece where it would have stood rather than on the dirt. */
 export type BuildVerdict
   = | { ok: true, placement: WorldPlacement }
-    | { ok: false, reason: string, claim?: string }
+    | { ok: false, reason: string, claim?: string, z?: number }
 const ALLOW: EditVerdict = { ok: true }
 
 function inWorld(x: number, y: number): boolean {
@@ -529,7 +719,8 @@ export function checkTerraform(world: World, request: TerraformRequest, actor: E
   for (let cy = e.minY; cy <= e.maxY; cy++) {
     for (let cx = e.minX; cx <= e.maxX; cx++) {
       if (!inWorld(cx, cy)) return REFUSE('outside the world')
-      if (isProtectedTile(cx, cy)) return REFUSE('the town is protected')
+      const lock = editLock(cx, cy)
+      if (lock) return REFUSE(LOCK_REFUSAL[lock])
       if (!Number.isFinite(terrainHeight(world, cx, cy))) return REFUSE('that ground is not loaded')
     }
   }
@@ -555,7 +746,8 @@ export function checkDeedPlacement(world: World, deed: { x: number, y: number },
     return REFUSE(DEED_LIMIT === 1 ? 'you already hold a plot' : `you already hold ${DEED_LIMIT} plots`)
   }
   const plot = plotBounds(deed)
-  if (isProtectedBox(plot.minX, plot.minY, plot.maxX, plot.maxY)) return REFUSE('the town is protected')
+  const lock = editLockBox(plot.minX, plot.minY, plot.maxX, plot.maxY)
+  if (lock) return REFUSE(LOCK_REFUSAL[lock])
   const neighbour = foreignClaim(world, plot, owner)
   if (neighbour) return REFUSE_CLAIM(neighbour)
   // `propsInBox` answers by index cell, which is eight tiles wide: a neighbour's
@@ -599,7 +791,8 @@ export function resolveBuild(
   const pose = snapPlacement(kind, x, y, rot)
   if (!withinReach(actor, pose.x, pose.y)) return { ok: false, reason: 'too far away' }
   if (!inWorld(pose.x, pose.y)) return { ok: false, reason: 'outside the world' }
-  if (isProtectedTile(pose.x, pose.y)) return { ok: false, reason: 'the town is protected' }
+  const lock = editLock(pose.x, pose.y)
+  if (lock) return { ok: false, reason: LOCK_REFUSAL[lock] }
   const placement: WorldPlacement = { ...pose, kind, scale: 1, id: context.id, owner: context.owner }
   const prop = propFromPlacement(placement)
   const footprint = propBounds(prop)
@@ -613,25 +806,32 @@ export function resolveBuild(
     const verdict = checkDeedPlacement(world, pose, context.owner, held)
     if (!verdict.ok) return verdict
   }
-  const support = supportHeight(world, prop, cleanAim(request.h))
-  if (!Number.isFinite(support)) return { ok: false, reason: 'that ground is not loaded' }
+  const aim = cleanAim(request.h)
+  const ground = supportHeight(world, prop, aim)
+  if (!Number.isFinite(ground)) return { ok: false, reason: 'that ground is not loaded' }
+  const support = Math.max(ground, ledgeHeight(world, prop, aim == null ? Infinity : aim + LEDGE_SLACK))
   placement.z = support
   // Keep the resolved spec's band in step with the elevation we just chose, or
   // the overlap test below would still be reasoning about ground level.
   elevateProp(prop, support)
-  if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there' }
+  if (ceilingOver(world, prop)) return { ok: false, reason: 'no room there', z: support }
+  const panel = panelOnEdge(world, prop)
+  if (panel) return { ok: false, reason: `${panel.kind} is in the way`, z: support }
   const blocker = overlappingPiece(world, prop)
-  if (blocker) return { ok: false, reason: `${blocker.kind} is in the way` }
+  if (blocker) return { ok: false, reason: `${blocker.kind} is in the way`, z: support }
   return { ok: true, placement }
 }
 
 /** Whether this player may take that piece away, and reach it. Inside a plot
- *  only its owner may clear anything, a generated tree included — otherwise a
- *  stranger could log your garden without touching a thing you built. */
+ *  only its owner may clear anything, a generated tree included. Outside every
+ *  plot anyone may, whoever built it: an unclaimed build is not protected. */
 export function checkDemolish(world: World, placement: WorldPlacement, actor: EditActor, playerId: string): EditVerdict {
-  if (isProtectedTile(placement.x, placement.y)) return REFUSE('the town is protected')
+  // Only the town refuses a demolish. The gate approach is closed to building,
+  // not to clearing: anything standing in it is in the way by definition, and
+  // a piece raised there before the rule existed has to be removable.
+  if (editLock(placement.x, placement.y) === 'town') return REFUSE(LOCK_REFUSAL.town)
   if (!withinReach(actor, placement.x, placement.y)) return REFUSE('too far away')
-  if (!canRemove(placement, playerId)) return REFUSE('that is not yours')
+  if (!canRemove(placement)) return REFUSE('that cannot be removed')
   const deed = deedAt(world, placement.x, placement.y)
   if (deed?.owner && deed.owner !== playerId) return REFUSE_CLAIM(deed)
   return ALLOW

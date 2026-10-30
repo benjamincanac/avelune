@@ -497,8 +497,8 @@ function onWheel(event: WheelEvent) {
  *
  * The left button starts a drag: the scene repeats the armed tool as the target
  * moves under it, at the server's own edit rate. The click handler above still
- * fires the first edit, so a click too quick to span a frame is not swallowed —
- * the scene drops the duplicate by target.
+ * fires the first edit, so a click too quick to span a frame is not swallowed.
+ * The scene drops it when the press it ends has already edited.
  */
 function onMouseDown(event: MouseEvent) {
   if (props.editor || map.open.value || isTyping()) return

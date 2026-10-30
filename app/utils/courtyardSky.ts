@@ -1,7 +1,7 @@
 import { AmbientLight, BackSide, BufferAttribute, BufferGeometry, Color, CubeCamera, FogExp2, HalfFloatType, HemisphereLight, LineSegments, Mesh, PerspectiveCamera, PMREMGenerator, PointLight, Scene, ShaderMaterial, SphereGeometry, Vector3, Vector4, WebGLCubeRenderTarget } from 'three'
 import type { Camera, WebGLRenderer, WebGLRenderTarget } from 'three'
 import type { TimeOfDayMode, WeatherMode } from '#shared/types/game'
-import { createCascadedShadows } from './shadows'
+import { createCascadedShadows, createCasterRange } from './shadows'
 import type { CascadedShadows } from './shadows'
 
 /**
@@ -302,6 +302,14 @@ export function createCourtyardSky(scene: Scene) {
   // projection until the real one arrives on the first update.
   const shadowCamera = new PerspectiveCamera(62, 16 / 9, 0.1, 260)
   const shadows: CascadedShadows = createCascadedShadows(scene, shadowCamera)
+  // Driven from here because this is where the cascades are updated: what a
+  // caster is worth depends on how far the eye is from it, and the far cascade
+  // covers the whole town.
+  const casterRange = createCasterRange(scene)
+  // Published for the occlusion pass, which ranges its meshes from the same
+  // point: `courtyardRenderer` has no other view of where the player is.
+  const focus = new Vector3()
+  scene.userData.rangeFocus = focus
   // Warm pools on the plaza lamps, so night is lit rather than merely blue.
   const lanterns = PLAZA_LANTERNS.map(([x, z]) => {
     const light = new PointLight('#ffbe72', 0, 13, 1.9)
@@ -322,13 +330,15 @@ export function createCourtyardSky(scene: Scene) {
   }
   const material = new ShaderMaterial({
     uniforms, fragmentShader,
-    vertexShader: 'varying vec3 vDirection; void main() { vDirection = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    side: BackSide, depthWrite: false, depthTest: false, fog: false,
+    // Draw at the far plane after opaque geometry: covered pixels can fail
+    // depth before running the volumetric cloud raymarch.
+    vertexShader: 'varying vec3 vDirection; void main() { vDirection = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w; }',
+    side: BackSide, depthWrite: false, depthTest: true, fog: false,
   })
   const geometry = new SphereGeometry(80, 32, 16)
   const dome = new Mesh(geometry, material)
   dome.name = 'courtyard-atmosphere'
-  dome.renderOrder = -10
+  dome.renderOrder = 1000
   dome.frustumCulled = false
   scene.add(dome, ambient, hemi)
 
@@ -418,9 +428,8 @@ export function createCourtyardSky(scene: Scene) {
   let previousWeather: WeatherMode = 'auto'
   let previousTimeOfDay: TimeOfDayMode = 'auto'
   return {
-    /** Patch freshly built or freshly loaded materials for cascaded shadows.
-     *  The per-frame update rescans on its own, so calling this after a floor
-     *  rebuild is an optimisation, not a requirement. */
+    /** Explicitly patch newly attached materials. Normal scene updates bump
+     *  scene.userData.version after attachment, and the next frame scans once. */
     setupShadows() {
       shadows.setupScene(scene)
     },
@@ -465,7 +474,12 @@ export function createCourtyardSky(scene: Scene) {
         ? (0.25 + daylight * 3.9) * (1 - state.overcast * 0.7)
         : 0.62
       sunColor.set(state.sunHeight < 0 ? '#93b0ff' : daylight < 0.3 ? '#ffb877' : '#fff0cb')
-      if (camera instanceof PerspectiveCamera) shadows.update(camera, lightDirection, sunColor, intensity, delta)
+      if (camera instanceof PerspectiveCamera) {
+        // The player, at the lens's height: good to a couple of units, which is
+        // nothing against a twenty unit floor.
+        casterRange.update(focus.set(x, camera.position.y, z))
+        shadows.update(camera, lightDirection, sunColor, intensity, delta)
+      }
       hemi.intensity = 0.2 + state.dayness * 0.4 + glow * 0.9
       ambient.intensity = 0.04 + state.dayness * 0.03 + glow * 0.5
       // Lantern pools fade in as the sun goes down, and stay out of daylight.
@@ -504,6 +518,8 @@ export function createCourtyardSky(scene: Scene) {
     },
     dispose() {
       scene.remove(dome, ambient, hemi, rain, ...lanterns)
+      casterRange.dispose()
+      delete scene.userData.rangeFocus
       shadows.dispose()
       geometry.dispose()
       material.dispose()

@@ -5,13 +5,13 @@
 // decides whether a body walks under a piece, into it, or onto it.
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { PLAYER_SPEED, hitsRaisedPiece, stepBody, surfaceHeight, terrainHeight } from '../shared/utils/maze'
+import { PLAYER_SPEED, hitsRaisedPiece, isPieceCameraBlocked, isRampartCameraBlocked, stepBody, surfaceHeight, terrainHeight } from '../shared/utils/maze'
 import type { KinematicBody } from '../shared/utils/maze'
 import { DEED_SIZE, checkDemolish, checkTerraform, deedAt, isEdgeKind, overlappingPiece, plotBounds, plotOwner, refusalText, resolveBuild, snapGridFor, snapPlacement, supportHeight } from '../shared/utils/building'
 import { propFromPlacement } from '../shared/utils/props'
 import { KIT_ASSETS } from '../shared/utils/kit'
 import { generateVegetation, isWildTree } from '../shared/utils/vegetation'
-import { CHUNK_SIZE, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, createWorld } from '../shared/utils/world'
+import { CHUNK_SIZE, GATE_APPROACH, TERRAFORM_STEP, applyPlace, applyRemove, applyTerrain, createWorld } from '../shared/utils/world'
 import type { World } from '../shared/utils/world'
 import { worldTerrainHeight } from '../shared/utils/terrain'
 import { FORTIFICATIONS } from '../shared/utils/courtyard'
@@ -130,8 +130,12 @@ test('a floor stacked on walls is walked under and stood on', () => {
   put(world, 'wall-e', 'Kit_Wall', gx + 1, gy, Math.PI / 2, 0)
   const floor = { id: 'floor', kind: 'Kit_Floor', x: gx, y: gy, rot: 0, scale: 1, owner: 'builder' }
 
-  // The floor's support is the wall top, not the ground it spans.
-  assert.equal(supportHeight(world, propFromPlacement({ ...floor, z: 0 })), height)
+  // The ground is all that is under the floor; the wall tops on its edges are
+  // the ledge it hangs from.
+  assert.equal(supportHeight(world, propFromPlacement({ ...floor, z: 0 })), 0)
+  const hung = resolveBuild(world, { kind: floor.kind, x: floor.x, y: floor.y, rot: 0 }, { x: gx, y: gy }, { owner: 'builder', id: 'hung', pieces: 0 })
+  assert.ok(hung.ok, `floor on walls refused: ${hung.ok === false && hung.reason}`)
+  assert.equal(hung.placement.z, height)
   put(world, floor.id, floor.kind, floor.x, floor.y, floor.rot, height)
 
   // Underneath: the corridor is still open, and the body stays on the ground.
@@ -173,6 +177,24 @@ test('kit stairs carry a walking body up to the floor above', () => {
   assert.ok(midway.z > 0 && midway.z < rise, `midway height was ${midway.z}`)
 })
 
+test('kit stairs block the camera as a wedge, not as a box', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 8, 10)
+  const rise = KIT_ASSETS.Kit_Stairs.height
+  // A flight rising along +y: low treads at gy - 1, the top step at gy + 1.
+  put(world, 'stairs', 'Kit_Stairs', gx, gy, 0, 0)
+  const blocked = (y: number, elevation: number) => isRampartCameraBlocked(world, gx, y, elevation, 0.25) || isPieceCameraBlocked(world, gx, y, elevation, 0.25)
+
+  // Someone near the top has their camera trailing over the low treads, at
+  // about the height of their own head. That is well clear of the flight there.
+  assert.equal(blocked(gy - 0.7, rise * 0.8), false, 'the low treads blocked a camera far above them')
+  // Inside the flight it is still solid: under the top step, and down in a tread.
+  assert.equal(blocked(gy + 0.7, rise * 0.3), true, 'the camera passed under the top step')
+  assert.equal(blocked(gy - 0.7, 0.05), true, 'the camera passed through the bottom tread')
+  // And clear above the whole thing.
+  assert.equal(blocked(gy + 0.7, rise + 1), false)
+})
+
 test('the build rules refuse a piece in the same band and allow one on top', () => {
   const world = createWorld()
   const { x: gx, y: gy } = levelChunk(world, 9, 9)
@@ -206,6 +228,174 @@ test('the build rules refuse a piece in the same band and allow one on top', () 
   const through = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 4, y: gy, rot: 0 }, { x: gx + 4, y: gy }, { owner: 'builder', id: 'f2', pieces: 4 })
   assert.equal(through.ok, false)
   assert.match(through.ok === false ? through.reason : '', /tree1 is in the way/)
+})
+
+/* -------------------------------------------------------------------------- */
+/* Rooms: pieces against walls, storeys and roofs across them                 */
+/* -------------------------------------------------------------------------- */
+
+const who = (id: string) => ({ owner: 'builder', id, pieces: 0 })
+
+test('stairs and floors fit against the walls of a room', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 10)
+  const actor = { x: gx, y: gy }
+  put(world, 'wall-n', 'Kit_Wall', gx, gy - 1, 0, 0)
+  put(world, 'wall-w', 'Kit_Wall', gx - 1, gy, Math.PI / 2, 0)
+
+  const stairs = resolveBuild(world, { kind: 'Kit_Stairs', x: gx, y: gy, rot: 0, h: 0 }, actor, who('s1'))
+  assert.ok(stairs.ok, `stairs against the wall refused: ${stairs.ok === false && stairs.reason}`)
+  assert.equal(stairs.placement.z, 0)
+
+  const floor = resolveBuild(world, { kind: 'Kit_Floor', x: gx, y: gy, rot: 0, h: 0 }, actor, who('f1'))
+  assert.ok(floor.ok, `floor inside the room refused: ${floor.ok === false && floor.reason}`)
+  assert.equal(floor.placement.z, 0, 'aimed at the ground, the floor stays on it')
+
+  // A tree is not a panel: the cell keeps its whole footprint against it.
+  put(world, 'trunk', 'tree1', gx + 3.3, gy, 0, 0)
+  const crowded = resolveBuild(world, { kind: 'Kit_Stairs', x: gx + 2, y: gy, rot: 0, h: 0 }, actor, who('s2'))
+  assert.equal(crowded.ok, false)
+})
+
+test('an upper floor spreads across a room from its walls', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 17, 10)
+  const actor = { x: gx + 2, y: gy }
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  // A room three cells wide: walls on the west and east ends only.
+  put(world, 'wall-w', 'Kit_Wall', gx - 1, gy, Math.PI / 2, 0)
+  put(world, 'wall-e', 'Kit_Wall', gx + 5, gy, Math.PI / 2, 0)
+
+  // Aimed near the top of the west wall, the first slab takes its top.
+  const first = resolveBuild(world, { kind: 'Kit_Floor', x: gx, y: gy, rot: 0, h: wallH - 0.6 }, actor, who('f1'))
+  assert.ok(first.ok, `first slab refused: ${first.ok === false && first.reason}`)
+  assert.equal(first.placement.z, wallH)
+  applyPlace(world, first.placement)
+
+  // The middle cell has nothing under it but the room; it hangs level with
+  // the slab whose side the player aimed at.
+  const middle = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 2, y: gy, rot: 0, h: wallH + 0.1 }, actor, who('f2'))
+  assert.ok(middle.ok, `middle slab refused: ${middle.ok === false && middle.reason}`)
+  assert.equal(middle.placement.z, wallH)
+  applyPlace(world, middle.placement)
+
+  // Aimed at the ground under it, the same cell is a ground floor instead.
+  const below = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 4, y: gy, rot: 0, h: 0 }, actor, who('f3'))
+  assert.ok(below.ok)
+  assert.equal(below.placement.z, 0)
+
+  // A slab with nothing beside it does not float.
+  const alone = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 2, y: gy + 6, rot: 0, h: wallH }, { x: gx + 2, y: gy + 4 }, who('f4'))
+  assert.ok(alone.ok)
+  assert.equal(alone.placement.z, 0)
+})
+
+test('a landing hangs at the top of the stairs', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 11)
+  const rise = KIT_ASSETS.Kit_Stairs.height
+  put(world, 'stairs', 'Kit_Stairs', gx, gy, 0, 0)
+  const landing = resolveBuild(world, { kind: 'Kit_Floor', x: gx, y: gy + 2, rot: 0, h: rise - 0.5 }, { x: gx, y: gy }, who('f1'))
+  assert.ok(landing.ok, `landing refused: ${landing.ok === false && landing.reason}`)
+  assert.equal(landing.placement.z, rise)
+
+  // Beside the low end or a side of the flight there is nothing to land on.
+  for (const [x, y] of [[gx, gy - 2], [gx + 2, gy]] as const) {
+    const off = resolveBuild(world, { kind: 'Kit_Floor', x, y, rot: 0, h: rise - 0.5 }, { x: gx, y: gy }, who('f2'))
+    assert.ok(off.ok)
+    assert.equal(off.placement.z, 0, `hung beside the stairs at ${x - gx},${y - gy}`)
+  }
+
+  // Turned a quarter, the flight climbs along +x and the landing follows it.
+  put(world, 'turned', 'Kit_Stairs', gx + 6, gy, Math.PI / 2, 0)
+  const turned = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 8, y: gy, rot: 0, h: rise - 0.5 }, { x: gx + 6, y: gy }, who('f3'))
+  assert.ok(turned.ok)
+  assert.equal(turned.placement.z, rise)
+})
+
+test('a wall stacks over a door', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 16, 10)
+  const actor = { x: gx, y: gy }
+  const height = KIT_ASSETS.Kit_WallDoor.height
+  put(world, 'door', 'Kit_WallDoor', gx, gy - 1, 0, 0)
+
+  const over = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: height }, actor, who('w1'))
+  assert.ok(over.ok, `wall over the door refused: ${over.ok === false && over.reason}`)
+  assert.equal(over.placement.z, height)
+
+  // Aimed through the opening, the door itself refuses the wall, although it
+  // has no collision: two panels never share an edge in the same band.
+  const across = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: 0 }, actor, who('w2'))
+  assert.equal(across.ok, false)
+  assert.equal(across.ok === false && across.reason, 'Kit_WallDoor is in the way')
+
+  // Nor does a door go into a wall, or a gate into a fence.
+  put(world, 'wall', 'Kit_Wall', gx + 2, gy - 1, 0, 0)
+  put(world, 'fence', 'Kit_Fence', gx - 2, gy - 1, 0, 0)
+  for (const [kind, x, blocker] of [['Kit_WallDoor', gx + 2, 'Kit_Wall'], ['Kit_Gate', gx - 2, 'Kit_Fence']] as const) {
+    const into = resolveBuild(world, { kind, x, y: gy - 0.9, rot: 0, h: 0 }, actor, who('p'))
+    assert.equal(into.ok === false && into.reason, `${blocker} is in the way`)
+  }
+})
+
+test('a refused piece still reports the height it would have stood at', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 17, 10)
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  put(world, 'wall-w', 'Kit_Wall', gx - 1, gy, Math.PI / 2, 0)
+  const deckTop = wallH + KIT_ASSETS.Kit_Floor.height
+  put(world, 'deck', 'Kit_Floor', gx, gy, 0, wallH)
+  put(world, 'crate', 'Kit_Crate', gx, gy, 0, deckTop)
+  const blocked = resolveBuild(world, { kind: 'Kit_Floor', x: gx, y: gy, rot: 0, h: deckTop }, { x: gx, y: gy }, who('f1'))
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.ok === false && blocked.z, deckTop)
+})
+
+test('a roof closes over the middle of a room', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 17, 11)
+  const actor = { x: gx + 2, y: gy }
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  put(world, 'wall-w', 'Kit_Wall', gx - 1, gy, Math.PI / 2, 0)
+  put(world, 'roof-w', 'Kit_Roof', gx, gy, 0, wallH)
+
+  // The ray meets the side of the roof beside the gap, anywhere up its slope.
+  // Facing the same way, the two slopes run on side by side at one level.
+  const gap = resolveBuild(world, { kind: 'Kit_Roof', x: gx + 2, y: gy, rot: 0, h: wallH + 0.9 }, actor, who('r1'))
+  assert.ok(gap.ok, `roof over the gap refused: ${gap.ok === false && gap.reason}`)
+  assert.equal(gap.placement.z, wallH)
+
+  // A floor is not a roof's family: it does not hang off one.
+  const floor = resolveBuild(world, { kind: 'Kit_Floor', x: gx + 2, y: gy, rot: 0, h: wallH + 0.5 }, actor, who('f1'))
+  assert.ok(floor.ok)
+  assert.equal(floor.placement.z, 0)
+})
+
+test('roofs meet where their slopes do', () => {
+  const world = createWorld()
+  const { x: gx, y: gy } = levelChunk(world, 17, 11)
+  const actor = { x: gx, y: gy }
+  const wallH = KIT_ASSETS.Kit_Wall.height
+  const rise = KIT_ASSETS.Kit_Roof.height
+  // Its ridge on its +y edge, its eave on -y.
+  put(world, 'roof', 'Kit_Roof', gx, gy, 0, wallH)
+  const roof = (x: number, y: number, rot: number, h: number, kind = 'Kit_Roof') => resolveBuild(world, { kind, x, y, rot, h }, actor, who('r'))
+  const z = (v: ReturnType<typeof roof>) => v.ok ? v.placement.z : v.reason
+
+  // Back to back, ridge to ridge: a gable, level.
+  assert.equal(z(roof(gx, gy + 2, Math.PI, wallH + 0.5)), wallH)
+  // An eave meeting this ridge carries the slope on up, a whole rise higher.
+  assert.equal(z(roof(gx, gy + 2, 0, wallH + 1)), wallH + rise)
+  // Aimed low, the same piece sits level beside it instead.
+  assert.equal(z(roof(gx, gy + 2, 0, wallH - 0.5)), wallH)
+  // A ridge meeting this eave carries the slope on down, aimed below it...
+  assert.equal(z(roof(gx, gy - 2, 0, wallH - 1.5)), wallH - rise)
+  // ...and sits level on the walls when aimed at the roof: nothing is refused
+  // for a step where two roofs meet.
+  put(world, 'front', 'Kit_Wall', gx, gy - 3, 0, 0)
+  assert.equal(z(roof(gx, gy - 2, 0, wallH + 0.5)), wallH)
+  assert.equal(z(roof(gx, gy - 2, 0, wallH + 0.5, 'Kit_RoofCorner')), wallH)
 })
 
 /* -------------------------------------------------------------------------- */
@@ -271,8 +461,11 @@ test('a piece that will not fit under what is above it is refused', () => {
   const world = createWorld()
   const { x: gx, y: gy } = levelChunk(world, 12, 10)
   const actor = { x: gx, y: gy }
-  // A slab hung low over the cell — lower than a wall is tall.
+  // A slab hung low over the cell, and a panel hung low on its edge — both
+  // lower than a wall is tall. A wall may run past a slab's edge, since the
+  // cell gives that strip up to panels, but not under another panel.
   put(world, 'low-deck', 'Kit_Floor', gx, gy, 0, 1.5)
+  put(world, 'low-lintel', 'Kit_Wall', gx, gy - 1, 0, 1.5)
 
   const squeezed = resolveBuild(world, { kind: 'Kit_Wall', x: gx, y: gy - 0.9, rot: 0, h: 0 }, actor, { owner: 'builder', id: 'w1', pieces: 0 })
   assert.equal(squeezed.ok, false)
@@ -482,14 +675,15 @@ test('building stops at the end of the gate bridge, not a chunk later', () => {
   const world = createWorld()
   const f = FORTIFICATIONS
   const onRoad = { x: f.gateX, y: f.bridgeEnd - 1 }
-  const past = { x: f.gateX, y: f.bridgeEnd + 3 }
+  // Past the bridge *and* clear of the approach the bridge lands on.
+  const past = { x: GATE_APPROACH.maxX + 2, y: f.bridgeEnd + 3 }
 
   const refused = resolveBuild(world, { kind: 'Kit_Crate', ...onRoad, rot: 0 }, onRoad, { owner: 'builder', id: 'r1', pieces: 0 })
   assert.equal(refused.ok, false)
   assert.equal(refused.ok === false && refused.reason, 'the town is protected')
 
   const allowed = resolveBuild(world, { kind: 'Kit_Crate', ...past, rot: 0 }, past, { owner: 'builder', id: 'r2', pieces: 0 })
-  assert.ok(allowed.ok, `a build past the bridge was refused: ${allowed.ok === false && allowed.reason}`)
+  assert.ok(allowed.ok, `a build beside the approach was refused: ${allowed.ok === false && allowed.reason}`)
 
   // Well inside the old protected chunk band, but clear of the footprint.
   const beside = { x: 30, y: 150 }
@@ -503,6 +697,35 @@ test('building stops at the end of the gate bridge, not a chunk later', () => {
   const edge = { x: f.gateX + f.bridgeWidth / 2 + 1, y: f.bridgeEnd - 1 }
   assert.equal(checkTerraform(world, { x: edge.x, y: edge.y, mode: 'raise', size: 1 }, edge).ok, true)
   assert.equal(checkTerraform(world, { x: edge.x - 1, y: edge.y, mode: 'raise', size: 3 }, edge).ok, false)
+})
+
+test('the ground in front of the gate cannot be built on, dug out or claimed', () => {
+  const world = createWorld()
+  const f = FORTIFICATIONS
+  // Straight off the end of the bridge, where one wall would shut the town.
+  const mouth = { x: f.gateX, y: f.bridgeEnd + 1 }
+  const built = resolveBuild(world, { kind: 'Kit_Wall', ...mouth, rot: 0 }, mouth, { owner: 'builder', id: 'g1', pieces: 0 })
+  assert.equal(built.ok, false)
+  assert.equal(built.ok === false && built.reason, 'the way into town must stay clear')
+  // And a trench in front of it is the same block by other means.
+  assert.equal(checkTerraform(world, { ...mouth, mode: 'lower', size: 1 }, mouth).ok, false)
+  // The spawn stands inside the strip, so nobody can dig out the tile players
+  // arrive on, and the flare is wider than the deck.
+  assert.equal(checkTerraform(world, { ...f.spawn, mode: 'lower', size: 1 }, f.spawn).ok, false)
+  const flank = { x: f.gateX + f.bridgeWidth / 2 + 2, y: f.bridgeEnd + 2 }
+  assert.equal(resolveBuild(world, { kind: 'Kit_Wall', ...flank, rot: 0 }, flank, { owner: 'builder', id: 'g2', pieces: 0 }).ok, false)
+  // A deed would fence the road just as well, so a plot overlapping it is out.
+  const deed = { x: GATE_APPROACH.maxX - 1, y: GATE_APPROACH.maxY - 1 }
+  const claimed = resolveBuild(world, { kind: 'Kit_Deed', ...deed, rot: 0 }, deed, { owner: 'builder', id: 'g3', pieces: 0, deeds: 0 })
+  assert.equal(claimed.ok, false)
+  assert.equal(claimed.ok === false && claimed.reason, 'the way into town must stay clear')
+  // Clearing it is still allowed: a piece standing here is in the way.
+  const stray = { x: mouth.x, y: mouth.y, z: 0, kind: 'Kit_Wall', scale: 1, id: 'g4', owner: 'builder' }
+  assert.equal(checkDemolish(world, stray, mouth, 'builder').ok, true)
+  // Two tiles past the strip the meadow is a player's again.
+  const clear = { x: f.gateX, y: GATE_APPROACH.maxY + 2 }
+  assert.ok(resolveBuild(world, { kind: 'Kit_Wall', ...clear, rot: 0 }, clear, { owner: 'builder', id: 'g5', pieces: 0 }).ok)
+  assert.equal(checkTerraform(world, { ...clear, mode: 'lower', size: 1 }, clear).ok, true)
 })
 
 test('a flatten needs a brush wider than the corner it levels to', () => {
@@ -619,6 +842,25 @@ test('wild vegetation inside a plot is the owner s to clear', () => {
   assert.equal(checkDemolish(world, wild, { x: wild.x, y: wild.y, id: 'bo' }, 'bo').ok, true)
 })
 
+test('a build is only protected inside its owner s plot', () => {
+  const { world, x, y } = plotGround()
+  assert.ok(claim(world, 'ana', x, y).ok)
+
+  const inside = { x: x + 3, y: y + 3 }
+  const kept = resolveBuild(world, { kind: 'Kit_Crate', ...inside, rot: 0 }, { ...inside, id: 'ana' }, { owner: 'ana', id: 'a1', pieces: 1 })
+  assert.ok(kept.ok)
+  applyPlace(world, kept.placement)
+  const refused = checkDemolish(world, kept.placement, { ...inside, id: 'bo' }, 'bo')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.ok === false && refused.claim, 'ana')
+
+  const outside = { x: x + DEED_SIZE + 2, y }
+  const loose = resolveBuild(world, { kind: 'Kit_Crate', ...outside, rot: 0 }, { ...outside, id: 'ana' }, { owner: 'ana', id: 'a2', pieces: 2 })
+  assert.ok(loose.ok)
+  applyPlace(world, loose.placement)
+  assert.equal(checkDemolish(world, loose.placement, { ...outside, id: 'bo' }, 'bo').ok, true)
+})
+
 test('pulling the deed releases the plot and leaves the pieces', () => {
   const { world, x, y } = plotGround()
   const planted = claim(world, 'ana', x, y)
@@ -633,10 +875,12 @@ test('pulling the deed releases the plot and leaves the pieces', () => {
   applyRemove(world, planted.placement.id)
 
   assert.equal(plotOwner(world, x, y), undefined)
-  // The crate stayed where it was, and is still only Ana s to remove.
+  // The crate stayed where it was, and with the claim gone it is anyone s to
+  // knock down.
   const chunk = world.getChunk(8, 8)!
   assert.ok(chunk.placements.some(p => p.id === 'a1'))
   assert.equal(chunk.deeds.length, 0)
+  assert.equal(checkDemolish(world, crate.placement, { ...inside, id: 'bo' }, 'bo').ok, true)
 
   // ...and a stranger can build here again.
   const bo = { x: x + 6, y: y + 6 }

@@ -106,6 +106,26 @@ def slabbox(name, x0, x1, y0, y1, z0, z1, material=plaster, r=.02):
                (abs(x1 - x0), abs(y1 - y0), abs(z1 - z0)), material, r)
 
 
+def sloped_post(name, x0, x1, y0, y1, z0, z_outer, z_inner, material, r=.02):
+    """A post whose top slopes from `z_outer` at its grid-corner end (whichever
+    of x0/x1 has the larger absolute value) down to `z_inner` at the other end.
+    Two of these turned 90 degrees then meet at a grid corner on intersecting
+    planes instead of sharing a flat, coplanar top square. Built unbevelled,
+    then the top verts are moved before the bevel is applied, since a bevel
+    modifier can't be pointed at a slope that doesn't exist yet."""
+    obj = slabbox(name, x0, x1, y0, y1, z0, max(z_outer, z_inner), material, r=0)
+    top_z = max(v.co.z for v in obj.data.vertices)
+    outer_x = x0 if abs(x0) > abs(x1) else x1
+    for v in obj.data.vertices:
+        if abs(v.co.z - top_z) < 1e-6:
+            world_x = obj.location.x + v.co.x
+            target = z_outer if abs(world_x - outer_x) < 1e-4 else z_inner
+            v.co.z = target - obj.location.z
+    obj.data.update()
+    bevel(obj, r)
+    return obj
+
+
 def beam(name, a, b, r, material=wood):
     direction = Vector(b) - Vector(a)
     obj = box(name, (Vector(a) + Vector(b)) / 2, (r, r, direction.length), material, r * .14)
@@ -180,35 +200,49 @@ def height_slab(name, hfunc, thickness, material, nx=4, ny=4, x0=-1, x1=1, y0=-1
 WALL_W, WALL_D, WALL_H = 2.0, .30, 2.5
 HD = WALL_D / 2          # the frame face: nothing may stick out past it
 PD = HD - .045           # the plaster sits recessed between the timbers
+# The posts own the frame face. Every timber that crosses one is set back a few
+# millimetres so no two members share a face plane where they overlap, which
+# the depth buffer cannot resolve and shows as flicker. Braces sit behind the
+# rails they run into for the same reason.
+FD = HD - .005
+BD = HD - .01
 
 
 def wall_frame(door_gap=0.0):
     """Timber frame shared by the three wall panels. Posts and plates stand a
-    little proud of the plaster on both faces, like the town's upper storeys."""
+    little proud of the plaster on both faces, like the town's upper storeys.
+    Plate and sill stop short of x=±1 (±(1-HD) instead) so a perpendicular
+    neighbour's plate/sill covers the shared grid corner without overlapping
+    it, and the post tops sit 1cm under the plate instead of flush with it.
+    At a corner, two perpendicular walls' posts still overlap in a small
+    square, both flat-topped at the same height, so the post top is sloped
+    (sloped_post) from the outer, grid-corner end down to the inner end: two
+    posts turned 90 degrees then meet on intersecting planes, never coplanar
+    ones."""
     for x in [-.9, .9]:
-        slabbox('Corner post', x - .1, x + .1, -HD, HD, 0, WALL_H, wood)
-    slabbox('Top plate', -1, 1, -HD, HD, WALL_H - .18, WALL_H, wood)
+        sloped_post('Corner post', x - .1, x + .1, -HD, HD, 0, WALL_H - .01, WALL_H - .03, wood)
+    slabbox('Top plate', -(1 - HD), 1 - HD, -FD, FD, WALL_H - .18, WALL_H, wood)
     if door_gap:
         for side in [-1, 1]:
-            slabbox('Sill beam', side * door_gap, side, -HD, HD, 0, .16, wood)
+            slabbox('Sill beam', side * door_gap, side * (1 - HD), -FD, FD, 0, .16, wood)
     else:
-        slabbox('Sill beam', -1, 1, -HD, HD, 0, .16, wood)
+        slabbox('Sill beam', -(1 - HD), 1 - HD, -FD, FD, 0, .16, wood)
 
 
 def kit_wall():
-    slabbox('Plaster panel', -1, 1, -PD, PD, 0, WALL_H, plaster)
+    slabbox('Plaster panel', -.95, .95, -PD, PD, 0, WALL_H - .05, plaster)
     wall_frame()
-    slabbox('Mid rail', -.9, .9, -HD, HD, 1.42, 1.56, wood)
+    slabbox('Mid rail', -.9, .9, -FD, FD, 1.42, 1.56, wood)
     for side in [-1, 1]:
-        diagonal('Corner brace', (side * .86, .18), (side * .4, 1.42), .16, 2 * HD)
+        diagonal('Corner brace', (side * .86, .18), (side * .4, 1.42), .16, 2 * BD)
 
 
 def kit_wall_window():
     ox0, ox1, oz0, oz1 = -.45, .45, 1.15, 1.95
-    slabbox('Plaster apron', -1, 1, -PD, PD, 0, oz0, plaster)
-    slabbox('Plaster header', -1, 1, -PD, PD, oz1, WALL_H, plaster)
-    slabbox('Plaster jamb left', -1, ox0, -PD, PD, oz0, oz1, plaster)
-    slabbox('Plaster jamb right', ox1, 1, -PD, PD, oz0, oz1, plaster)
+    slabbox('Plaster apron', -.95, .95, -PD, PD, 0, oz0, plaster)
+    slabbox('Plaster header', -.95, .95, -PD, PD, oz1, WALL_H - .05, plaster)
+    slabbox('Plaster jamb left', -.95, ox0, -PD, PD, oz0, oz1, plaster)
+    slabbox('Plaster jamb right', ox1, .95, -PD, PD, oz0, oz1, plaster)
     wall_frame()
     slabbox('Carved sill', ox0 - .16, ox1 + .16, -HD, HD, oz0 - .1, oz0, trim)
     slabbox('Window lintel', ox0 - .12, ox1 + .12, -PD - .01, PD + .01, oz1, oz1 + .11, trim)
@@ -222,9 +256,9 @@ def kit_wall_window():
 
 def kit_wall_door():
     ox0, ox1, oz1 = -.5, .5, 2.0
-    slabbox('Plaster header', -1, 1, -PD, PD, oz1, WALL_H, plaster)
-    slabbox('Plaster jamb left', -1, ox0, -PD, PD, 0, oz1, plaster)
-    slabbox('Plaster jamb right', ox1, 1, -PD, PD, 0, oz1, plaster)
+    slabbox('Plaster header', -.95, .95, -PD, PD, oz1, WALL_H - .05, plaster)
+    slabbox('Plaster jamb left', -.95, ox0, -PD, PD, 0, oz1, plaster)
+    slabbox('Plaster jamb right', ox1, .95, -PD, PD, 0, oz1, plaster)
     wall_frame(door_gap=.5)
     slabbox('Door lintel', ox0 - .16, ox1 + .16, -HD, HD, oz1, oz1 + .14, trim)
     slabbox('Threshold', ox0 - .06, ox1 + .06, -HD, HD, 0, .06, trim)
@@ -235,7 +269,7 @@ def kit_wall_door():
 def kit_floor():
     for i in range(5):
         x0 = -1 + i * .4
-        slabbox('Floor plank', x0 + .012, x0 + .388, -.94, .94, .06, .2, wood, .012)
+        slabbox('Floor plank', x0 + .012, x0 + .388, -.93, .93, .06, .2, wood, .012)
     for y in [-1, 1]:
         slabbox('Floor joist', -1, 1, y, y - math.copysign(.07, y), 0, .2, wood)
     slabbox('Floor underside', -1, 1, -.93, .93, 0, .07, wood, 0)
@@ -262,8 +296,12 @@ def kit_roof():
         tile = box('Tile course', (x, 0, ROOF_THICK + ROOF_SLOPE / 2 + .028),
                    (.10, 2 / math.cos(angle), .055), rooflight, .012)
         tile.rotation_euler = (-angle, 0, 0)
-    slabbox('Ridge cap', -1, 1, -1, -.86, ROOF_TOP - .11, ROOF_TOP, rooflight, .015)
-    slabbox('Eave board', -1, 1, .9, 1, 0, .15, trim, .015)
+    # The eave board's outer face and its ends would otherwise land exactly on
+    # the pitch slab's end face and sides; the ridge cap's low end would land
+    # on the slab's ridge end. Inset 5mm where they'd overlap flush, proud 5mm
+    # where they're meant to sit above the slab's own face.
+    slabbox('Ridge cap', -1, 1, -.995, -.86, ROOF_TOP - .11, ROOF_TOP, rooflight, .015)
+    slabbox('Eave board', -.995, .995, .9, 1.005, 0, .15, trim, .015)
 
 
 def kit_roof_corner():
@@ -273,8 +311,10 @@ def kit_roof_corner():
     line = [(-1 + 2 * t, 1 - 2 * t) for t in [.04 + .92 * i / 5 for i in range(6)]]
     for (x0, y0), (x1, y1) in zip(line, line[1:]):
         beam('Hip ridge', (x0, y0, hip(x0, y0) + .015), (x1, y1, hip(x1, y1) + .015), .075, rooflight)
-    slabbox('Eave board', -1, 1, .9, 1, 0, .15, trim, .015)
-    slabbox('Eave board', -1, -.9, -1, .9, 0, .15, trim, .015)
+    # Same treatment as Kit_Roof's single eave board, against both of this
+    # piece's eave edges (+Y and -X) and the hip slab's faces there.
+    slabbox('Eave board', -1.005, .995, .9, 1.005, 0, .15, trim, .015)
+    slabbox('Eave board', -1.005, -.9, -.995, .9, 0, .15, trim, .015)
 
 
 STAIR_STEPS, STAIR_H = 8, 2.5
@@ -296,17 +336,27 @@ def kit_stairs():
 
 
 def kit_fence():
-    for x in [-.93, 0, .93]:
-        slabbox('Fence post', x - .07, x + .07, -.075, .075, 0, 1.0, wood)
+    # Rails end inside the end posts (±.93, not ±1) so their end faces don't
+    # land on the posts' outer face. The end posts have the same corner
+    # overlap as the wall posts (flat tops at z 1.0 that two perpendicular
+    # instances share at a grid corner), so they get the same sloped top; the
+    # middle post never sits on a grid corner and stays flat.
+    slabbox('Fence post', -.07, .07, -.075, .075, 0, 1.0, wood)
+    for x in [-.93, .93]:
+        sloped_post('Fence post', x - .07, x + .07, -.075, .075, 0, 1.0, .98, wood)
     for z in [.34, .78]:
-        slabbox('Fence rail', -1, 1, -.045, .045, z, z + .13, wood, .015)
+        slabbox('Fence rail', -.93, .93, -.045, .045, z, z + .13, wood, .015)
 
 
 def kit_gate():
+    # The cap stands proud of the post's depth so their front/back faces
+    # don't coincide, and the lintel ends at the caps' inner face (±.8)
+    # instead of running under them to ±1, which also removes the lintel's
+    # coplanar top(.98)/end(±1) overlap with the caps.
     for x in [-.9, .9]:
         slabbox('Gate post', x - .075, x + .075, -.075, .075, 0, 1.0, wood)
-        slabbox('Post cap', x - .1, x + .1, -.075, .075, .88, .98, trim, .015)
-    slabbox('Gate lintel', -1, 1, -.055, .055, .84, .98, wood, .015)
+        slabbox('Post cap', x - .1, x + .1, -.08, .08, .88, .98, trim, .015)
+    slabbox('Gate lintel', -.8, .8, -.055, .055, .84, .98, wood, .015)
     slabbox('Brass boss', -.11, .11, -.065, .065, .86, .96, gold, .015)
 
 
@@ -335,18 +385,22 @@ def kit_deed():
     # facing Blender +Y (exported -Z, the kit's front). The stone base fills the
     # declared 0.4 x 0.4 footprint; the post and board sit inside it.
     slabbox('Deed base', -.2, .2, -.2, .2, 0, .05, trim, .015)
-    slabbox('Deed post', -.05, .05, -.05, .05, .05, 1.4, wood)
+    slabbox('Deed post', -.05, .05, -.05, .05, .05, 1.39, wood)
     slabbox('Deed post cap', -.07, .07, -.07, .07, 1.34, 1.4, trim, .012)
     slabbox('Deed board', -.18, .18, .05, .10, 1.02, 1.26, wood, .012)
 
 
 def kit_crate():
     slabbox('Crate body', -.45, .45, -.45, .45, .05, .95, wood)
+    # Slats run only between the corner posts (±.42 along their length,
+    # stopping short of the posts instead of running full length into them)
+    # and sit 5mm back from the posts' own outer face (±.495 not ±.5), so the
+    # posts alone own the ±.5 side faces and the top.
     for z in [.04, .5, .96]:
         for sx in [-1, 1]:
-            slabbox('Crate slat', sx * .42, sx * .5, -.5, .5, z - .04, z + .04, wood, .01)
+            slabbox('Crate slat', sx * .42, sx * .495, -.42, .42, z - .04, z + .04, wood, .01)
         for sy in [-1, 1]:
-            slabbox('Crate slat', -.5, .5, sy * .42, sy * .5, z - .04, z + .04, wood, .01)
+            slabbox('Crate slat', -.42, .42, sy * .42, sy * .495, z - .04, z + .04, wood, .01)
     for sx in [-1, 1]:
         for sy in [-1, 1]:
             slabbox('Crate corner', sx * .42, sx * .5, sy * .42, sy * .5, 0, 1, wood, .01)

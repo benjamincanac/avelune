@@ -477,6 +477,20 @@ if (deed) {
 // close enough to be paired.
 const VOICE_KIND = 1
 /** `[u8 kind][u16 seq]` then the payload, exactly as `encodeVoiceUp` writes it. */
+/** `[u8 kind][u16 seq][u8 type][u8 langLen]` then the container bytes, as
+ *  `shared/utils/voice.ts` lays a push-to-talk clip out. Type 0 is audio/webm. */
+const CLIP_KIND = 2
+function clipFrame(seq, body) {
+  const frame = new Uint8Array(5 + body.length)
+  frame[0] = CLIP_KIND
+  frame[1] = (seq >> 8) & 0xff
+  frame[2] = seq & 0xff
+  frame[3] = 0
+  frame[4] = 0
+  frame.set(body, 5)
+  return frame
+}
+
 function voiceFrame(seq, size = 40, fill = 0xab) {
   const frame = new Uint8Array(3 + size)
   frame[0] = VOICE_KIND
@@ -552,22 +566,27 @@ a.ws.send(voiceFrame(9000))
 await sleep(250)
 check('and hears nothing more', b.audio.length === audioMark)
 
-// Turning voice off clears the state, and the transcription route refuses anyone
-// who is not in the world with voice on.
+// A push-to-talk clip goes up this socket rather than over HTTP, because only
+// the instance holding the session can turn one into a chat line. Turning voice
+// off is what the server checks, and it checks it on the connection the bytes
+// arrived on, so there is nobody to look up and nobody to get wrong.
 send(a, { t: 'voice', on: false })
 await sleep(250)
-const sayOff = await fetch(`${BASE}/api/voice/say`, {
-  method: 'POST',
-  headers: { 'content-type': 'audio/webm', 'cookie': a.cookie },
-  body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
-})
-check('a spoken line is refused while voice is off', sayOff.status === 409 || sayOff.status === 503, `status ${sayOff.status}`)
-const sayAnon = await fetch(`${BASE}/api/voice/say`, {
-  method: 'POST',
-  headers: { 'content-type': 'audio/webm' },
-  body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
-})
-check('and refused outright without a character', sayAnon.status === 401)
+const sayMark = a.frames.length
+a.ws.send(clipFrame(1, new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])))
+await sleep(400)
+const said = a.frames.slice(sayMark).filter(f => f.t === 'said')
+check('a spoken line is refused while voice is off', said.length === 1 && said[0].ok === false, said.map(f => f.reason).join(' / ') || 'no answer')
+check('and the answer carries the sequence the clip was sent with', said[0]?.seq === 1)
+
+// A malformed clip is not answered at all: there is no sequence to answer on,
+// and the socket is not worth closing over it.
+const junkMark = a.frames.length
+a.ws.send(new Uint8Array([CLIP_KIND, 0, 2, 99, 0, 1, 2, 3]))
+a.ws.send(new Uint8Array([CLIP_KIND, 0, 3, 0, 0]))
+await sleep(300)
+check('a clip with a bad container or no body is dropped', a.frames.slice(junkMark).filter(f => f.t === 'said').length === 0)
+check('and the socket survives both', a.ws.readyState === WebSocket.OPEN)
 
 // Anything but a tool the server knows is refused outright.
 const badMark = a.frames.length

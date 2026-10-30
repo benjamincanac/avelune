@@ -40,12 +40,29 @@ world from the seed and the committed layout JSON, because it authors them.
   per-chunk instanced batches built from each chunk's `placements`, the Oracle
   rig, and the sky/day-night + weather clock. It also owns the third-person
   camera (the polar boom, `clipBoom`, the shoulder offset), local prediction and
-  reconciliation, and other-player interpolation. It holds the chunk groups and the
-  four hooks the streaming layer drives (see **Chunk rendering**), and it is what
+  reconciliation. It forwards the four chunk
+  hooks (see **Chunk rendering**), and it is what
   aims and sends the hotbar's verbs (see **Crosshair targeting**).
+- `app/components/scene/` owns rendering lifecycles: `WorldChunks` manages chunk
+  batches and streaming subscriptions, `OracleCharacter` loads and animates the
+  Oracle, `CharacterNameplate` owns its canvas texture, and `PostProcessing`
+  owns the composer. Use shallow refs/collections for Three objects. Tres templates
+  attach cameras, lights, rigs and batch roots; frame callbacks mutate transforms
+  directly. Borrowed primitives use `:dispose="null"` and explicit owner cleanup.
+  Signal topology changes after `nextTick` so shadow/GTAO scans see attached nodes.
+- `scene/Players.vue` reconciles the plain network roster into keyed `Player.vue`
+  components and owns their shared blob geometry/texture and outfit material pool
+  (`app/utils/playerResources.ts`). Each `Player` owns its cloned skeleton, mixer,
+  outfit lease, nameplate, contact-shadow material, chat bubble and body audio.
+  `MazeScene` calls `Players.update(PlayerFrame)` after prediction/camera placement
+  and before water/grass consume rendered coordinates; `Player` interpolates peers
+  and updates transforms directly, without reactive per-frame state. Replacement
+  roster objects and appearance changes remount a player. Dispose children before
+  the shared pool and renderer; ignore asynchronous loads after unmount.
 - `app/utils/courtyardSky.ts` owns the atmospheric dome, volumetric clouds,
   stars, Milky Way and moon, outdoor lights, fog, rain, lightning and sky
-  environment. All animation follows the server clock, lightning included
+  environment. The sky dome draws after opaque geometry at far-plane depth,
+  allowing covered pixels to reject the cloud raymarch. All animation follows the server clock, lightning included
   (`courtyardLightning` hashes strikes off `now`, so clients agree). The moon
   stays opposite the sun because the night key light and its shadows come from
   there; its phase is only a terminator drawn on the disc. Stars and the galaxy
@@ -57,6 +74,10 @@ world from the seed and the committed layout JSON, because it authors them.
 - `app/utils/courtyardAssets.ts` creates the custom town templates, merges geometry
   by material and registers them for both instancing and editor selection. Shared
   dimensions come from `shared/utils/courtyard.ts`.
+- `app/utils/pavingGeometry.ts` owns the repeated stone's 44-triangle chamfered
+  box. Keep its dimensions, level top, closed surface and outward winding. A
+  subdivided rounded box costs 300 triangles per stone across thousands of
+  instances, then repeats that cost in every scene/shadow pass.
 - `app/utils/courtyardScene.ts` owns paving, gardens, the sparring circle, distant
   animated pennants and fountain placement. `fountainWater.ts` owns gravity driven
   continuous ballistic jets, droplets, impact splashes and the basin surface.
@@ -72,7 +93,21 @@ world from the seed and the committed layout JSON, because it authors them.
   from GTAO overrides, hide other pools and sprites during reflection, and guard
   against recursive reflection renders. Its Reflector target is 512 for a bowl
   wider than a unit radius and 256 for the rest, and is disposed with the pool.
-  Keep normals correct under nonuniform scale.
+  Keep normals correct under nonuniform scale. `fountainCapture.ts` limits captures
+  to 30 Hz nearby, 10 Hz beyond 12 units, then 400ms beyond 48 and 1500ms beyond
+  96, including moving views: from outside the gate the pool is behind a wall but
+  still passes the frustum test, and a capture is two more renders of the town.
+  Camera identity, projection or pool transform changes force an immediate
+  capture. Refraction stores the captured world-to-clip matrix alongside the
+  image; sampling with the live camera matrix would make cached imagery slide as
+  the camera moves. The refraction pass narrows the camera's far plane to just
+  past the pool, which is safe because a perspective projection's x, y and w rows
+  do not depend on `far` and the shader only samples `xy / w`. Put `far` back
+  before `captured()`: the schedule remembers the projection it captured with,
+  and a narrowed one never matches the live camera again, which reads as a
+  capture every frame. Do not try the clamp on the reflection: Reflector replaces
+  the projection's third and fourth rows with its oblique clip plane, which
+  throws the far plane away, so it costs the same frame and buys nothing.
   Shared player collision uses the stepped basin and central pedestal from
   `FOUNTAIN` in `shared/utils/courtyard.ts`. Pass predicted self and interpolated
   remote feet through each fountain inverse transform for cosmetic wakes; water
@@ -99,6 +134,9 @@ world from the seed and the committed layout JSON, because it authors them.
   graphics settings write (`setGrassDetail`), and `updateGrassLod` reads those same
   two objects: the count is trimmed in rank order and the shader shrinks by the same
   rank, so a CPU-side cut the shader did not make snaps tufts away at full size.
+  Both streamed and garden patches run this LOD. Fully faded patches submit zero
+  instances only when their padded world bounds are beyond the shader fade end;
+  update parent transforms first and retain the padding for wind and body pushes.
   `DoubleSide` flips the upward normal on back faces, so the fragment hook
   flips it back. Bodies bend blades away through `setGrassPushers(actors, x, z)`:
   the uniform is module-level, not per bank, because the chunk meadows and the
@@ -169,6 +207,14 @@ world from the seed and the committed layout JSON, because it authors them.
   the scene at y = 0 (`floorTexture()` in `CharacterPreviewModel`), not CSS in
   the gate: only a disc in perspective wraps both boots, a flat rule across the
   stage cut through whichever foot stood nearer the camera.
+- `app/utils/gltfResources.ts` pools embedded GLB textures by image bytes plus
+  sampler, transform and color-space state. The world template loader also pools
+  equivalent raw materials before shader decoration. Character assets pool textures
+  only, for the lifetime of their module cache. World template pools are scene-owned:
+  `releaseTemplates` skips pooled materials/textures, and the pool disposes each once.
+  Keep critter and Oracle loaders separate unless their cleanup adopts this ownership.
+  Late loads after teardown retain caller ownership. Shader hooks, names used for
+  decoration, and differing texture settings must stay distinct.
 - `app/utils/characterModels.ts` owns the serialized GLB loader and shared
   scene/clip cache for both onboarding and the live game. `CharacterAsset`
   carries a scene template and the universal animation library's clips.
@@ -186,7 +232,9 @@ world from the seed and the committed layout JSON, because it authors them.
 - `app/utils/appearance.ts` — the runtime outfit colorway swap: replaces
   `material.map` on the cloth materials only (`MI_(Peasant|Ranger|Knight|Noble|
   Wizard)`, matched on the prefix so the importer's `.001` suffix still hits),
-  with materials cloned per rig so a swap never leaks into the shared template.
+  with scene-owned, reference-counted variants keyed by source material and
+  outfit URL. Rigs release leases; the last user disposes the variant while the
+  texture cache keeps its map. Onboarding previews still own isolated clones.
   It also clears the clone's `userData.characterRim` guard, so the rim hook
   reinstalls on the clone.
 - `app/utils/characterAnimation.ts` — the clip blend timings: `animationBlendDuration`
@@ -206,7 +254,15 @@ world from the seed and the committed layout JSON, because it authors them.
   (the canvas's `shadows` prop), which leaves `NUM_DIR_LIGHT_SHADOWS` positive so
   CSM's patched light loop falls into its no-shadowmap branch and still lights the
   town. Clearing `castShadow` instead would drop that branch and leave the world
-  lit by ambient alone.
+  lit by ambient alone. `createCasterRange` is the one thing here that does write
+  `castShadow`, per object and never as an off switch: a caster stops casting
+  past thirty times its own radius (floored at 20 units), which is where its
+  shadow is a couple of texels on a cascade covering the whole town. It only ever
+  switches off what `tagSceneShadows` already switched on, so the batches that
+  deliberately cast nothing stay off, and it rebuilds its list on
+  `scene.userData.version`. That counter is load bearing for two things now:
+  anything that adds or drops a caster has to bump it, or the new mesh is never
+  ranged and the old one is held alive by the list.
 - `app/utils/graphics.ts` — the quality tables: what each preset writes and what
   each detail level costs. Plain data, no Vue, so the test suite can import it.
   `useGraphics` (game-ui's) owns what the player picked; this owns what a pick
@@ -230,8 +286,8 @@ world from the seed and the committed layout JSON, because it authors them.
   players' speech, with its own level so a person can be heard over the wind. The
   voice graph itself (`app/utils/audio/voice.ts`), `app/utils/voice/` (the Opus
   codec, the jitter buffer, the clip recorder) and the rest of proximity voice
-  belong to `game-ui`; what this slice owns is the one line in `MazeScene`'s render
-  loop that puts each talker's panner at their rendered rig, at mouth height. It
+  belong to `game-ui`; this slice's `scene/Player.vue` frame update puts each
+  talker's panner at their rendered rig, at mouth height. It
   follows the *rendered* body, not the authoritative one, for the same reason the
   footsteps do: the body you can see has to be the body you hear.
 - `app/composables/useAssets.ts` is `game-ui`'s, because the loading gate is what
@@ -274,11 +330,11 @@ world from the seed and the committed layout JSON, because it authors them.
    models in both play and editor. The palette and save allow-list contain only
    courtyard kinds; legacy environment kits and thumbnails are not shipped. Register completed custom
    templates before `buildFloor()` so editor selection and instancing agree.
-7. `courtyardRenderer.ts` owns the render loop's EffectComposer with contact
+7. `courtyardRenderer.ts` builds the render loop's EffectComposer with contact
    occlusion, restrained bloom and one OutputPass. It takes a `RenderQuality` at
-   build time and is **rebuilt, never mutated**, when that changes: a composer's
-   passes are fixed once it is built, so `MazeScene` disposes the pipeline and
-   drops it for the next frame to recreate. Call Tres's render notification
+   build time. `PostProcessing.vue` rebuilds it when occlusion or bloom change
+   (there is no MSAA on the target, SMAA ends the chain); resolution and shadow changes preserve the composer and its targets.
+   Call Tres's render notification
    after rendering. Tres tears down its separate Vue tree after disposing the
    renderer, so `MazeScene` emits its idempotent cleanup callback to `GameScene`.
    The host calls it in `onBeforeUnmount`, while GPU resource tables still exist.
@@ -287,14 +343,43 @@ world from the seed and the committed layout JSON, because it authors them.
    their instance buffers; `createCourtyardScene` keeps its borrowing meshes in a
    `planting` group it removes before the generic scenery sweep, and never disposes
    those borrowed resources.
+   Courtyard disposal hides and empties its root before Vue replaces it, and is
+   idempotent. Leaving disposed children drawable during HMR can re-upload their
+   resources or render stale shader uniforms; Vue still owns root detachment.
 
 ## Known rendering gotchas (from ROADMAP)
+- CSM uses two cascades. Material scans follow `scene.userData.version`, updated
+  after attachments, instead of a periodic scene traversal. Quality changes update
+  both light map sizes and `csm.shadowMapSize` (used for texel snapping).
+  Disposed materials unregister from CSM's strong shader map immediately. On
+  teardown, restore shader hooks and their original rim/foliage guards together: retaining a
+  hook while deleting its guard injects duplicate uniforms on the next mount.
 - GTAO's normal override ignores sprite alpha maps. Hide sprites only during
   the occlusion pass and restore their visibility afterward, or nameplates cast
   rectangular panels as the camera turns. Exclude the `courtyard-atmosphere`
   dome too, since it has no world surface for the normal pass. Text sprites also disable depth writes
   while retaining depth testing against the world.
-- **Chat bubbles are DOM, not sprites.** `MazeScene.vue` projects each speaker's
+- Leaf cards never cast. An alpha-tested depth material costs a tiled GPU its
+  hidden-surface removal, and taking the cards out of the cascades was worth ten
+  frames a second in the town, far more than their triangle share.
+  `createCanopyShadow` in `foliage.ts` gives each foliage batch an 80 triangle
+  ellipsoid that shares its instance matrices, writes neither colour nor depth,
+  and casts through the plain depth material. It is `gtaoExclude` because the
+  occlusion pass overrides materials and would draw it solid. Any new alpha-cut
+  batch has to set `castShadow = false` with `shadowTagged`, or `tagSceneShadows`
+  puts the cards back in every cascade.
+- GTAO's normal pass is ranged like the shadow casters: a leaf mesh further than
+  thirty times its own radius (floored at 20 units) is hidden for that pass
+  only, through the same hide and restore as the exclusion list. `ranged.ts`
+  holds the measuring both passes share. Both are ranged from the player, which
+  `courtyardSky` publishes as `scene.userData.rangeFocus`, never from the lens:
+  the boom orbits a player who is standing still, and measured from the camera
+  every mesh near its boundary came and went as the view swung round.
+  `RANGE_SLACK` keeps a mesh that is in range a little past the line for the
+  same reason. A hidden mesh also drops out of the
+  pass's depth, so keep the rule to things whose contact shading is a pixel or
+  two at that range, and check a change to the numbers with a frame diff.
+- **Chat bubbles are DOM, not sprites.** `scene/Player.vue` projects each speaker's
   head anchor in the frame loop and moves a `.chat-bubble` element (styled in
   `main.css`) inside a layer appended next to the canvas. Do not put them back on
   a `CanvasTexture`: three allocates texture storage once, so a canvas resized for
@@ -324,6 +409,28 @@ world from the seed and the committed layout JSON, because it authors them.
   option rather than ignoring it, and a rejection there is not a refusal.
 - Camera boom samples the wall grid and shared solid prop heights along its
   width. It uses conservative clearance for the head-to-camera path.
+- The camera's pivot does not sit on the feet. `stepBody` snaps a grounded body
+  onto each tread, so a grounded change in height no taller than `STEP_MAX` is
+  taken out of the pivot (`stepTrail` in `MazeScene`) and paid back over a few
+  frames. Jumps, falls and teleports are followed exactly, so do not smooth
+  `local.z` wholesale to fix a jolt: a jump stops reading as one.
+- `clipBoom` tests each sample at the height the sight line has there, from the
+  pivot up to the seat. One flat height for the whole run jammed the camera on
+  stairs: going down, the treads behind pass a flat line within a tread or two.
+  A steep tile is not a wall to the boom the way `isWalkable` has it, only
+  ground to clear; the world's edge and an unloaded chunk still stop it. The
+  boom is kept as a share of the seat's reach (`boomClear`), because the reach
+  shortens as pitch steepens and a shorter boom is not a blocked one, and it
+  holds for `BOOM_HOLD` before easing out so a run of treads does not pump it.
+- When bare terrain blocks the boom the camera rises instead of closing in
+  (`pitchFloor`): at the bottom of a dug pit every seat behind the player is
+  inside the pit's wall. It is a floor under the player's pitch, never an amount
+  added to it: added, the two stacked, and a player tilting down into a pit was
+  carried on up to the overhead seat, which closes the boom in on purpose.
+  Ground only. The label comes from the blocked sample,
+  flanks included, and only ever on a block `surfaceHeight` found: the moat is
+  carved out of terrain that still reads as level, so `terrainHeight` alone
+  would wall the channel off. Walls and roofs still pull the boom in.
 - `.client.vue` suffix / `<ClientOnly>` matters: three.js is browser-only, never
   let scene code run during SSR.
 - **Character GLBs carry `EXT_texture_webp` textures** — the top-level
@@ -391,7 +498,7 @@ an instance tint clone: a CSM-patched hook re-registers the clone's shader under
 the source material in `csm.shaders` and the source stops getting cascade
 updates. Re-install instead — `townMaterials.reapply` reads the
 `userData.townMaterial` recipe `apply` leaves behind, `applyFoliage` re-runs, and
-the CSM sweep (`atmosphere.setupShadows()`, called after every build and rig) patches
+the CSM scan (triggered by the scene version after each build and rig attachment) patches
 the clone as a material of its own. Clear the `userData.foliageShader` /
 `userData.characterRim` guards on any clone, or the hooks they mark never
 reinstall. Every town material hook chains the previous one.
@@ -400,7 +507,7 @@ Shader clocks are `uniform float`: epoch seconds quantise to 128 s steps, so
 `MazeScene` wraps the server clock before it reaches a uniform (grass, foliage,
 moat) and passes absolute seconds only to the fountain's particle simulation.
 
-`MazeScene.tagShadows` skips `userData.shadowTagged`, which terrain and grass set
+`tagSceneShadows` skips `userData.shadowTagged`, which terrain and grass set
 wherever their own cast/receive flags are deliberate. `scene.userData.version` is
 bumped on every floor rebuild, chunk mount or unmount, and rig change;
 `courtyardRenderer` caches its GTAO exclusion list against it instead of
@@ -421,10 +528,12 @@ supporting leg abruptly.
 
 ## Chunk rendering
 
-The world is drawn chunk by chunk, not as one floor. `MazeScene` keeps a
-`Map<chunkKey, MountedChunk>` of `{ group, terrain, props, grass, paving, detail }` and
-exposes the four hooks the `chunk` / `unchunk` / `terrain` / `place` and
-`remove` frames map onto, via `defineExpose`:
+The world is drawn chunk by chunk. `WorldChunks.vue` keeps a shallow reactive
+`Map<chunkKey, MountedChunk>` of `{ group, terrain, props, grass, paving, detail }`;
+its template attaches each chunk root. Internal procedural batches remain raw.
+It owns the streaming subscriptions and exposes the four hooks the `chunk` /
+`unchunk` / `terrain` / `place` and `remove` frames map onto. `MazeScene` forwards
+these hooks via `defineExpose`:
 
 ```ts
 mountChunk(cx, cy, detail = true)   // idempotent; upgrades a mounted chunk's detail
@@ -512,10 +621,11 @@ flowers off it.
 `app/utils/chunkProps.ts` owns `instantiateModule` and builds one
 `InstancedMesh` per kind *per chunk*, which costs more draw calls than one batch
 for the world and is the price of rebuilding a chunk without touching its
-neighbours. Batch materials are cached across chunks by source material, since a
-clone per chunk would be a program and a CSM patch per chunk; `reset()` drops the
-cache when the GLB templates replace the placeholders, and every mounted chunk is
-rebuilt after it. Every placement carries its own `z` — render-only elevation
+neighbours. `TownMaterials.batch` owns variants shared by chunks and authored
+gardens, keyed by source material and foliage clock. `MazeScene` passes the same
+clock to both. A chunk release or garden rebuild frees instance buffers only;
+the world bank disposes variants at scene teardown. Replacing GLB templates
+rebuilds mounted batches against the new source identities. Every placement carries its own `z` — render-only elevation
 for the authored town, the terrain it grew on for wild vegetation, the support
 height the server resolved for a kit piece — so nothing is bedded or offset here.
 
@@ -582,8 +692,17 @@ where the crosshair sits — marched against the shared heightfield in tile spac
 rather than raycast against the terrain meshes, so the highlight can never
 disagree with the ground physics reads. Placements are picked by world bounding
 box, as `hubEditor` does and for the same reason (sparse geometry a triangle ray
-slips between). It runs from the render loop *after* the camera has moved, or it
-aims a frame behind the view.
+slips between). A kit piece's box is its model's (`KIT_ASSETS`), not its
+collision (`pickBounds`): the door has no collision, so it was a 0.8 stub the ray
+flew over, and a top face reports the model's height, not `prop.top`, which is 0
+for the door. It runs from the render loop *after* the camera has moved, or it
+aims a frame behind the view. With a floor or roof armed, `gapAim` walks the
+ray before anything it hits and takes the first open cell where the slab would
+hang and the ray crosses that level inside the cell: that is how a hole in a roof
+is aimed at from above, where the ray meets the deck below, or from below. It
+re-asks per cell per tile of height, because a ledge is only offered within
+`LEDGE_SLACK` of the aim. `scripts/build-aim-test.ts` drives the real tools
+with a posed camera.
 
 **The ray takes the first thing it meets, and remembers which face.** Terrain and
 piece boxes are both tested and the nearest wins; `faceNormal` reads the entered
@@ -642,9 +761,9 @@ raises the ceiling from `PITCH_MAX` (0.55 rad, ~32°) to `PITCH_MAX_TOOL`
 when the tool is put away. Steep pitch also shortens the boom by `STEEP_CLOSE`,
 or the camera would hang four tiles overhead and the tile under the crosshair
 would be a postage stamp; that is also what brings the camera inside
-`SELF_FADE_DISTANCE`, where `hideSelfWhenClose` dissolves the local character so you can
-see your own tile. Fading rather than hiding, because the rig's materials are
-per-clone (`appearance.ts`) and nothing else shares them. The ray itself never
+`SELF_FADE_DISTANCE`, where `hideSelfWhenClose` hides the local rig so you can
+see your own tile. Use object visibility: materials are shared with other
+characters, so changing opacity would fade those characters too. The ray itself never
 needed the character excluded — players are not placements, so `propsNear` has
 never returned one.
 

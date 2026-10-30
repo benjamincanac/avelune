@@ -134,6 +134,11 @@ export type ServerMessage
   = | { t: 'welcome', self: Player, players: Player[], now: number, weather: WeatherMode, timeOfDay: TimeOfDayMode, world: WorldInfo, pieces: number, deeds: number, feed: WorldEvent[] }
     | { t: 'join', player: Player }
     | { t: 'leave', id: string }
+    /** The answer to one push-to-talk clip sent up the socket, matched to it by
+     *  the `seq` the client stamped on the frame. `text` is what went into chat,
+     *  empty when the clip turned out to be silence. `reason` is there for the
+     *  HUD to know a refusal from a failure. */
+    | { t: 'said', seq: number, ok: boolean, text: string, reason?: string }
     /** Snapshot of every player that moved since the last one. */
     | { t: 'state', players: PlayerState[] }
     /** `to` rides only on the Oracle's lines: the player it is answering or

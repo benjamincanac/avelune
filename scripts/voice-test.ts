@@ -7,6 +7,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import {
+  CLIP_FRAME_KIND,
+  CLIP_TYPES,
+  MAX_CLIP_BYTES,
   MAX_VOICE_PAYLOAD,
   VOICE_DOWN_HEADER,
   VOICE_DROP_RANGE,
@@ -16,8 +19,10 @@ import {
   VOICE_MAX_PEERS,
   VOICE_RANGE,
   createBucket,
+  decodeClipUp,
   decodeVoiceDown,
   decodeVoiceUp,
+  encodeClipUp,
   encodeVoiceDown,
   encodeVoiceUp,
   isUsableTranscript,
@@ -324,4 +329,46 @@ test('a real sentence is posted and silence is not', () => {
 
 test('a transcript keeps its words and loses its whitespace', () => {
   assert.equal(tidyTranscript('  the   gate\nis  open '), 'the gate is open')
+})
+
+test('a push-to-talk clip rides the socket, and every field of it is checked', () => {
+  const body = new Uint8Array([1, 2, 3, 4, 5])
+  const frame = encodeClipUp(7, 'audio/ogg', 'fr', body)!
+  assert.ok(frame, 'a well formed clip encodes')
+  // The kind byte is what tells this apart from an audio frame and from JSON,
+  // which always starts with `{`.
+  assert.equal(frame[0], CLIP_FRAME_KIND)
+  assert.notEqual(frame[0], VOICE_FRAME_KIND)
+  assert.notEqual(frame[0], '{'.charCodeAt(0))
+
+  const clip = decodeClipUp(frame)!
+  assert.ok(clip)
+  assert.equal(clip.seq, 7, 'the sequence survives, so the answer can be matched to the clip')
+  assert.equal(clip.type, 'audio/ogg')
+  assert.equal(clip.language, 'fr')
+  assert.deepEqual([...clip.body], [...body])
+
+  // No language is a valid clip; a bad one is not a header we would pass to a
+  // provider option.
+  const plain = decodeClipUp(encodeClipUp(0, 'audio/webm', undefined, body)!)!
+  assert.equal(plain.language, undefined)
+  assert.equal(decodeClipUp(encodeClipUp(0, 'audio/webm', 'FRENCH', body)!)!.language, undefined, 'a bad code is dropped, not sent')
+
+  // The sequence wraps with the audio frames' counter.
+  assert.equal(decodeClipUp(encodeClipUp(0xFFFF, 'audio/wav', undefined, body)!)!.seq, 0xFFFF)
+
+  // Refusals. Every one of these came off the wire, so none of it is trusted.
+  assert.equal(encodeClipUp(1, 'audio/aiff', undefined, body), null, 'a container we never asked the recorder for')
+  assert.equal(encodeClipUp(1, 'audio/webm', undefined, new Uint8Array(MAX_CLIP_BYTES + 1)), null, 'past the byte cap')
+  // Encode refuses what decode refuses, so a clip can never be sent that the
+  // server will silently drop and the client will wait out the timeout for.
+  assert.equal(encodeClipUp(1, 'audio/webm', undefined, new Uint8Array(0)), null, 'an empty recording is not a clip')
+  assert.equal(decodeClipUp(new Uint8Array([CLIP_FRAME_KIND, 0, 0, 0, 0])), null, 'a header with no clip behind it')
+  assert.equal(decodeClipUp(new Uint8Array([VOICE_FRAME_KIND, 0, 0, 0, 0, 9, 9])), null, 'an audio frame is not a clip')
+  const badType = Uint8Array.from(frame)
+  badType[3] = CLIP_TYPES.length
+  assert.equal(decodeClipUp(badType), null, 'a type index off the end of the list')
+  const badLang = Uint8Array.from(frame)
+  badLang[4] = 3
+  assert.equal(decodeClipUp(badLang), null, 'a language that is not two letters or nothing')
 })

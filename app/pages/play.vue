@@ -146,6 +146,19 @@ function respawn() {
   resume()
 }
 
+/**
+ * Back to the title screen with the character intact. Nothing is cleared, so
+ * the next visit to `/play` drops straight back into the arena — this is the
+ * way out for a player who is done for now, not the way to forget them.
+ */
+async function leave() {
+  game.disconnect()
+  showMenu.value = false
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+  keyboard.value?.unlock()
+  await navigateTo('/')
+}
+
 /** Leave the arena and clear the saved identity before showing the gate again. */
 async function logout() {
   try {
@@ -448,6 +461,7 @@ const realm = computed(() => world.realm.value ? realmName(world.realm.value) : 
             @map="openMap"
             @respawn="respawn"
             @edit="edit"
+            @leave="leave"
             @logout="logout"
           />
         </div>

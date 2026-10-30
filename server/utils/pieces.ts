@@ -1,4 +1,5 @@
 import { chunkStore } from './chunkStore'
+import { flushGate } from './flushGate'
 
 /**
  * How many pieces each identity owns, against `MAX_PIECES_PER_PLAYER`.
@@ -101,13 +102,12 @@ export function removePiece(id: string): number {
   return pieceCount(id)
 }
 
-let flushing = false
-
 /** Drain the pending deltas into the store. Returns how many identities moved.
- *  A failed write puts them back: a lost delta is a budget that drifts. */
-export async function flushPieceCounts(): Promise<number> {
-  if (flushing || !deltas.size) return 0
-  flushing = true
+ *  A failed write puts them back: a lost delta is a budget that drifts. A call
+ *  that lands mid-flush waits for it and runs once more (see `flushGate.ts`). */
+export const flushPieceCounts = flushGate(drainPieceCounts, () => deltas.size > 0)
+
+async function drainPieceCounts(): Promise<number> {
   const batch = [...deltas]
   deltas.clear()
   try {
@@ -118,8 +118,5 @@ export async function flushPieceCounts(): Promise<number> {
     console.error('[world] piece count flush failed', error)
     for (const [id, delta] of batch) deltas.set(id, (deltas.get(id) ?? 0) + delta)
     return 0
-  }
-  finally {
-    flushing = false
   }
 }

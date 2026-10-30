@@ -12,7 +12,7 @@ const props = defineProps<{
   entries: { name: string, minutes: number }[]
   /** The realm's display name; null before the first probe resolves. */
   realm: string | null
-  /** Highest roster size in each of the last nine hours. */
+  /** Distinct players seen in each of the last nine hours, oldest first. */
   series: number[]
   /** Our own character's name, if we have one — that row is ours. */
   self: string | null
@@ -34,10 +34,10 @@ const hasHistory = computed(() => props.series.some(value => value > 0))
 /** Bars are relative to the busiest hour, with a floor so an empty hour still
  *  reads as a tick rather than nothing at all. */
 const bars = computed(() => {
-  const peak = Math.max(1, ...props.series)
+  const busiest = Math.max(1, ...props.series)
   return props.series.map((value, index) => ({
     index,
-    height: `${Math.max(6, Math.round((value / peak) * 100))}%`,
+    height: `${Math.max(6, Math.round((value / busiest) * 100))}%`,
     /** The last two hours are now-ish, so they carry the accent. */
     recent: index >= props.series.length - 2,
   }))

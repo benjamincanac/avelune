@@ -215,12 +215,16 @@ export function indexBlocksCamera(index: RampartIndex, x: number, z: number, ele
   for (const s of index.stairs) {
     const depth = localDepth(s, x, z)
     if (Math.abs(depth) > s.hy + radius) continue
+    const top = s.z + Math.max(0, Math.min(1, (depth + s.hy) / (2 * s.hy))) * s.height
     if (s.railHeight <= 0) {
-      // A railless ramp (the build kit's stairs) is a solid wedge to the camera.
-      if (elevation + radius >= s.z && elevation - radius <= s.z + s.height && inside(s, x, z, radius)) return true
+      // A railless ramp (the build kit's stairs) is a solid wedge to the camera,
+      // and a wedge is as tall as the tread under the sample, not as tall as the
+      // flight. Boxed to its full height it blocked the boom of anyone climbing
+      // it: the camera trails over the low treads, well clear of them, and was
+      // pulled in as if the top step ran the whole length.
+      if (elevation + radius >= s.z && elevation - radius <= top && inside(s, x, z, radius)) return true
       continue
     }
-    const top = s.z + Math.max(0, Math.min(1, (depth + s.hy) / (2 * s.hy))) * s.height
     if (elevation + radius < top || elevation - radius > top + s.railHeight) continue
     if (Math.abs(Math.abs(localWidth(s, x, z)) - s.hx) <= s.railThickness / 2 + radius) return true
   }

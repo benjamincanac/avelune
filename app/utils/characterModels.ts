@@ -3,6 +3,7 @@ import type { AnimationClip, Group, Object3D, Skeleton } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { CHARACTER_NAMES, DEFAULT_CHARACTER, OUTFITS, outfitColorCount, outfitColorTexture } from '#shared/utils/characters'
 import { preloadTexture } from '~/utils/appearance'
+import { createGltfResourcePool } from '~/utils/gltfResources'
 
 /** Cached templates are borrowed by both canvases and cloned with
  * SkeletonUtils.clone. Never dispose their geometry or materials per rig. */
@@ -12,6 +13,11 @@ export interface CharacterAsset {
 }
 
 const loader = new GLTFLoader()
+// Cached character templates live for the page lifetime. Their textures can
+// share GPU uploads across separate GLBs; rig shader hooks mutate materials,
+// so material identity remains per template.
+const resources = createGltfResourcePool({ materials: false })
+resources.register(loader)
 const characterCache = new Map<string, Promise<CharacterAsset>>()
 let clipsPromise: Promise<AnimationClip[]> | null = null
 let loadQueue: Promise<unknown> = Promise.resolve()

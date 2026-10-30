@@ -17,9 +17,10 @@ import {
 } from 'three'
 import type { Object3D, Scene,
   PerspectiveCamera } from 'three'
-import { EDIT_REACH, brushExtent, checkDemolish, checkTerraform, isEdgeKind, plotBounds, refusalText, resolveBuild, snapGridFor, snapPlacement } from '#shared/utils/building'
+import { EDIT_REACH, brushExtent, checkDemolish, checkTerraform, isEdgeKind, isKitKind, isSpanKind, plotBounds, refusalText, resolveBuild, snapGridFor, snapPlacement } from '#shared/utils/building'
 import type { PlotBounds } from '#shared/utils/building'
-import { DEED_KIND } from '#shared/utils/kit'
+import { DEED_KIND, KIT_ASSETS } from '#shared/utils/kit'
+import type { KitKind } from '#shared/utils/kit'
 import { propHalfExtents } from '#shared/utils/props'
 import type { PropSpec, WorldPlacement } from '#shared/utils/props'
 import { propsNear, terrainHeight } from '#shared/utils/maze'
@@ -375,6 +376,34 @@ export function createBuildTools(options: BuildToolsOptions) {
     return out.set(best[1], best[2], best[3])
   }
 
+  /**
+   * The box a piece is picked by, and the height of its top.
+   *
+   * A kit piece is picked by its model, not its collision: the door has no
+   * collision at all, so it was a 0.8 stub the ray flew over, and its `top` of
+   * 0 sent a wall aimed at its lintel to the ground. Nothing else pads a kit
+   * piece's height either, or an upper floor's 0.2 slab stood 0.8 tall and took
+   * the aim off the top of the window beside it. Everything else keeps the
+   * padded collision box, which is what makes a bush pickable at all.
+   */
+  function pickBounds(prop: PropSpec): { hx: number, hy: number, bottom: number, top: number, surface: number } {
+    if (isKitKind(prop.kind)) {
+      const asset = KIT_ASSETS[prop.kind as KitKind]
+      const turned = Math.abs(Math.sin(prop.rot)) > 0.5
+      const bottom = prop.z ?? 0
+      return {
+        hx: Math.max((turned ? asset.depth : asset.width) / 2, MIN_PICK),
+        hy: Math.max((turned ? asset.width : asset.depth) / 2, MIN_PICK),
+        bottom,
+        top: bottom + Math.max(asset.height, 0.1),
+        surface: bottom + asset.height,
+      }
+    }
+    const { ax, ay } = propHalfExtents(prop)
+    const bottom = prop.base ?? prop.z ?? 0
+    return { hx: Math.max(ax, MIN_PICK), hy: Math.max(ay, MIN_PICK), bottom, top: bottom + Math.max(prop.height, 0.8), surface: prop.top }
+  }
+
   interface PieceHit {
     prop: PropSpec
     distance: number
@@ -396,11 +425,7 @@ export function createBuildTools(options: BuildToolsOptions) {
     for (const prop of propsNear(world, actor.x, actor.y, MAX_RAY)) {
       if (!prop.id || seen.has(prop.id)) continue
       seen.add(prop.id)
-      const { ax, ay } = propHalfExtents(prop)
-      const hx = Math.max(ax, MIN_PICK)
-      const hy = Math.max(ay, MIN_PICK)
-      const bottom = prop.base ?? prop.z ?? 0
-      const top = bottom + Math.max(prop.height, 0.8)
+      const { hx, hy, bottom, top } = pickBounds(prop)
       pickBox.min.set(prop.x - hx, bottom, prop.y - hy)
       pickBox.max.set(prop.x + hx, top, prop.y + hy)
       if (!ray.intersectBox(pickBox, point)) continue
@@ -518,8 +543,62 @@ export function createBuildTools(options: BuildToolsOptions) {
       const h = terrainHeight(world, hit.x, hit.y)
       return Number.isFinite(h) ? h : undefined
     }
-    if (hit.normal.y > 0) return hit.prop.top
+    if (hit.normal.y > 0) return pickBounds(hit.prop).surface
     return hit.h
+  }
+
+  /** How far the eye must be above or below a slab's level to be looking
+   *  through its gap rather than along it. Level with a deck, every cell beside
+   *  it is crossed at its level right in front of the camera. */
+  const GAP_CLEARANCE = 0.75
+  /** How far short of what the ray hits the gap has to be crossed. A slab that
+   *  would rest on the thing hit is that hit, not a gap. */
+  const GAP_MARGIN = 0.3
+
+  /**
+   * The open slab cell the view looks through, before whatever it hits.
+   *
+   * Walked along the ray one cell at a time, within reach and short of
+   * `limit`, asking the shared rules where the armed slab would go. A cell is
+   * the gap when the ray crosses the plane of that level inside the cell, and
+   * clearly before the hit: looking down into a hole in a roof it meets the
+   * floor below, but it crossed the roof's level in the hole on the way, and
+   * that is the cell the player means. Looking up through a ceiling it is the
+   * same crossing from below, with nothing hit beyond it.
+   */
+  function gapAim(kind: string, actor: { x: number, y: number }, rot: number, selfId: string, limit: number): { x: number, y: number, h: number } | null {
+    if (Math.abs(forward.y) < 1e-3) return null
+    const half = (snapGridFor(kind) || 1) / 2
+    const context = { owner: selfId, id: 'ghost', pieces: build.pieces.value, deeds: build.deeds.value }
+    let last = ''
+    for (let t = RAY_STEP; t <= limit; t += RAY_STEP) {
+      const x = origin.x + forward.x * t
+      const y = origin.z + forward.z * t
+      if (Math.hypot(x - actor.x, y - actor.y) > EDIT_REACH) break
+      const h = origin.y + forward.y * t
+      const pose = snapPlacement(kind, x, y, rot)
+      // Once per cell per tile of height: a ledge is only offered within
+      // `LEDGE_SLACK` of the aim, and a steep ray climbs a storey inside one
+      // cell, so the height it entered at is not enough to ask with.
+      const key = `${pose.x},${pose.y},${Math.floor(h)}`
+      if (key === last) continue
+      last = key
+      const first = resolveBuild(world, { kind, x, y, rot, h }, actor, context)
+      if (!first.ok) continue
+      const z = first.placement.z ?? 0
+      if (Math.abs(origin.y - z) < GAP_CLEARANCE) continue
+      // Where the ray crosses that level: it has to be inside this cell and in
+      // front of the hit.
+      const cross = (z - origin.y) / forward.y
+      if (cross <= 0 || cross > limit - GAP_MARGIN) continue
+      const cx = origin.x + forward.x * cross
+      const cy = origin.z + forward.z * cross
+      if (Math.abs(cx - pose.x) > half || Math.abs(cy - pose.y) > half) continue
+      if (limit >= MAX_RAY && z - terrainHeight(world, pose.x, pose.y) < 0.5) continue
+      const verdict = resolveBuild(world, { kind, x: cx, y: cy, rot, h: z }, actor, context)
+      if (verdict.ok && verdict.placement.z === z) return { x: cx, y: cy, h: z }
+    }
+    return null
   }
 
   /* Update ----------------------------------------------------------------- */
@@ -569,10 +648,9 @@ export function createBuildTools(options: BuildToolsOptions) {
       const target = piece.prop
       const verdict = checkDemolish(world, placementOf(target, target.id!), { ...actor, id: selfId }, selfId)
       plotPreview.visible = false
-      const { ax, ay } = propHalfExtents(target)
-      const bottom = target.base ?? target.z ?? 0
-      pieceBox.min.set(target.x - Math.max(ax, MIN_PICK), bottom, target.y - Math.max(ay, MIN_PICK))
-      pieceBox.max.set(target.x + Math.max(ax, MIN_PICK), bottom + Math.max(target.height, 0.8), target.y + Math.max(ay, MIN_PICK))
+      const { hx, hy, bottom, top } = pickBounds(target)
+      pieceBox.min.set(target.x - hx, bottom, target.y - hy)
+      pieceBox.max.set(target.x + hx, top, target.y + hy)
       pieceHelper.visible = true
       helperMaterial.color.copy(verdict.ok ? OK_COLOR : BAD_COLOR)
       build.targetOk.value = verdict.ok
@@ -589,7 +667,13 @@ export function createBuildTools(options: BuildToolsOptions) {
     // nothing inside `MAX_RAY` — the farthest ground along it still in reach.
     // An armed tool with no target at all reads as broken, and there is always
     // a tile in front of you.
-    const aim = piece && (!ground || piece.distance < ground.distance) ? piece : (ground ?? reachableGround(actor))
+    //
+    // Except for a floor or roof looking through a gap in a ceiling or roof,
+    // from above or below: the open cell the ray passes on its way is what the
+    // player is pointing at, not what it meets beyond.
+    const hit = piece && (!ground || piece.distance < ground.distance) ? piece : ground
+    const gap = slot.kind && isSpanKind(slot.kind) ? gapAim(slot.kind, actor, build.rot.value, selfId, hit?.distance ?? MAX_RAY) : null
+    const aim = gap ?? hit ?? reachableGround(actor)
     if (!aim) return hide('nothing in range')
 
     if (slot.kind) {
@@ -598,7 +682,7 @@ export function createBuildTools(options: BuildToolsOptions) {
       // The face decides the cell, reach decides how far, and the snap can
       // still carry the pose up to a cell away — so pull the aim in until the
       // pose it produces is one the rules accept on distance.
-      const wanted = aimFor(slot.kind, aim)
+      const wanted = gap ?? aimFor(slot.kind, aim)
       let raw = clampToReach(wanted.x, wanted.y, actor)
       let pose = snapPlacement(slot.kind, raw.x, raw.y, build.rot.value)
       for (let i = 0; i < 4 && Math.hypot(pose.x - actor.x, pose.y - actor.y) > EDIT_REACH; i++) {
@@ -607,7 +691,7 @@ export function createBuildTools(options: BuildToolsOptions) {
         raw = { x: raw.x - (raw.x - actor.x) / away * pull, y: raw.y - (raw.y - actor.y) / away * pull }
         pose = snapPlacement(slot.kind, raw.x, raw.y, build.rot.value)
       }
-      const h = aimHeight(aim)
+      const h = gap ? gap.h : aimHeight(aim)
       const resolved = resolveBuild(
         world,
         { kind: slot.kind, x: raw.x, y: raw.y, rot: build.rot.value, h },
@@ -617,9 +701,10 @@ export function createBuildTools(options: BuildToolsOptions) {
       const ok = resolved.ok
       // Pose the ghost from the verdict where there is one: its `z` is the
       // height the server would give the piece, so the preview shows the real
-      // storey rather than the ground the aim landed on.
+      // storey rather than the ground the aim landed on. A refusal made once
+      // the height was known carries it too, so red shows the blocked spot.
       const posed = ok ? resolved.placement : pose
-      const z = ok ? resolved.placement.z ?? 0 : terrainHeight(world, pose.x, pose.y)
+      const z = ok ? resolved.placement.z ?? 0 : resolved.z ?? terrainHeight(world, pose.x, pose.y)
       ghost.visible = ghost.children.length > 0
       ghost.position.set(posed.x, Number.isFinite(z) ? z : 0, posed.y)
       ghost.rotation.set(0, posed.rot, 0)

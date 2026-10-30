@@ -36,7 +36,13 @@
 //   MMO_TP_X/Y   where `target` teleports to                   (default 90 150)
 //   MMO_HUT_X/Y  where `target` rings a cell with four panels  (default 110 150)
 //   MMO_HUT_BACK tiles it stands off to shoot that hut         (default 7)
-//   MMO_STATS    non-empty: also report fps / mesh / triangle counts
+//   MMO_STATS    non-empty: fps, draw calls and triangles per frame, one row per
+//                render pass (see perf.mjs). Works in every mode, `still` included,
+//                which is the one with a camera you can put back where it was
+//   MMO_DUMP     non-empty: triangles by scene group and what casts (dev server)
+//   MMO_DPR      device pixel ratio for the page (default 1; 2 is a retina Mac)
+//   MMO_GFX      graphics settings as the JSON the Escape menu stores, e.g.
+//                '{"scale":1,"detail":"high","shadows":true,"occlusion":true,"bloom":true}'
 //   MMO_CAM      "x,y,z,yaw,pitch" for `still`: editor tiles and degrees
 //   MMO_SIZE     "WxH" viewport for `still`                   (default 2560x1440)
 //   MMO_HUD      "0": hide every 2D overlay before the shot (clean scenery stills)
@@ -49,6 +55,7 @@
 // Playwright is NOT a project dependency here — it's installed globally and is CJS,
 // so we require() it by absolute path rather than `import { chromium }`.
 import { createRequire } from 'node:module'
+import { dumpTriangles, installGpuCounters, measure, printDump, printStats } from './perf.mjs'
 
 const require = createRequire(import.meta.url)
 const PW = process.env.MMO_PW || '/opt/homebrew/lib/node_modules/playwright'
@@ -89,9 +96,22 @@ const errors = []
 // socket that misses its heartbeat, and the reconnect respawns the session in
 // town — several times a minute, which a mode that teleports, aims and clicks
 // cannot survive. MMO_HEADED=0 forces headless anyway.
-const HEADED = process.env.MMO_HEADED === '1' || (mode === 'target' && process.env.MMO_HEADED !== '0')
+const HEADED = process.env.MMO_HEADED === '1' || ((mode === 'target' || mode === 'room') && process.env.MMO_HEADED !== '0')
 const browser = await chromium.launch({ headless: !HEADED, args: HEADED ? [] : GL_ARGS })
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: Number(process.env.MMO_DPR || 1) })
+if (process.env.MMO_GFX) {
+  await page.addInitScript((settings) => {
+    try {
+      localStorage.setItem('avelune:graphics', settings)
+    }
+    catch {}
+  }, process.env.MMO_GFX)
+}
+if (process.env.MMO_STATS) await installGpuCounters(page)
+async function report() {
+  if (process.env.MMO_STATS) printStats(await measure(page))
+  if (process.env.MMO_DUMP) printDump(await dumpTriangles(page))
+}
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text())
 })
@@ -173,6 +193,7 @@ if (mode === 'still') {
   // The sky eases to a new sun angle rather than jumping.
   await page.waitForTimeout(6000)
   await page.screenshot({ path: OUT, timeout: 300000, animations: 'disabled' })
+  await report()
   console.log('SHOT  ', OUT)
   console.log('ERRORS', errors.length)
   for (const e of [...new Set(errors)].slice(0, 20)) console.log('  -', e)
@@ -481,6 +502,86 @@ if (mode === 'target') {
   await shoot('paint')
 }
 
+if (mode === 'room') {
+  // Dev server only: builds through `window.__maze.game.sendBuild`, so every
+  // piece goes to the server with an exact aim and height and nothing depends
+  // on where a synthetic mouse move left the crosshair. A two-cell room with a
+  // wall stacked over its door, a floor laid inside it, stairs pushed against
+  // its walls and an upper floor hung from the wall tops, then a floor, a path
+  // and a crate on open meadow so the shot shows the grass stopping at them,
+  // and a hip roof on a levelled patch.
+  await modelsQuiet()
+  await refocus()
+  await say(`/time ${process.env.MMO_TIME || 'day'}`)
+  const X = Number(process.env.MMO_ROOM_X || 110)
+  const Y = Number(process.env.MMO_ROOM_Y || 150)
+  await tpTo(X + 1, Y)
+  // Aims are heights above the ground the player stands on, not absolute: the
+  // meadow is not flat everywhere, and an upper floor aimed at 2.3 on a rise
+  // would read the storey below it.
+  const ground = await ask(() => window.__maze.local.z ?? 0, 0)
+  const Q = Math.PI / 2
+  const ops = [
+    ['Kit_WallDoor', X, Y + 3, 0, 0],
+    ['Kit_WallWindow', X + 2, Y + 3, 0, 0],
+    ['Kit_Wall', X, Y + 5, 0, 0],
+    ['Kit_Wall', X + 2, Y + 5, 0, 0],
+    ['Kit_Wall', X - 1, Y + 4, Q, 0],
+    ['Kit_Wall', X + 3, Y + 4, Q, 0],
+    ['Kit_Floor', X, Y + 4, 0, 0],
+    ['Kit_Stairs', X + 2, Y + 4, 3 * Q, 0],
+    ['Kit_Wall', X, Y + 3, 0, 2.5],
+    ['Kit_Floor', X, Y + 4, 0, 2.3],
+    ['Kit_Floor', X - 4, Y, 0, 0],
+    ['Kit_Path', X - 4, Y - 2, 0, 0],
+    ['Kit_Crate', X - 2, Y - 2, 0, 0],
+    ['Kit_Fence', X - 4, Y + 3, 0, 0],
+    ['Kit_Gate', X - 2, Y + 3, 0, 0],
+    // A hip roof on the ground: four corners each climbing to the middle, the
+    // one way four corner pieces meet (see `HIP_TURNS` in scripts/bot-build.mjs).
+    ['Kit_RoofCorner', X + 4, Y - 2, 0, 0],
+    ['Kit_RoofCorner', X + 6, Y - 2, 3 * Q, 0],
+    ['Kit_RoofCorner', X + 4, Y, Q, 0],
+    ['Kit_RoofCorner', X + 6, Y, 2 * Q, 0],
+  ]
+  // Level the patch under the hip roof first. Four corners resting on uneven
+  // meadow sit at four heights and cannot meet, which the rules refuse. Flatten
+  // levels a brush to its centre and moves at most a step per edit, so it
+  // spreads out from the middle, a few passes over.
+  for (let pass = 0; pass < 6; pass++) {
+    for (const [fx, fy] of [[X + 5, Y - 1], [X + 4, Y - 2], [X + 6, Y - 2], [X + 4, Y], [X + 6, Y]]) {
+      await page.evaluate(([px, py]) => window.__maze.game.sendTerraform(px, py, 'flatten', 3), [fx, fy])
+      await page.waitForTimeout(160)
+    }
+  }
+  for (const [kind, x, y, rot, h] of ops) {
+    await settle()
+    const before = await pieces()
+    await page.evaluate(([k, px, py, r, ph]) => window.__maze.game.sendBuild(k, px, py, r, ph), [kind, x, y, rot, ground + h])
+    let booked = false
+    for (let i = 0; i < 10 && !booked; i++) {
+      await page.waitForTimeout(300)
+      booked = await pieces() > before
+    }
+    console.log(booked ? 'BUILT ' : 'REFUSED', kind, x - X, y - Y, 'h', h)
+  }
+  const pose = (yaw, pitch) => page.evaluate(([yw, pt]) => {
+    const m = window.__maze
+    m.view.yaw = yw
+    m.view.pitch = pt
+    m.game.setLook(yw)
+  }, [yaw, pitch])
+  await pose(Math.PI / 2, Number(process.env.MMO_PITCH || 0.3))
+  await page.waitForTimeout(1500)
+  await shoot('room')
+  await pose(Math.PI, Number(process.env.MMO_PITCH || 0.3) + 0.25)
+  await page.waitForTimeout(1500)
+  await shoot('cover')
+  await pose(0, Number(process.env.MMO_PITCH || 0.3) + 0.15)
+  await page.waitForTimeout(1500)
+  await shoot('kit')
+}
+
 if (mode === 'build') {
   // Out of the south gate far enough to clear the protected town, turn around
   // so the crosshair lands on open meadow a couple of tiles ahead, arm a kit
@@ -703,31 +804,7 @@ if (process.env.MMO_HUD === '0') {
   await page.waitForTimeout(500)
 }
 await page.screenshot({ path: OUT, timeout: 300000, animations: 'disabled' })
-if (process.env.MMO_STATS) {
-  const stats = await page.evaluate(() => new Promise((resolve) => {
-    let frames = 0
-    const start = performance.now()
-    const tick = () => {
-      frames++
-      if (performance.now() - start < 3000) requestAnimationFrame(tick)
-      else {
-        let meshes = 0
-        let instanced = 0
-        let tris = 0
-        // eslint-disable-next-line no-undef
-        const root = window.__maze?.camera?.value?.parent
-        const scene = root && root.type === 'Scene' ? root : null
-        scene?.traverse((o) => {
-          if (o.isInstancedMesh) { instanced++; tris += (o.geometry?.index?.count ?? 0) / 3 * o.count }
-          else if (o.isMesh) { meshes++; tris += (o.geometry?.index?.count ?? o.geometry?.attributes?.position?.count ?? 0) / 3 }
-        })
-        resolve({ fps: Math.round(frames / ((performance.now() - start) / 1000)), meshes, instanced, tris: Math.round(tris) })
-      }
-    }
-    requestAnimationFrame(tick)
-  }))
-  console.log('STATS ', JSON.stringify(stats))
-}
+await report()
 console.log('SCENE ', JSON.stringify(scene))
 console.log('SHOT  ', OUT)
 console.log('ERRORS', errors.length)

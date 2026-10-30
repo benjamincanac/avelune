@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry, Color, DoubleSide, InstancedMesh, MeshStandardMaterial, Object3D, Vector3 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, DoubleSide, InstancedMesh, MeshStandardMaterial, Object3D, Sphere, Vector3 } from 'three'
 import { LANDSCAPE_CENTER, LANDSCAPE_EXPANSION, smoothstep } from '#shared/utils/terrain'
 import { MEADOW_PALETTE } from './terrainChunk'
 
@@ -156,10 +156,25 @@ export function setGrassDetail(density: number, range: number) {
 }
 
 const grassKeep = (distance: number) => grassDensity.value * (1 - (1 - KEEP_FAR) * smoothstep(KEEP_START * grassRange.value, KEEP_END * grassRange.value, distance))
+const grassWorldBounds = new Sphere()
 
 /** Trim a patch's instance count to what can still be standing, given the
  *  camera. Call once a frame per mounted patch; it is a few multiplications. */
 export function updateGrassLod(mesh: InstancedMesh, cameraX: number, cameraZ: number) {
+  // Runs before the renderer updates transforms, including the first frame
+  // after mounting or moving a chunk/garden parent.
+  mesh.updateWorldMatrix(true, false)
+  // The patch sphere includes every tuft's geometry plus wind/pusher padding.
+  // Horizontal distance is a lower bound on the shader's 3D fade distance, so
+  // this rejects only patches whose every blade is already fully dissolved.
+  if (mesh.boundingSphere) {
+    grassWorldBounds.copy(mesh.boundingSphere).applyMatrix4(mesh.matrixWorld)
+    const distance = Math.hypot(cameraX - grassWorldBounds.center.x, cameraZ - grassWorldBounds.center.z) - grassWorldBounds.radius
+    if (distance > GRASS_FADE_END * grassRange.value) {
+      mesh.count = 0
+      return
+    }
+  }
   const { total, centerX, centerZ, halfX, halfZ } = mesh.userData.grass as GrassPatchData
   const world = mesh.matrixWorld.elements
   const dx = Math.max(Math.abs(cameraX - centerX - world[12]!) - halfX, 0)

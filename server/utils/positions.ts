@@ -1,5 +1,6 @@
 import { WORLD_TILE_MAX, WORLD_TILE_MIN } from '#shared/utils/world'
 import { chunkStore } from './chunkStore'
+import { flushGate } from './flushGate'
 
 /**
  * Where each identity last stood, so a reload or a new login resumes there
@@ -66,13 +67,12 @@ export function notePosition(id: string, at: SavedPosition) {
   dirty.add(id)
 }
 
-let flushing = false
-
 /** Drain the dirty entries into the store. A failed write marks them dirty
- *  again; the next one carries whatever is newest by then. */
-export async function flushPositions(): Promise<number> {
-  if (flushing || !dirty.size) return 0
-  flushing = true
+ *  again; the next one carries whatever is newest by then. A call that lands
+ *  mid-flush waits for it and runs once more (see `flushGate.ts`). */
+export const flushPositions = flushGate(drainPositions, () => dirty.size > 0)
+
+async function drainPositions(): Promise<number> {
   const ids = [...dirty]
   dirty.clear()
   try {
@@ -83,8 +83,5 @@ export async function flushPositions(): Promise<number> {
     console.error('[world] position flush failed', error)
     for (const id of ids) dirty.add(id)
     return 0
-  }
-  finally {
-    flushing = false
   }
 }

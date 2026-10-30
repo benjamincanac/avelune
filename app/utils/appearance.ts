@@ -12,8 +12,8 @@ import { BEARD_MESH } from '#shared/utils/characters'
  *
  * The alt texture reuses the same UV atlas as the baked one, so it just
  * replaces `material.map` (glTF convention: flipY = false, sRGB). Materials are
- * cloned per rig so a swap never leaks into the shared template or other players.
- * The clones are returned so the caller can dispose them with the rig.
+ * cloned so a swap never leaks into the shared template. Preview clones are
+ * isolated; the arena shares identical variants through a scene-owned pool.
  */
 const CLOTH = /^MI_(Peasant|Ranger|Knight|Noble|Wizard)/
 
@@ -36,26 +36,34 @@ export function preloadTexture(url: string): void {
   texture(url)
 }
 
-export function applyOutfitColor(root: Object3D, url: string | null): MeshStandardMaterial[] {
-  if (!url) return []
-  const map = texture(url)
-  const clones = new Map<string, MeshStandardMaterial>()
-
-  const swap = (material: MeshStandardMaterial): MeshStandardMaterial => {
-    if (!CLOTH.test(material.name)) return material
-    let cloned = clones.get(material.uuid)
-    if (!cloned) {
-      cloned = material.clone()
-      // Cloning copies `userData` but not the hooks it marks, so the rim's own
-      // guard would report a shader this material does not carry.
-      delete cloned.userData.characterRim
-      cloned.map = map
-      cloned.needsUpdate = true
-      clones.set(material.uuid, cloned)
-    }
-    return cloned
+function cloneVariant(material: MeshStandardMaterial, map: Texture): MeshStandardMaterial {
+  const cloned = material.clone()
+  // Cloning copies userData but not its shader callbacks. The scene installs
+  // the rim and CSM hooks on the variant when it first mounts.
+  delete cloned.userData.characterRim
+  // Never inherit a scene's CSM defines without its uniforms and callback.
+  if (cloned.defines) {
+    delete cloned.defines.USE_CSM
+    delete cloned.defines.CSM_CASCADES
+    delete cloned.defines.CSM_FADE
   }
+  cloned.map = map
+  cloned.needsUpdate = true
+  return cloned
+}
 
+/** Visit each source material once per rig, even across multiple submeshes. */
+function swapCloth(root: Object3D, variant: (source: MeshStandardMaterial) => MeshStandardMaterial): MeshStandardMaterial[] {
+  const swapped = new Map<MeshStandardMaterial, MeshStandardMaterial>()
+  function swap(material: MeshStandardMaterial) {
+    if (!CLOTH.test(material.name)) return material
+    let result = swapped.get(material)
+    if (!result) {
+      result = variant(material)
+      swapped.set(material, result)
+    }
+    return result
+  }
   root.traverse((obj) => {
     if (!(obj instanceof Mesh)) return
     if (Array.isArray(obj.material)) {
@@ -65,7 +73,70 @@ export function applyOutfitColor(root: Object3D, url: string | null): MeshStanda
       obj.material = swap(obj.material)
     }
   })
-  return [...clones.values()]
+  return [...swapped.values()]
+}
+
+/** Isolated preview materials. Callers own these clones, never their maps. */
+export function applyOutfitColor(root: Object3D, url: string | null): MeshStandardMaterial[] {
+  if (!url) return []
+  const map = texture(url)
+  return swapCloth(root, source => cloneVariant(source, map))
+}
+
+/** Identical outfits share a material within one live scene. Templates and
+ * texture-cache entries remain owned by the asset loader, while each rig holds
+ * one lease per source material. Releasing the last lease frees that variant. */
+export function createOutfitMaterialPool() {
+  interface Entry { material: MeshStandardMaterial, users: number }
+  const variants = new Map<MeshStandardMaterial, Map<string, Entry>>()
+  let disposed = false
+
+  return {
+    apply(root: Object3D, url: string | null) {
+      if (disposed) throw new Error('Cannot acquire outfit materials from a disposed scene')
+      if (!url) return { materials: [] as MeshStandardMaterial[], release() {} }
+      const map = texture(url)
+      const leases: { source: MeshStandardMaterial, entry: Entry }[] = []
+      const materials = swapCloth(root, (source) => {
+        let colors = variants.get(source)
+        if (!colors) {
+          colors = new Map()
+          variants.set(source, colors)
+        }
+        let entry = colors.get(url)
+        if (!entry) {
+          entry = { material: cloneVariant(source, map), users: 0 }
+          colors.set(url, entry)
+        }
+        entry.users++
+        leases.push({ source, entry })
+        return entry.material
+      })
+      let released = false
+      return {
+        materials,
+        release() {
+          if (released || disposed) return
+          released = true
+          for (const { source, entry } of leases) {
+            if (--entry.users !== 0) continue
+            const colors = variants.get(source)!
+            colors.delete(url)
+            if (!colors.size) variants.delete(source)
+            entry.material.dispose()
+          }
+        },
+      }
+    },
+    dispose() {
+      if (disposed) return
+      disposed = true
+      for (const colors of variants.values()) {
+        for (const entry of colors.values()) entry.material.dispose()
+      }
+      variants.clear()
+    },
+  }
 }
 
 /**
