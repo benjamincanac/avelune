@@ -4,9 +4,6 @@ allowBuilds:
   unrs-resolver: false
   vue-demi: false
 
-# Pin the whole tree onto one Nitro build. Prerelease semver means the caret
-# ranges in the Nuxt nightly won't pick a newer one up on their own.
-#
 # `vue` must stay a direct dependency. Nuxt sets `resolve.dedupe: ['vue']` and
 # its lazy component wrappers import bare `vue`, both resolved from the project
 # root, and under pnpm there is no root `node_modules/vue` unless it is listed
@@ -23,6 +20,3 @@ minimumReleaseAgeExclude:
   - '@nuxt/vite-server-nightly@5.0.0-2610292252-da55a91'
   - nitro@3.0.261029-rc
   - nuxt-nightly@5.0.0-2610292252-da55a91
-
-overrides:
-  nitro: 3.0.261029-rc
