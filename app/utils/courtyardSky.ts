@@ -1,5 +1,5 @@
 import { AmbientLight, BackSide, BufferAttribute, BufferGeometry, Color, CubeCamera, FogExp2, HalfFloatType, HemisphereLight, LineSegments, Mesh, PerspectiveCamera, PMREMGenerator, PointLight, Scene, ShaderMaterial, SphereGeometry, Vector3, Vector4, WebGLCubeRenderTarget } from 'three'
-import type { Camera, WebGLRenderer, WebGLRenderTarget } from 'three'
+import type { Camera, WebGLRenderer } from 'three'
 import type { TimeOfDayMode, WeatherMode } from '#shared/types/game'
 import { createCascadedShadows, createCasterRange } from './shadows'
 import type { CascadedShadows } from './shadows'
@@ -351,7 +351,7 @@ export function createCourtyardSky(scene: Scene) {
   // that cache keys off `texture.version`, which a CubeCamera render never
   // bumps, so the filtered map would freeze on the first frame's sky.
   let pmrem: PMREMGenerator | null = null
-  let environmentMap: WebGLRenderTarget | null = null
+  let environmentMap: WebGLCubeRenderTarget | null = null
   // Regenerate only when the sky has actually moved: the sun crosses this much
   // arc in roughly four seconds, matching the old fixed cadence without
   // spending the filter pass on a sky that is standing still.
