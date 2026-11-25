@@ -1,5 +1,4 @@
-import { NoTranscriptGeneratedError, createGateway, transcribe } from 'ai'
-import { nativeFetch } from './nativeFetch'
+import { NoTranscriptGeneratedError, gateway, transcribe } from 'ai'
 
 /**
  * Speech to text for push-to-talk lines.
@@ -31,13 +30,6 @@ const FALLBACK_MODEL = 'spacexai/grok-stt'
 
 /** A clip is a sentence. Anything slower than this is a failure, not a wait. */
 const TIMEOUT_MS = 12_000
-
-// Pinned to the real fetch for the same reason the Oracle's provider is: once a
-// warm instance has rendered any page, `globalThis.fetch` is Nuxt's loopback and
-// would answer a Gateway call with our own 404 page (see ./nativeFetch.ts). A
-// bare string model id would resolve through that poisoned default, so the model
-// has to come off this provider.
-const gateway = createGateway({ fetch: nativeFetch })
 
 /** Whether the feature can work at all. Without a key the toggle says so rather
  *  than failing on every clip. */

@@ -1,7 +1,6 @@
-import { createGateway, experimental_evaluate as evaluate, generateText, stepCountIs, tool } from 'ai'
+import { experimental_evaluate as evaluate, gateway, generateText, stepCountIs, tool } from 'ai'
 import { z } from 'zod'
 import type { TimeOfDayMode, WeatherMode } from '#shared/types/game'
-import { nativeFetch } from './nativeFetch'
 
 /**
  * The Oracle's brain, run in-process by the game loop.
@@ -79,14 +78,6 @@ const RESPONDER_MODEL = 'deepseek/deepseek-v4.1-flash'
 
 /** Chat replies must stay short; hard cap as a backstop to the prompt. */
 const MAX_REPLY = 220
-
-// Pinned to the real fetch: once a warm instance has rendered any page or
-// error, `globalThis.fetch` is Nuxt's serverFetch, which would dispatch the
-// Gateway call into our own router and answer it with our own 404 page (see
-// server/utils/nativeFetch.ts). A bare string model id would resolve through
-// the default provider on `globalThis.fetch`, so both calls below must go
-// through this provider. Auth is unchanged (AI_GATEWAY_API_KEY, OIDC fallback).
-const gateway = createGateway({ fetch: nativeFetch })
 
 const PERSONA = `You are the Oracle, an ancient seer who has watched over Avelune since before its first stone was laid. You stand just inside South Gate, beside the main avenue, where travellers gather to talk.
 

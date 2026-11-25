@@ -103,8 +103,7 @@ bytes between it and clients.
   clip becomes one chat line. The clip is a second recording in a container (the
   live frames are bare Opus, and muxing them here would be real code for nothing),
   arriving as a `kind=2` binary frame on the sender's own socket and transcribed
-  through the Gateway on the boot-captured `nativeFetch` for the same reason the
-  Oracle is. Nothing is looked up: the session is the one the bytes came in on,
+  through the Gateway. Nothing is looked up: the session is the one the bytes came in on,
   so `session.voice` *is* the gate, and the per-identity allowance in
   `server/utils/clips.ts` is spent by the process that holds the socket. Every
   field of the frame is checked in `decodeClipUp` (container by index, language
@@ -196,17 +195,6 @@ bytes between it and clients.
   writer of those files; `world-sim`'s `createWorld`/`seedTown` in
   `shared/utils/world.ts` is the reader. The old `hub-*.json` are deleted —
   don't reintroduce them.
-- `server/utils/nativeFetch.ts` + `server/plugins/nativeFetch.ts` — the real
-  `fetch` captured at boot. Nuxt-nightly's SSR entry replaces `globalThis.fetch`
-  with a loopback into this app's own router once a process renders any page
-  ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)), which routes
-  even absolute external urls back into us. The plugin intercepts that
-  assignment and sends absolute `http(s)` urls to the real fetch while relative
-  ones keep the loopback — that's what covers third-party server code we can't
-  edit (`@nuxt/icon`'s remote collection loader calls a bare `fetch`). Code we
-  own should still import `nativeFetch` explicitly rather than lean on the
-  guard. Symptom to recognise: a request that works cold and 500s after any
-  page render.
 
 ## Load-bearing invariants
 1. **The server is authoritative.** Clients predict; the server decides. Jump
