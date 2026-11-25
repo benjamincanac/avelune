@@ -4,10 +4,9 @@ allowBuilds:
   unrs-resolver: false
   vue-demi: false
 
-# `vue` must stay a direct dependency. Nuxt sets `resolve.dedupe: ['vue']` and
-# its lazy component wrappers import bare `vue`, both resolved from the project
-# root, and under pnpm there is no root `node_modules/vue` unless it is listed
-# (nuxt/nuxt#36785 fixes the wrappers).
+# `vue` stays a direct dependency. The app imports it directly, and Nuxt lists
+# it as a required package (`nuxt dev` warns NUXT_B5010 without it), even though
+# its `vue` alias lets the build and dev server work without one.
 #
 # The nightlies are younger than pnpm's minimum release age. The excludes can go
 # once they have aged.
