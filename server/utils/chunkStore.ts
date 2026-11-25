@@ -368,10 +368,6 @@ const truthy = (result: unknown) => result === 1 || result === '1' || result ===
  * `automaticDeserialization` is off: records are our own `version\nJSON` form,
  * and letting the client guess at JSON on the way back only risks it succeeding
  * on something that was never meant to be parsed.
- *
- * The client calls the global `fetch`, which `server/plugins/nativeFetch.ts`
- * keeps pointed at the real one for absolute urls — without that guard a page
- * render would silently route these calls back into this app's own router.
  */
 export class RedisChunkStore implements ChunkStore {
   readonly kind = 'redis'

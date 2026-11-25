@@ -38,27 +38,14 @@ in-character, and reactive to live multiplayer state.
   (resolved via `@vercel/oidc`'s `getContext()`), so it is absent in the WS
   `message` / game-loop context the Oracle actually runs from — set the API key
   as a Vercel env var (env-var changes only take effect on a *new deployment*).
-  **Landmine (root-caused 2026-07-11, cost days):** a
-  `GatewayResponseError: Invalid error response format / 404` whose body is this
-  app's own Nuxt 404 HTML means the Gateway call never left the process. Nuxt 5
-  nightly's SSR entry (the generated `fetch.server.mjs`) runs
-  `globalThis.fetch = serverFetch` when the Vue server bundle first loads, and
-  Nitro's `serverFetch` dispatches EVERY url — absolute external ones included —
-  into the app's own router ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321)).
-  The Vue bundle loads lazily (first page/error render in a process), so warm
-  Vercel instances flip from working to broken — hence "intermittent". The fix
-  in place: `server/utils/nativeFetch.ts` captures the real fetch at boot and
-  `oracle.ts` pins its provider with `createGateway({ fetch: nativeFetch })`.
-  `server/plugins/nativeFetch.ts` forces that capture eager, and also
-  intercepts the assignment itself, sending every absolute `http(s)` url to the
-  real fetch and keeping the loopback for relative ones. That guard is there for
-  third-party server code we can't edit, and it is not a reason to skip the
-  import. **Never pass a bare string model id to `generateText`**: that
-  resolves through the default provider on `globalThis.fetch` and reintroduces
-  the loopback, and route any new outbound HTTP through `nativeFetch` too. Model
-  ids are gateway strings. The classifier is `typesafe-ai/jev`, an evaluation
-  model called through `experimental_evaluate` + `gateway.evaluation()` (same
-  string-id rule): four questions in one request, and the Oracle answers when
+  A `GatewayResponseError: Invalid error response format / 404` whose body is
+  this app's own Nuxt 404 HTML means the Gateway call never left the process:
+  older Nuxt nightlies replaced `globalThis.fetch` with a loopback into the app's
+  router after the first render ([nuxt/nuxt#35321](https://github.com/nuxt/nuxt/issues/35321),
+  fixed upstream). If it ever comes back, check the generated `fetch.server.mjs`
+  first. Model ids are gateway strings, called on the default `gateway` from
+  `ai`. The classifier is `typesafe-ai/jev`, an evaluation model called through
+  `experimental_evaluate` + `gateway.evaluation()`: four questions in one request, and the Oracle answers when
   `addressed` clears `ADDRESSED_THRESHOLD` (the other three are the sky,
   below). The probabilities are not calibrated across providers, so retune the
   threshold from the `[oracle] classify` logs on any swap — and from a labelled
@@ -113,9 +100,8 @@ in-character, and reactive to live multiplayer state.
 - Arena chat arrives over the WS from cookie-verified identities; the speaker's
   name comes from the signed identity, never from the message body. A spoken
   line arrives the same way. `server/utils/transcribe.ts` transcribes a
-  push-to-talk clip on `openai/gpt-4o-mini-transcribe`, with a 12s timeout and
-  its own `createGateway({ fetch: nativeFetch })` for the loopback reason
-  above. Its fallback is `spacexai/grok-stt`, a different provider on purpose,
+  push-to-talk clip on `openai/gpt-4o-mini-transcribe`, with a 12s timeout.
+  Its fallback is `spacexai/grok-stt`, a different provider on purpose,
   so one outage does not take speech to chat down with it. The transcript then
   enters through `speakForIdentity` and `sayChat` in `game.ts`, the same
   function a typed line uses, which is why the classifier reads a spoken
