@@ -139,7 +139,7 @@ const browser = await chromium.launch({ headless: false })
 // session per identity, so an open first tab would kick the second.
 const warm = await browser.newContext({ viewport: SIZE })
 const wp = await warm.newPage()
-await wp.goto(`${URL_BASE}/play`, { waitUntil: 'networkidle', timeout: 60000 })
+await wp.goto(`${URL_BASE}/play`, { waitUntil: 'load', timeout: 60000 })
 const nameField = wp.getByPlaceholder(/name your character/i)
 await nameField.first().waitFor({ timeout: 30000 }).catch(() => {})
 if (await nameField.count()) {
@@ -196,7 +196,7 @@ await page.addInitScript(() => {
 })
 
 t0 = Date.now()
-await page.goto(`${URL_BASE}/play`, { waitUntil: 'networkidle', timeout: 60000 })
+await page.goto(`${URL_BASE}/play`, { waitUntil: 'load', timeout: 60000 })
 
 // Entry: the socket, the town, then the streamed models.
 let live = false

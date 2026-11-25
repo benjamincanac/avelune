@@ -92,7 +92,7 @@ await page.addInitScript(() => {
 })
 
 t0 = Date.now()
-await page.goto(`${URL_BASE}/play`, { waitUntil: 'networkidle', timeout: 60000 })
+await page.goto(`${URL_BASE}/play`, { waitUntil: 'load', timeout: 60000 })
 
 const nameField = page.getByPlaceholder(/name your character/i)
 await nameField.first().waitFor({ timeout: 40000 })

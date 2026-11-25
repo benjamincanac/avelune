@@ -420,6 +420,9 @@ character** → type a name → **Enter** → WASD move, mouse look, Space jump,
   never does), and calls `settle` after every screenshot to wait out the
   reconnect banner and put the player back. `placeOnce` clicks until the piece
   counter actually moves rather than trusting one click.
+- **Never wait for `networkidle`.** `nuxt dev` holds an event stream open on
+  every page (`/__nuxt_dev__/error/events`), so the network never goes idle and
+  `page.goto` times out. Load on `load` and wait for the element you need.
 - **Benign console noise (ignore):** a web-font `.woff2` 404, and
   `props.characters is not iterable` from the menu's `CharacterLineup` components
   (pre-existing, unrelated to the game scene). The driver dedupes and prints these.

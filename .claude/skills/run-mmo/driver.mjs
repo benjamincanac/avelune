@@ -139,7 +139,7 @@ const modelsQuiet = async (quietMs = 4000, limit = 90000) => {
 }
 
 console.log(`→ ${url}  (mode=${mode})`)
-await page.goto(url + (mode === 'landing' ? '/' : mode === 'still' ? '/play?editor=1' : '/play'), { waitUntil: mode === 'still' ? 'domcontentloaded' : 'networkidle', timeout: 60000 })
+await page.goto(url + (mode === 'landing' ? '/' : mode === 'still' ? '/play?editor=1' : '/play'), { waitUntil: mode === 'still' ? 'domcontentloaded' : 'load', timeout: 60000 })
 await page.waitForTimeout(1200)
 
 if (mode === 'landing' || mode === 'gate') {
