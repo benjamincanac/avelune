@@ -12,11 +12,11 @@ allowBuilds:
 # The nightlies are younger than pnpm's minimum release age. The excludes can go
 # once they have aged.
 minimumReleaseAgeExclude:
-  - '@nuxt/cli-nightly@4.0.1-2610292127-cd8f364'
-  - '@nuxt/kit-nightly@5.0.0-2610292252-da55a91'
-  - '@nuxt/nitro-server-nightly@5.0.0-2610292252-da55a91'
-  - '@nuxt/schema-nightly@5.0.0-2610292252-da55a91'
-  - '@nuxt/vite-builder-nightly@5.0.0-2610292252-da55a91'
-  - '@nuxt/vite-server-nightly@5.0.0-2610292252-da55a91'
-  - nitro@3.0.261029-rc
-  - nuxt-nightly@5.0.0-2610292252-da55a91
+  - '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15'
+  - '@nuxt/kit-nightly@5.0.0-2611251001-c21a73c'
+  - '@nuxt/nitro-server-nightly@5.0.0-2611251001-c21a73c'
+  - '@nuxt/schema-nightly@5.0.0-2611251001-c21a73c'
+  - '@nuxt/vite-builder-nightly@5.0.0-2611251001-c21a73c'
+  - '@nuxt/vite-server-nightly@5.0.0-2611251001-c21a73c'
+  - nitro@3.0.261103-rc
+  - nuxt-nightly@5.0.0-2611251001-c21a73c
