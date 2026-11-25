@@ -196,24 +196,25 @@ function cornerFrom(client, cx, cy, index) {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt16(index * 2, true)
 }
 
-// The town is protected: an edit inside the walls is refused, and refused only
-// to the player who asked for it.
+/** The reason of the first refusal A gets after sending `message`. */
+async function refusalFor(message) {
+  const aMark = a.frames.length
+  send(a, message)
+  await sleep(200)
+  return a.frames.slice(aMark).find(f => f.t === 'reject')?.reason
+}
+
+// The spawn sits on the gate approach, which is held open so nobody can wall
+// the way in shut, and the refusal reaches only the player who asked.
 let bMark = b.frames.length
-send(a, { t: 'terraform', x: Math.round(self.x), y: Math.round(self.y), mode: 'raise', size: 1 })
-await sleep(200)
-const refusal = a.frames.findLast(f => f.t === 'reject')
-check('terraform inside the walls is refused', refusal?.reason === 'the town is protected', refusal?.reason)
+const onRoad = positionOf(a)
+const spawnRefusal = await refusalFor({ t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y), mode: 'raise', size: 1 })
+check('the gate approach is held open', spawnRefusal === 'the way into town must stay clear', spawnRefusal)
 check('a refusal stays private', !b.frames.slice(bMark).some(f => f.t === 'reject' || f.t === 'terrain'))
 
-// Protection is a tile footprint now, not a chunk band: a brush reaching the
-// gate bridge's landing is refused, and the grass beside spawn — six tiles
-// away, still inside the chunks that used to be off limits — is editable
-// without walking anywhere.
-const onRoad = positionOf(a)
-send(a, { t: 'terraform', x: Math.round(onRoad.x), y: Math.round(onRoad.y) - 6, mode: 'raise', size: 3 })
-await sleep(200)
-const roadRefusal = a.frames.findLast(f => f.t === 'reject')
-check('the gate bridge is protected', roadRefusal?.reason === 'the town is protected', roadRefusal?.reason)
+// Protection is a tile footprint, not a chunk band: the grass beside spawn,
+// still inside the chunks that used to be off limits, is editable without
+// walking anywhere.
 let beside = null
 for (const dx of [-6, 6, -5, 5]) {
   const aMark = a.frames.length
@@ -223,6 +224,22 @@ for (const dx of [-6, 6, -5, 5]) {
   if (beside) break
 }
 check('the grass beside the road is editable from spawn', !!beside, beside ? undefined : a.frames.findLast(f => f.t === 'reject')?.reason)
+
+// The town itself is out of reach from the spawn, so A walks north up the
+// approach until the moat's edge (row 121) and the bridge's landing (rows 121
+// and 122, columns 68 to 75) are within reach, stopping short of the bridge.
+const northDeadline = Date.now() + 10_000
+while (positionOf(a).y > 126.5 && Date.now() < northDeadline) {
+  send(a, { t: 'move', ...noMove, forward: true, a: -Math.PI / 2 })
+  await sleep(100)
+}
+send(a, { t: 'move', ...noMove, a: -Math.PI / 2 })
+await sleep(200)
+const nearGate = positionOf(a)
+const townRefusal = await refusalFor({ t: 'terraform', x: Math.round(nearGate.x), y: 121, mode: 'raise', size: 1 })
+check('the town is protected', townRefusal === 'the town is protected', `${townRefusal} from (${nearGate.x.toFixed(1)}, ${nearGate.y.toFixed(1)})`)
+const bridgeRefusal = await refusalFor({ t: 'terraform', x: Math.min(75, Math.max(68, Math.round(nearGate.x))), y: 122, mode: 'raise', size: 3 })
+check('the gate bridge is protected', bridgeRefusal === 'the town is protected', bridgeRefusal)
 
 // Walk A out into the open meadow. The road ends at 140 and everything past it
 // is buildable now, but the nearest wild piece is further out — A ends up
